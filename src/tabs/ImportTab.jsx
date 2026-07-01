@@ -47,6 +47,14 @@ export default function ImportTab({ projects, currentProjectId, setCurrentProjec
 
   return (
     <div>
+      {/* Page header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Setup avancé</h1>
+          <div style={{ fontSize: 13, color: C.textLight, marginTop: 4 }}>Configuration du projet et chargement des données</div>
+        </div>
+        <InfoCard tabKey="import" />
+      </div>
 
       {/* ── 1. PROJET ACTIF ──────────────── */}
       <Section number="1" title="Projet actif" sub="Gérez vos projets et les sites associés" desc="Un projet regroupe un ou plusieurs sites avec leurs données et leurs réglages. Choisissez ici le projet actif : toute la configuration et tous les imports de cette page s'y rattachent.">
