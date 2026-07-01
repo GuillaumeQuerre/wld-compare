@@ -62,7 +62,7 @@ const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 const scoreVerdict = (r) => r >= 70 ? ["Excellente présence", C.ok] : r >= 50 ? ["Bonne présence", C.blue] : r >= 30 ? ["Potentiel à développer", C.warn] : ["Potentiel à exploiter", C.danger];
 
 // Construit le modèle commun (liste de slides) depuis l'audit.
-export function buildAuditDeck(audit, brand, site, roadmapData, categories = []) {
+export function buildAuditDeck(audit, brand, site, roadmapData, categories = [], sentiment = null) {
   const a = audit || {};
   const brandName = brand?.brand_name || "Marque";
   const catName = {}; (categories || []).forEach(c => { catName[c.id] = c.name; });
@@ -120,14 +120,23 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [])
       topOwn: (a.brandOwnUrls || []).slice(0, 6).map(u => ({ url: (u.norm || u.url || "").replace(/^https?:\/\//, ""), n: u.count_as_source ?? 0 })),
     },
     diagnostic: rm.diagnostic || null,
+    sentiment: sentiment ? {
+      overall: sentiment.overall || "",
+      score: typeof sentiment.score === "number" ? sentiment.score : null,
+      summary: sentiment.summary || "",
+      themes: Array.isArray(sentiment.themes) ? sentiment.themes : [],
+      strengths: Array.isArray(sentiment.strengths) ? sentiment.strengths : [],
+      watchouts: Array.isArray(sentiment.watchouts) ? sentiment.watchouts : [],
+      quotes: Array.isArray(sentiment.quotes) ? sentiment.quotes : [],
+    } : null,
     roadmap,
   };
 }
 
 // ════════════════════════ PPTX (éditable) ════════════════════════
-export async function exportAuditPptx(audit, brand, site, roadmapData, categories = []) {
+export async function exportAuditPptx(audit, brand, site, roadmapData, categories = [], sentiment = null) {
   const PptxGenJS = await loadPptx();
-  const d = buildAuditDeck(audit, brand, site, roadmapData, categories);
+  const d = buildAuditDeck(audit, brand, site, roadmapData, categories, sentiment);
   const p = new PptxGenJS();
   p.defineLayout({ name: "W", width: 13.333, height: 7.5 });
   p.layout = "W";
@@ -226,7 +235,29 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     footer(s, 6);
   }
 
-  // 7 — Sources & URLs
+  // 7 — Perception de la marque (sentiment IA)
+  if (d.sentiment) {
+    const se = d.sentiment;
+    const sCol = { "positif": C.greenLight, "plutôt positif": C.greenLight, "neutre": C.inkMid, "mitigé": C.accent, "négatif": "9B2335" }[se.overall] || C.green;
+    const s = slide();
+    kicker(s, "Perception"); title(s, "Perception de la marque");
+    // Badge tonalité + score
+    s.addShape(p.ShapeType.roundRect, { x: 0.6, y: 1.95, w: 3.0, h: 1.55, rectRadius: 0.1, fill: { color: C.greenPale }, line: { color: C.creamDark, pt: 0.5 } });
+    s.addText(se.overall ? se.overall.toUpperCase() : "—", { x: 0.6, y: 2.12, w: 3.0, h: 0.4, align: "center", fontSize: 13, bold: true, color: sCol, charSpacing: 1 });
+    s.addText([{ text: se.score != null ? `${se.score}` : "—", options: { fontSize: 38, bold: true, color: sCol, fontFace: "Georgia" } }, { text: se.score != null ? " /100" : "", options: { fontSize: 15, color: C.inkMid } }], { x: 0.6, y: 2.52, w: 3.0, h: 0.7, align: "center" });
+    s.addText("Tonalité globale", { x: 0.6, y: 3.2, w: 3.0, h: 0.3, align: "center", fontSize: 10, color: C.inkLight });
+    // Résumé
+    s.addText(se.summary || "", { x: 3.9, y: 1.95, w: 8.8, h: 1.55, fontSize: 13, color: C.inkMid, valign: "top", lineSpacingMultiple: 1.12 });
+    // Atouts / Vigilance — 2 colonnes
+    s.addText("ATOUTS PERÇUS", { x: 0.6, y: 3.85, w: 6.0, h: 0.3, fontSize: 11, bold: true, color: C.greenLight, charSpacing: 1 });
+    s.addText((se.strengths || []).slice(0, 5).map(t => ({ text: t, options: { bullet: { code: "2022" }, color: C.inkMid, fontSize: 12, paraSpaceAfter: 5 } })), { x: 0.6, y: 4.2, w: 6.0, h: 2.5, valign: "top" });
+    s.addText("POINTS DE VIGILANCE", { x: 6.9, y: 3.85, w: 5.8, h: 0.3, fontSize: 11, bold: true, color: C.accent, charSpacing: 1 });
+    const watch = (se.watchouts || []).slice(0, 5);
+    s.addText(watch.length ? watch.map(t => ({ text: t, options: { bullet: { code: "2022" }, color: C.inkMid, fontSize: 12, paraSpaceAfter: 5 } })) : [{ text: "Aucun point de vigilance notable.", options: { color: C.inkLight, fontSize: 12, italic: true } }], { x: 6.9, y: 4.2, w: 5.8, h: 2.5, valign: "top" });
+    footer(s, 7);
+  }
+
+  // 8 — Sources & URLs
   {
     const s = slide();
     kicker(s, "Sources"); title(s, "URLs de la marque & opportunités");
@@ -247,10 +278,10 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       const rows = d.sources.topOwn.map(u => [{ text: u.url, options: { color: C.ink } }, { text: `${u.n} citations`, options: { align: "right", color: C.inkMid } }]);
       s.addTable(rows, { x: 0.6, y: 4.1, w: 12.1, colW: [9.6, 2.5], fontSize: 12, rowH: 0.38, border: { type: "solid", pt: 0.5, color: C.creamDark } });
     }
-    footer(s, 7);
+    footer(s, 8);
   }
 
-  // 8 — Plan d'action
+  // 9 — Plan d'action
   {
     const s = slide(C.green);
     s.addText("PLAN D'ACTION", { x: 0.6, y: 0.5, w: 12, h: 0.3, fontSize: 11, color: C.accent, bold: true, charSpacing: 2 });
@@ -274,9 +305,9 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
 }
 
 // ════════════════════════ PDF (présentable) ════════════════════════
-export async function exportAuditPdf(audit, brand, site, roadmapData, categories = []) {
+export async function exportAuditPdf(audit, brand, site, roadmapData, categories = [], sentiment = null) {
   const jsPDF = await loadJsPDF();
-  const d = buildAuditDeck(audit, brand, site, roadmapData, categories);
+  const d = buildAuditDeck(audit, brand, site, roadmapData, categories, sentiment);
   // jsPDF (police standard WinAnsi) ne gère pas tout l'Unicode → on normalise.
   const sf = (t) => String(t == null ? "" : t)
     .replace(/[\u2012-\u2015]/g, "-").replace(/[\u2018\u2019\u201B]/g, "'")
@@ -389,7 +420,37 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
     foot();
   }
 
-  // 7 — Sources
+  // 7 — Perception de la marque (sentiment IA)
+  if (d.sentiment) {
+    const se = d.sentiment;
+    const sCol = { "positif": C.greenLight, "plutôt positif": C.greenLight, "neutre": C.inkMid, "mitigé": C.accent, "négatif": "9B2335" }[se.overall] || C.green;
+    newPage(C.white); head("Perception", "Perception de la marque");
+    // Badge tonalité + score
+    setFill(C.greenPale); doc.roundedRect(16, 44, 70, 34, 2, 2, "F");
+    setText(sCol); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+    doc.text((se.overall || "—").toUpperCase(), 51, 54, { align: "center" });
+    doc.setFontSize(30); doc.text(se.score != null ? `${se.score}` : "—", 51, 70, { align: "center" });
+    setText(C.inkLight); doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+    doc.text("Tonalité globale /100", 51, 76, { align: "center" });
+    // Résumé
+    setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+    doc.text(doc.splitTextToSize(se.summary || "", W - 112), 96, 50);
+    // Atouts perçus
+    let yA = 92;
+    setText(C.greenLight); doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("ATOUTS PERÇUS", 16, yA);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10.5); setText(C.inkMid); yA += 7;
+    (se.strengths || []).slice(0, 5).forEach(t => { const lines = doc.splitTextToSize("• " + t, 140); doc.text(lines, 16, yA); yA += lines.length * 5 + 1.5; });
+    // Points de vigilance
+    let yW = 92;
+    setText(C.accent); doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("POINTS DE VIGILANCE", 180, yW);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10.5); yW += 7;
+    const watch = (se.watchouts || []).slice(0, 5);
+    if (watch.length) { setText(C.inkMid); watch.forEach(t => { const lines = doc.splitTextToSize("• " + t, 142); doc.text(lines, 180, yW); yW += lines.length * 5 + 1.5; }); }
+    else { doc.setFont("helvetica", "italic"); setText(C.inkLight); doc.text("Aucun point de vigilance notable.", 180, yW); }
+    foot();
+  }
+
+  // 8 — Sources
   newPage(C.white); head("Sources", "URLs de la marque & opportunités");
   const tiles = [
     { v: d.sources.own, l: "URLs propres citées", c: C.green },
@@ -415,7 +476,7 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
   }
   foot();
 
-  // 8 — Plan d'action
+  // 9 — Plan d'action
   newPage(C.green);
   doc.setFont("helvetica", "bold"); doc.setFontSize(11); setText(C.accent); doc.text("PLAN D'ACTION", 16, 22);
   doc.setFontSize(26); setText(C.white); doc.text("Et maintenant ?", 16, 36);

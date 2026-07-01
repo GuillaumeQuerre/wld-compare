@@ -8,7 +8,7 @@ import UploadCard from "../components/UploadCard";
 import PageTypeClassifier from "../components/PageTypeClassifier";
 
 // ── Section wrapper ───────────────────────────────────────────────
-function Section({ number, title, sub, children }) {
+function Section({ number, title, sub, desc, children }) {
   return (
     <div style={{ marginBottom: 32 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -22,6 +22,7 @@ function Section({ number, title, sub, children }) {
           {sub && <div style={{ fontSize: 11, color: C.textLight, marginTop: 1 }}>{sub}</div>}
         </div>
       </div>
+      {desc && <div style={{ fontSize: 12.5, color: C.textLight, lineHeight: 1.6, marginBottom: 16, marginLeft: 36, maxWidth: 760 }}>{desc}</div>}
       {children}
     </div>
   );
@@ -46,17 +47,9 @@ export default function ImportTab({ projects, currentProjectId, setCurrentProjec
 
   return (
     <div>
-      {/* Page header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Setup</h1>
-          <div style={{ fontSize: 13, color: C.textLight, marginTop: 4 }}>Configuration du projet et chargement des données</div>
-        </div>
-        <InfoCard tabKey="import" />
-      </div>
 
-      {/* ── 1. PROJET ──────────────────────────────────────────── */}
-      <Section number="1" title="Projet actif" sub="Gérez vos projets et les sites associés">
+      {/* ── 1. PROJET ACTIF ──────────────── */}
+      <Section number="1" title="Projet actif" sub="Gérez vos projets et les sites associés" desc="Un projet regroupe un ou plusieurs sites avec leurs données et leurs réglages. Choisissez ici le projet actif : toute la configuration et tous les imports de cette page s'y rattachent.">
         <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: "20px 24px" }}>
 
           {/* Project selector */}
@@ -203,8 +196,77 @@ export default function ImportTab({ projects, currentProjectId, setCurrentProjec
         </div>
       </Section>
 
-      {/* ── 2. IMPORTS CSV ──────────────────────────────────────── */}
-      <Section number="2" title="Import des fichiers" sub="Glissez-déposez vos exports CSV par site et par source">
+      {/* ── 2. CONFIGURATION GEO ──────────── */}
+      <Section number="2" title="Configuration GEO" sub="Providers d'IA et marques — associés au projet" desc="C'est le cœur du suivi : vos clés API de providers (OpenAI, Gemini, Perplexity, Claude) et la définition de votre marque, ses alias et ses concurrents. Sans cela, aucune interrogation des IA ni analyse de présence n'est possible.">
+        {/* ── 5a. Provider keys ── */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 10 }}>
+            Clés API des providers
+          </div>
+          <ProviderConfigPanel
+            project={projects.find(p => p.id === currentProjectId) || null}
+            projectId={currentProjectId}
+            sites={sites}
+            onSaveProviderKeys={(keyPatch) => {
+              setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, ...keyPatch } : p));
+            }}
+          />
+        </div>
+
+        {/* ── 5b. Brand setup per site ── */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 10 }}>
+            Configuration des marques
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {sites.map(site => (
+              <BrandConfigPanel
+                key={site.id}
+                site={site}
+                projectId={currentProjectId}
+              />
+            ))}
+            {sites.length === 0 && (
+              <div style={{ fontSize: 12, color: C.textLight, fontStyle: "italic" }}>
+                Ajoutez un site dans la section Import pour configurer sa marque.
+              </div>
+            )}
+          </div>
+        </div>
+      </Section>
+
+      {/* ── 3. CLASSIFICATION DES PAGES ────── */}
+      <Section number="3" title="Classification des pages" sub="Attribuez un type à chaque page pour filtrer la matrice par template" desc="Attribuez un type (accueil, produit, blog...) à chaque URL issue de votre crawl Screaming Frog. Cela permet de filtrer la matrice et l'audit par template et de voir quels types de pages les IA citent réellement.">
+        {sites.filter(site => sfData[site.id]?.length > 0).length === 0 ? (
+          <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: "28px 24px", textAlign: "center", color: C.textLight }}>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>🐸</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 4 }}>Importez d'abord un fichier Screaming Frog</div>
+            <div style={{ fontSize: 12 }}>La classification est basée sur les données SF (URL, title, H1, content-type…)</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {sites.filter(site => sfData[site.id]?.length > 0).map(site => (
+              <div key={site.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: "20px 24px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${C.borderLight}` }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: site.color, flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700, fontSize: 14, color: site.color }}>{site.label}</span>
+                  <span style={{ fontSize: 11, color: C.textLight }}>· {sfData[site.id].length} pages</span>
+                </div>
+                <PageTypeClassifier
+                  siteId={site.id}
+                  projectId={currentProjectId}
+                  sfRows={sfData[site.id]}
+                  pageTypes={pageTypes}
+                  setPageTypes={setPageTypes}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* ── 4. IMPORT DES FICHIERS ────────── */}
+      <Section number="4" title="Import des fichiers" sub="Glissez-déposez vos exports CSV par site et par source" desc="Chargez vos exports CSV (Screaming Frog, Search Console, GA4, Bing, Semrush) site par site. Ces données SEO alimentent les corrélations entre votre performance organique et votre visibilité dans les réponses des IA.">
 
         {/* Last import dates summary */}
         {Object.keys(lastBySrc).length > 0 && (
@@ -365,8 +427,8 @@ export default function ImportTab({ projects, currentProjectId, setCurrentProjec
         </div>
       </Section>
 
-      {/* ── 3. CONNEXIONS API ───────────────────────────────────── */}
-      <Section number="3" title="Connexions API" sub="Récupération automatique des données sans export CSV">
+      {/* ── 5. CONNEXIONS API ────────────── */}
+      <Section number="5" title="Connexions API" sub="Récupération automatique des données sans export CSV" desc="Alternative aux imports manuels : branchez directement vos sources (GSC, Semrush...) pour récupérer les données automatiquement. Idéal pour un suivi récurrent une fois le projet en place.">
         <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: "20px 24px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
             {[
@@ -387,76 +449,6 @@ export default function ImportTab({ projects, currentProjectId, setCurrentProjec
                 </button>
               </div>
             ))}
-          </div>
-        </div>
-      </Section>
-
-      {/* ── 4. CLASSIFICATION DES PAGES ────────────────────────── */}
-      <Section number="4" title="Classification des pages" sub="Attribuez un type à chaque page pour filtrer la matrice par template">
-        {sites.filter(site => sfData[site.id]?.length > 0).length === 0 ? (
-          <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: "28px 24px", textAlign: "center", color: C.textLight }}>
-            <div style={{ fontSize: 28, marginBottom: 10 }}>🐸</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 4 }}>Importez d'abord un fichier Screaming Frog</div>
-            <div style={{ fontSize: 12 }}>La classification est basée sur les données SF (URL, title, H1, content-type…)</div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {sites.filter(site => sfData[site.id]?.length > 0).map(site => (
-              <div key={site.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: "20px 24px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${C.borderLight}` }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: site.color, flexShrink: 0 }} />
-                  <span style={{ fontWeight: 700, fontSize: 14, color: site.color }}>{site.label}</span>
-                  <span style={{ fontSize: 11, color: C.textLight }}>· {sfData[site.id].length} pages</span>
-                </div>
-                <PageTypeClassifier
-                  siteId={site.id}
-                  projectId={currentProjectId}
-                  sfRows={sfData[site.id]}
-                  pageTypes={pageTypes}
-                  setPageTypes={setPageTypes}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-
-      {/* Confirm modal */}
-      {/* ── 5. CONFIGURATION GEO ───────────────────────────────── */}
-      <Section number="5" title="Configuration GEO" sub="Providers d'IA et marques — associés au projet">
-        {/* ── 5a. Provider keys ── */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 10 }}>
-            Clés API des providers
-          </div>
-          <ProviderConfigPanel
-            project={projects.find(p => p.id === currentProjectId) || null}
-            projectId={currentProjectId}
-            sites={sites}
-            onSaveProviderKeys={(keyPatch) => {
-              setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, ...keyPatch } : p));
-            }}
-          />
-        </div>
-
-        {/* ── 5b. Brand setup per site ── */}
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 10 }}>
-            Configuration des marques
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {sites.map(site => (
-              <BrandConfigPanel
-                key={site.id}
-                site={site}
-                projectId={currentProjectId}
-              />
-            ))}
-            {sites.length === 0 && (
-              <div style={{ fontSize: 12, color: C.textLight, fontStyle: "italic" }}>
-                Ajoutez un site dans la section Import pour configurer sa marque.
-              </div>
-            )}
           </div>
         </div>
       </Section>

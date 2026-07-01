@@ -1157,9 +1157,10 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     const catIds = Array.isArray(q.tags) && q.tags.length > 0
       ? q.tags : (q.category_id ? [q.category_id] : ["__none__"]);
     catIds.forEach(catId => {
-      if (!byQuestionCategory[catId]) byQuestionCategory[catId] = { total: 0, withBrand: 0, positions: [], qCount: 0 };
+      if (!byQuestionCategory[catId]) byQuestionCategory[catId] = { total: 0, withBrand: 0, positions: [], qCount: 0, volume: 0 };
       const qResults = resultsByQ[q.id] || [];
       byQuestionCategory[catId].qCount++;
+      byQuestionCategory[catId].volume += (kwVolMap[q.keyword_id] || 0);
       byQuestionCategory[catId].total += qResults.length;
       qResults.forEach(r => {
         if (r.brand_mentioned === true || r.brand_mentioned === 1) byQuestionCategory[catId].withBrand++;
@@ -1172,6 +1173,8 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     const c = byQuestionCategory[catId];
     c.presenceRate = c.total ? Math.round(c.withBrand / c.total * 100) : 0;
     c.avgPos = c.positions.length ? (c.positions.reduce((a, b) => a + b, 0) / c.positions.length).toFixed(1) : null;
+    // Piste 1 — opportunité = volume de recherche × déficit de présence (fort volume + faible présence = prioritaire)
+    c.opportunity = Math.round((c.volume || 0) * (1 - c.presenceRate / 100));
   });
 
   // ── URLs marque : 2 listes (propres + externes) ───────────────
@@ -2375,7 +2378,7 @@ function CoOccurrenceMatrix({ coMatrix }) {
 }
 
 // Piste 3 — Panneau « Perception de la marque » (sentiment IA, autonome + persistant).
-function SentimentAuditPanel({ results, brand, claudeKey, projectId, siteId }) {
+function SentimentAuditPanel({ results, brand, claudeKey, projectId, siteId, onData }) {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("idle");
   const [err, setErr] = useState(null);
@@ -2388,6 +2391,9 @@ function SentimentAuditPanel({ results, brand, claudeKey, projectId, siteId }) {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [projectId, siteId]);
+
+  // Remonte les données de perception au parent (pour l'export PPTX/PDF)
+  useEffect(() => { if (data) onData?.(data); }, [data, onData]);
 
   const presentCount = (results || []).filter(r => r.brand_mentioned && (r.answer || "").trim()).length;
   const disabled = status === "loading" || !claudeKey || !presentCount;
@@ -2442,6 +2448,7 @@ export default function GeoAuditTab({
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [roadmapData, setRoadmapData]   = useState(null);
   const [exporting, setExporting]       = useState(false);
+  const [sentimentData, setSentimentData] = useState(null);
   const [showTour, setShowTour]         = useState(false);
   const [sfCorrFilter, setSfCorrFilter] = useState("all"); // "all" | "gsc" | "bing" | "fanout"
   const [showAllComp, setShowAllComp]   = useState(false); // tableau Paysage concurrentiel : voir toutes les marques
@@ -2659,13 +2666,13 @@ export default function GeoAuditTab({
               ))}
             </div>
             <span data-tour="audit-export" style={{ display: "inline-flex", gap: 8 }}>
-              <button onClick={async () => { setExporting(true); try { await exportAuditPptx(audit, brand, site, roadmapData, categories); } catch(e) { console.error(e); } finally { setExporting(false); } }}
+              <button onClick={async () => { setExporting(true); try { await exportAuditPptx(audit, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
                 disabled={noData || exporting}
                 title="PowerPoint éditable (.pptx) : score, visibilité, concurrence, sources, plan d'action"
                 style={{ padding: "4px 12px", background: noData ? "transparent" : "#1A3C2E", color: noData ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 5, fontSize: 11, fontWeight: 500, cursor: noData ? "not-allowed" : "pointer" }}>
                 {exporting ? "…" : "⬇ PowerPoint"}
               </button>
-              <button onClick={async () => { setExporting(true); try { await exportAuditPdf(audit, brand, site, roadmapData, categories); } catch(e) { console.error(e); } finally { setExporting(false); } }}
+              <button onClick={async () => { setExporting(true); try { await exportAuditPdf(audit, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
                 disabled={noData || exporting}
                 title="PDF prêt à présenter — même contenu que le PowerPoint"
                 style={{ padding: "4px 12px", background: "transparent", color: "#1A3C2E", border: "0.5px solid #1A3C2E22", borderRadius: 5, fontSize: 11, fontWeight: 500, cursor: noData ? "not-allowed" : "pointer" }}>
@@ -2803,6 +2810,45 @@ export default function GeoAuditTab({
                 </div>
               )}
 
+              {/* ── Priorisation par volume de recherche (piste 1) ── */}
+              {(() => {
+                const nameOf = (id) => id === "__none__" ? "Non catégorisé" : ((categories || []).find(c => c.id === id)?.name || id);
+                const rows = Object.entries(audit.byQuestionCategory || {})
+                  .map(([id, c]) => ({ id, name: nameOf(id), volume: c.volume || 0, presenceRate: c.presenceRate || 0, opportunity: c.opportunity || 0 }))
+                  .filter(r => r.volume > 0)
+                  .sort((a, b) => b.volume - a.volume)
+                  .slice(0, 10);
+                if (!rows.length) return null;
+                const maxVol = Math.max(...rows.map(r => r.volume), 1);
+                const topOpp = Math.max(...rows.map(r => r.opportunity), 0);
+                const fmt = v => v >= 1000 ? (v / 1000).toFixed(1).replace(".0", "") + "k" : String(v);
+                return (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 4 }}>Priorisation par volume de recherche</div>
+                    <div style={{ fontSize: 11, color: "#1A3C2E", marginBottom: 10 }}>Catégories triées par volume de recherche cumulé (Semrush). Un fort volume avec une présence faible signale une priorité GEO à fort impact.</div>
+                    <div>
+                      {rows.map((r, i) => {
+                        const w = Math.max(4, Math.round((r.volume / maxVol) * 100));
+                        const isOpp = topOpp > 0 && r.opportunity >= topOpp * 0.6 && r.presenceRate < 40;
+                        return (
+                          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderTop: i ? "0.5px solid #1A3C2E0D" : "none" }}>
+                            <div title={r.name} style={{ width: 160, flexShrink: 0, fontSize: 12, color: "#1A3C2E", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {isOpp && <span title="Fort volume, présence faible — priorité GEO">🎯 </span>}{r.name}
+                            </div>
+                            <div style={{ flex: 1, height: 16, background: "#1A3C2E08", borderRadius: 4, overflow: "hidden" }}>
+                              <div style={{ width: `${w}%`, height: "100%", background: isOpp ? "#E8541A" : "#2D5A42", borderRadius: 4 }} />
+                            </div>
+                            <span style={{ width: 64, flexShrink: 0, fontSize: 12, fontWeight: 700, color: "#1A3C2E", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(r.volume)}</span>
+                            <span style={{ width: 96, flexShrink: 0, fontSize: 10.5, textAlign: "right", color: r.presenceRate < 40 ? "#C0352A" : "#4A4A4A" }}>{r.presenceRate}% présence</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {topOpp > 0 && <div style={{ marginTop: 8, fontSize: 10.5, color: "#94A3B8", lineHeight: 1.5 }}>🎯 Catégorie à fort volume et faible présence : priorité pour maximiser l'impact de vos contenus GEO.</div>}
+                  </div>
+                );
+              })()}
+
               {/* ── Type de page citée ── */}
               {(audit.pageTypeStatsList || []).length > 0 && (
                 <div style={{ marginBottom: 18 }}>
@@ -2869,7 +2915,7 @@ export default function GeoAuditTab({
             ══════════════════════════════════════════════════════ */}
             {/* ── Perception de la marque (sentiment IA) ── */}
             <Section title="Perception de la marque" sub="Analyse IA de la tonalité et de l'image dans les réponses">
-              <SentimentAuditPanel results={siteResults} brand={brand} claudeKey={claudeKey} projectId={projectId} siteId={site?.id} />
+              <SentimentAuditPanel key={site?.id || "site"} results={siteResults} brand={brand} claudeKey={claudeKey} projectId={projectId} siteId={site?.id} onData={setSentimentData} />
             </Section>
 
             <CategoryAnalysisCard
