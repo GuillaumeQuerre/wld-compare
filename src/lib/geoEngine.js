@@ -323,9 +323,10 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
   const headingBoldRe = /^\s*(?:#{1,4}\s*)?\*\*([^*\n]{2,90})\*\*\s*:?\s*$/;
   const headingPlainRe = /^\s*#{1,4}\s*([^\n]{2,90})$/;
   const matchHeading = (s) => {
-    let m = s.match(headingLinkRe); if (m) return m[1].replace(/\*/g, "").trim();
-    m = s.match(headingBoldRe);    if (m) return m[1].trim();
-    m = s.match(headingPlainRe);   if (m) return m[1].replace(/[[\]]|\(.*\)/g, "").replace(/\*/g, "").trim();
+    const lvl = (s.match(/^\s*(#{1,4})/) || [, ""])[1].length || 0;
+    let m = s.match(headingLinkRe); if (m) return { title: m[1].replace(/\*/g, "").trim(), level: lvl };
+    m = s.match(headingBoldRe);    if (m) return { title: m[1].trim(), level: lvl };
+    m = s.match(headingPlainRe);   if (m) return { title: m[1].replace(/[[\]]|\(.*\)/g, "").replace(/\*/g, "").trim(), level: lvl };
     return null;
   };
   const isDetailLine = (s) => {
@@ -338,7 +339,7 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     return false;
   };
   const sequences = [];
-  let current = null, prevNum = null, seqType = null; // seqType: "num" | "head" | null
+  let current = null, prevNum = null, seqType = null, prevLevel = null; // seqType: "num" | "head" | null
   for (const raw of lines) {
     const m = raw.match(topItemRe);
     if (m) {
@@ -349,11 +350,16 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
       prevNum = num;
       continue;
     }
-    const headTitle = matchHeading(raw);
-    if (headTitle) {
-      const continues = current && seqType === "head";
+    const head = matchHeading(raw);
+    if (head) {
+      // Segmentation par NIVEAU : les H2 (titres de section) ne se mélangent pas avec
+      // les H3 (souvent les marques classées). Un changement de niveau ouvre une nouvelle
+      // séquence, pour que les marques en H3 soient classées entre elles et comptées
+      // comme des mentions même quand les H2 ne sont pas des marques.
+      const continues = current && seqType === "head" && prevLevel === head.level;
       if (!continues) { current = []; sequences.push(current); seqType = "head"; prevNum = null; }
-      current.push({ num: null, text: headTitle, ordinal: current.length + 1 });
+      current.push({ num: null, text: head.title, ordinal: current.length + 1, level: head.level });
+      prevLevel = head.level;
       continue;
     }
     if (isDetailLine(raw)) continue;
@@ -361,11 +367,13 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     // la séquence : seuls les en-têtes ajoutent des items, le reste est ignoré.
     if (seqType === "head") continue;
     // Sinon (liste numérotée ou hors séquence), une ligne de prose termine la séquence.
-    current = null; prevNum = null; seqType = null;
+    current = null; prevNum = null; seqType = null; prevLevel = null;
   }
   // La (les) vraie(s) liste(s) classée(s) = séquences d'au moins 2 items, plus longue d'abord.
   const ranked = sequences.filter(s => s.length >= 2).sort((a, b) => b.length - a.length);
-  const searchSeqs = ranked.length ? ranked : sequences;
+  // On cherche d'abord dans les listes classées (positions fiables), puis en repli dans
+  // les items isolés (ex. une marque seule sous une catégorie) pour ne rien manquer.
+  const searchSeqs = ranked.length ? [...ranked, ...sequences.filter(s => s.length < 2)] : sequences;
 
   // Lignes narratives (hors items de top et hors métadonnées) — pour l'évocation.
   const narrativeLines = [];

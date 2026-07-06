@@ -400,7 +400,22 @@ export function BrandConfigPanel({ site, projectId, onBrandSaved }) {
           {brand?.brand_name && !editing && (
             <>
               <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>Marque : <strong>{brand.brand_name}</strong></span>
-              {brand.competitors?.length > 0 && <span style={{ fontSize: 11, color: C.textLight }}>{brand.competitors.length} concurrent{brand.competitors.length > 1 ? "s" : ""} trackés</span>}
+              {brand.brand_aliases?.length > 0 && (
+                <span style={{ display: "inline-flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 10, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.5 }}>Alias</span>
+                  {brand.brand_aliases.map((a, i) => (
+                    <span key={i} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 10, background: `${site.color || C.blue}14`, color: site.color || C.text, fontWeight: 600 }}>{a}</span>
+                  ))}
+                </span>
+              )}
+              {brand.competitors?.length > 0 && (
+                <span style={{ display: "inline-flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 10, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.5 }}>Concurrents</span>
+                  {brand.competitors.map((c, i) => (
+                    <span key={i} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 10, background: `${C.textLight}22`, color: C.text }}>{c}</span>
+                  ))}
+                </span>
+              )}
             </>
           )}
           {!brand?.brand_name && !editing && <span style={{ fontSize: 11, color: C.textLight, fontStyle: "italic" }}>Aucune marque configurée pour ce site</span>}

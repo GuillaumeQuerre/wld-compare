@@ -3754,7 +3754,10 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
   const getProvidersToRun = (q, force = false) => {
     const currentKeys = providerKeysRef.current;
     const currentActive = activeProvidersRef.current;
-    const configuredProviders = PROVIDERS.filter(p => currentActive.includes(p.id) && currentKeys[p.id]?.dec);
+    let configuredProviders = PROVIDERS.filter(p => currentActive.includes(p.id) && currentKeys[p.id]?.dec);
+    // Point 5 — n'interroger QUE les providers sélectionnés dans les pills (au-dessus des
+    // questions). Aucune sélection = tous les providers configurés sont interrogés.
+    if (filterProviders.length > 0) configuredProviders = configuredProviders.filter(p => filterProviders.includes(p.id));
     if (force) return configuredProviders; // always run all when forced (individual ▶ button)
     const today = new Date().toISOString().slice(0, 10);
     const qResults = resultsByQ[q.id] || [];
@@ -4070,14 +4073,22 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           {/* Providers — pills */}
           <div className="geo-provider-pills" data-tour="provider-pills">
           {PROVIDERS.map(p => {
-            const active = filterProviders.includes(p.id);
             const hasKey = !!providerKeys[p.id]?.dec;
+            const selecting = filterProviders.length > 0;       // au moins un provider choisi
+            const selected = filterProviders.includes(p.id);
+            const queried = hasKey && (!selecting || selected); // sera interrogé au prochain run
             return (
               <button key={p.id}
-                onClick={() => hasKey && setFilterProviders(prev => active ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                className={`gt-filter-pill${active && hasKey ? " gt-filter-pill--active" : ""}`}
-                style={{ opacity: hasKey ? 1 : 0.3, cursor: hasKey ? "pointer" : "not-allowed" }}
-                title={!hasKey ? `Clé ${p.label} manquante` : p.label}>
+                onClick={() => hasKey && setFilterProviders(prev => selected ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                className={`gt-filter-pill${selected && hasKey ? " gt-filter-pill--active" : ""}`}
+                style={{
+                  opacity: !hasKey ? 0.3 : (selecting && !selected ? 0.4 : 1),
+                  filter: (hasKey && selecting && !selected) ? "grayscale(1)" : "none",
+                  cursor: hasKey ? "pointer" : "not-allowed",
+                }}
+                title={!hasKey ? `Clé ${p.label} manquante`
+                     : queried ? `${p.label} — sera interrogé`
+                     : `${p.label} — non sélectionné, ne sera pas interrogé`}>
                 {p.label}
               </button>
             );

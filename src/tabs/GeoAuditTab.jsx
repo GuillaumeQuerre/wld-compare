@@ -3062,6 +3062,44 @@ export default function GeoAuditTab({
             ══════════════════════════════════════════════════════ */}
             <div data-tour="audit-sources" style={{ display: "contents" }}><Section title="Sources & URLs" sub="URLs de la marque citées dans les réponses LLM">
 
+              {/* Export de la liste des sources — par URL ou par domaine (point 6) */}
+              {audit.sortedUrls.length > 0 && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 10.5, color: "#1A3C2E99", marginRight: "auto" }}>Exporter la liste des sources&nbsp;:</span>
+                  <button
+                    onClick={() => {
+                      const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+                      const rows = [...audit.sortedUrls]
+                        .map(u => ({ url: u.url || u.norm, domain: u.domain || "", src: u.count_as_source || 0, ans: u.count_in_answer || 0 }))
+                        .sort((a, b) => (b.src + b.ans) - (a.src + a.ans));
+                      const csv = ["URL,Domaine,Citée en source,Présente dans réponse,Total",
+                        ...rows.map(r => [esc(r.url), esc(r.domain), r.src, r.ans, r.src + r.ans].join(","))].join("\n");
+                      downloadCsv("\uFEFF" + csv, `sources_urls_${(brand?.brand_name || "audit").replace(/\s+/g, "_")}.csv`);
+                    }}
+                    style={{ padding: "4px 12px", border: "0.5px solid #1A3C2E22", borderRadius: 6, background: "transparent", color: "#1A3C2E", fontSize: 10.5, fontWeight: 500, cursor: "pointer" }}>
+                    ↓ Sources par URL
+                  </button>
+                  <button
+                    onClick={() => {
+                      const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+                      const byDom = {};
+                      audit.sortedUrls.forEach(u => {
+                        const d = u.domain || "(inconnu)";
+                        if (!byDom[d]) byDom[d] = { total: 0, urls: 0 };
+                        byDom[d].total += (u.count_as_source || 0) + (u.count_in_answer || 0);
+                        byDom[d].urls += 1;
+                      });
+                      const rows = Object.entries(byDom).map(([d, v]) => ({ d, ...v })).sort((a, b) => b.total - a.total);
+                      const csv = ["Domaine,Total citations,Nb URLs",
+                        ...rows.map(r => [esc(r.d), r.total, r.urls].join(","))].join("\n");
+                      downloadCsv("\uFEFF" + csv, `sources_domaines_${(brand?.brand_name || "audit").replace(/\s+/g, "_")}.csv`);
+                    }}
+                    style={{ padding: "4px 12px", border: "0.5px solid #1A3C2E22", borderRadius: 6, background: "transparent", color: "#1A3C2E", fontSize: 10.5, fontWeight: 500, cursor: "pointer" }}>
+                    ↓ Sources par domaine
+                  </button>
+                </div>
+              )}
+
               {/* Top domaines — graphe en barres (style Fan-out) */}
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 500, color: "#1A3C2E", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Top domaines cités</div>
