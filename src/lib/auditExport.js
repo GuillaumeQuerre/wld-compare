@@ -120,6 +120,10 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
       topOwn: (a.brandOwnUrls || []).slice(0, 6).map(u => ({ url: (u.norm || u.url || "").replace(/^https?:\/\//, ""), n: u.count_as_source ?? 0 })),
     },
     diagnostic: rm.diagnostic || null,
+    leads: (a.leads || []).slice(0, 5).map(l => ({
+      label: l.label || "", reco: l.reco || l.action || "", why: l.why || "", how: l.how || "", howMuch: l.howMuch || "",
+      col: (l.priority || "").includes("🔴") ? "9B2335" : ((l.priority || "").includes("🟠") || (l.priority || "").includes("🟡")) ? "C2790F" : "4A8C6A",
+    })),
     sentiment: sentiment ? {
       overall: sentiment.overall || "",
       score: typeof sentiment.score === "number" ? sentiment.score : null,
@@ -281,7 +285,25 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     footer(s, 8);
   }
 
-  // 9 — Plan d'action
+  // 9 — Pistes prioritaires (reco + pourquoi/comment/combien)
+  if (d.leads && d.leads.length) {
+    const s = slide();
+    kicker(s, "Recommandations"); title(s, "Pistes prioritaires");
+    let y = 1.7;
+    d.leads.slice(0, 4).forEach((l) => {
+      s.addShape(p.ShapeType.rect, { x: 0.6, y: y + 0.02, w: 0.08, h: 1.05, fill: { color: l.col } });
+      s.addText(l.reco, { x: 0.85, y, w: 11.9, h: 0.32, fontSize: 14, bold: true, color: C.green, fontFace: "Georgia" });
+      s.addText([
+        { text: "Pourquoi  ", options: { bold: true, color: l.col } }, { text: l.why || "", options: { color: C.inkMid, breakLine: true } },
+        { text: "Comment  ", options: { bold: true, color: l.col } }, { text: l.how || "", options: { color: C.inkMid, breakLine: true } },
+        { text: "Combien  ", options: { bold: true, color: l.col } }, { text: l.howMuch || "", options: { color: C.inkMid } },
+      ], { x: 0.85, y: y + 0.34, w: 11.9, h: 1.0, fontSize: 9.5, valign: "top", lineSpacingMultiple: 1.04 });
+      y += 1.32;
+    });
+    footer(s, 9);
+  }
+
+  // 10 — Plan d'action
   {
     const s = slide(C.green);
     s.addText("PLAN D'ACTION", { x: 0.6, y: 0.5, w: 12, h: 0.3, fontSize: 11, color: C.accent, bold: true, charSpacing: 2 });
@@ -476,7 +498,27 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
   }
   foot();
 
-  // 9 — Plan d'action
+  // 9 — Pistes prioritaires (reco + pourquoi/comment/combien)
+  if (d.leads && d.leads.length) {
+    newPage(C.white); head("Recommandations", "Pistes prioritaires");
+    let y = 46;
+    d.leads.slice(0, 4).forEach((l) => {
+      const startY = y;
+      setText(C.green); doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+      doc.text(l.reco || "", 22, y); y += 7;
+      const row = (lab, txt) => {
+        setText(l.col); doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.text(lab, 22, y);
+        setText(C.inkMid); doc.setFont("helvetica", "normal");
+        const lines = doc.splitTextToSize(txt || "", W - 66); doc.text(lines, 46, y);
+        y += Math.max(4.5, lines.length * 4.4) + 1.5;
+      };
+      row("Pourquoi", l.why); row("Comment", l.how); row("Combien", l.howMuch);
+      setFill(l.col); doc.rect(16, startY - 4, 1.6, (y - startY) - 1, "F");
+      y += 4;
+    });
+  }
+
+  // 10 — Plan d'action
   newPage(C.green);
   doc.setFont("helvetica", "bold"); doc.setFontSize(11); setText(C.accent); doc.text("PLAN D'ACTION", 16, 22);
   doc.setFontSize(26); setText(C.white); doc.text("Et maintenant ?", 16, 36);

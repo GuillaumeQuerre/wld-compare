@@ -21,46 +21,71 @@ export default async function handler(request, context) {
   }
 
   try {
-    const { model = "gemini-2.0-flash", prompt } = await request.json();
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const { model = "gemini-2.5-flash", prompt } = await request.json();
+    const SAFE_MODEL = "gemini-2.5-flash"; // modèle courant, compatible grounding
+    const SYSTEM = "Tu es un expert en recommandation d'entreprises et prestataires. Réponds directement et factuellement, sans mentionner les limites de tes connaissances.";
 
-    const body = {
-      contents: [{ parts: [{ text: prompt }] }],
-      tools: [{ google_search: {} }], // Google Search grounding — real-time web
-      generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+    const callGemini = async (m, useSearch) => {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+      const body = {
+        system_instruction: { parts: [{ text: SYSTEM }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+      };
+      if (useSearch) body.tools = [{ google_search: {} }]; // Google Search grounding — temps réel
+      const upstream = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      let data = {};
+      try { data = await upstream.json(); } catch { data = {}; }
+      return { ok: upstream.ok, status: upstream.status, data };
     };
 
-    const upstream = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    // Repli en cascade (inspiré d'OpenAI : on tente le mieux, puis on dégrade proprement) :
+    //   1. modèle demandé + grounding
+    //   2. modèle courant sûr + grounding (si le modèle demandé est retiré)
+    //   3. modèle courant sûr SANS grounding (si l'outil de recherche échoue)
+    const models = model === SAFE_MODEL ? [SAFE_MODEL] : [model, SAFE_MODEL];
+    const attempts = models.map(m => ({ model: m, search: true }));
+    attempts.push({ model: SAFE_MODEL, search: false });
 
-    const data = await upstream.json();
-    if (!upstream.ok) {
-      return new Response(JSON.stringify({ error: data?.error?.message || `Gemini HTTP ${upstream.status}` }), {
-        status: upstream.status, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    let result = null, grounded = true, lastStatus = 0, lastErr = "";
+    for (const a of attempts) {
+      const r = await callGemini(a.model, a.search);
+      if (r.ok) { result = r.data; grounded = a.search; break; }
+      lastStatus = r.status;
+      lastErr = r.data?.error?.message || "";
+      // Clé invalide / non autorisée : inutile d'insister avec les replis.
+      if (r.status === 401 || r.status === 403) break;
+    }
+
+    if (!result) {
+      return new Response(JSON.stringify({ error: lastErr || `Gemini HTTP ${lastStatus}` }), {
+        status: lastStatus || 502, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       });
     }
 
-    // Extract text (may be in multiple parts)
-    const text = data?.candidates?.[0]?.content?.parts
+    // Texte (potentiellement en plusieurs parts)
+    const text = result?.candidates?.[0]?.content?.parts
       ?.filter(p => p.text)
       ?.map(p => p.text)
       ?.join("") || "";
 
-    // Extract grounding sources from Google Search
-    const groundingChunks = data?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    // Sources de grounding (Google Search)
+    const groundingChunks = result?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks.map(c => c?.web?.uri).filter(Boolean);
 
-    const inTok = data?.usageMetadata?.promptTokenCount || 0;
-    const outTok = data?.usageMetadata?.candidatesTokenCount || 0;
+    const inTok = result?.usageMetadata?.promptTokenCount || 0;
+    const outTok = result?.usageMetadata?.candidatesTokenCount || 0;
 
     return new Response(JSON.stringify({
       choices: [{ message: { content: text } }],
       usage: { prompt_tokens: inTok, completion_tokens: outTok },
-      _sources: sources, // real URLs from Google Search grounding
-      _raw: data,
+      _sources: sources,                       // URLs réelles issues de Google Search
+      _web_searches: grounded && sources.length ? 1 : 0,
+      _raw: result,
     }), {
       status: 200,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },

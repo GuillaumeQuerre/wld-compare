@@ -15,7 +15,7 @@
 // Modèles par défaut par provider (alignés avec l'onglet Questions).
 export const PROVIDER_MODELS = {
   openai:     "gpt-4o-mini",
-  gemini:     "gemini-2.0-flash",
+  gemini:     "gemini-2.5-flash",
   perplexity: "sonar",
   claude:     "claude-haiku-4-5-20251001",
 };
@@ -242,12 +242,24 @@ export async function callProvider(provider, apiKey, prompt, maxTokens = 2000, b
       body: JSON.stringify({ model: provider.model, prompt }),
     });
     const raw = await res.text();
-    if (raw.trimStart().startsWith("<")) throw new Error("Proxy /api/gemini introuvable");
-    const data = JSON.parse(raw);
-    if (!res.ok) throw new Error(data.error || `Gemini ${res.status}`);
+    if (raw.trimStart().startsWith("<")) throw new Error("Proxy /api/gemini introuvable (réponse HTML)");
+    let data;
+    try { data = JSON.parse(raw); }
+    catch { throw new Error(`Réponse Gemini illisible (${res.status}) : ${raw.slice(0, 120)}`); }
+    if (!res.ok) {
+      const msg = data?.error?.message || data?.error || `Gemini ${res.status}`;
+      const hint = res.status === 429 ? " — quota dépassé, vérifiez votre plan/facturation Google AI"
+                 : (res.status === 401 || res.status === 403) ? " — clé Gemini invalide ou non autorisée"
+                 : res.status === 404 ? " — modèle Gemini introuvable (peut-être retiré)"
+                 : res.status >= 500 ? " — erreur serveur Gemini, réessayez dans un instant" : "";
+      throw new Error(msg + hint);
+    }
     const text = data.choices?.[0]?.message?.content || "";
+    if (!text) throw new Error("Réponse Gemini vide — vérifiez la clé API ou réessayez");
     const groundingSources = data._sources || []; // real URLs from Google Search
-    const _g = parseTextResponse(text, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0, groundingSources); _g._web_searches = 1; return _g;
+    const _g = parseTextResponse(text, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0, groundingSources);
+    _g._web_searches = data._web_searches != null ? data._web_searches : (groundingSources.length ? 1 : 0);
+    return _g;
   }
 
   if (provider.id === "perplexity") {

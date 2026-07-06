@@ -1109,16 +1109,38 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   const favCount = questions.filter(q => q.is_favorite).length;
 
   const leads = [];
-  if (presenceRate < 30) leads.push({ priority: "🔴 Priorité haute", label: "Présence < 30%", action: "**Créer des contenus de recommandation** spécifiquement ciblés sur les questions sans présence. Structurez avec des listes comparatives explicites." });
-  if (presenceRate >= 30 && presenceRate < 50) leads.push({ priority: "🟠 À améliorer", label: `Présence ${presenceRate}%`, action: "**Enrichir les pages existantes** pour répondre directement aux questions fan-out. Ajoutez des sections dédiées aux comparatifs." });
-  if (avgPos && parseFloat(avgPos) > 3) leads.push({ priority: "🟠 Position", label: `Position moyenne ${avgPos}`, action: "**Optimiser le contenu pour remonter en top 3** des fan-outs. Répondez à la question dès le premier paragraphe et structurez avec des listes." });
-  if (withSources < withBrand) leads.push({ priority: "🟡 Sources", label: "Peu cité en source", action: "**Renforcer l'autorité des pages** via des backlinks depuis les domaines fréquemment cités. Soumettez vos URLs prioritaires à IndexNow." });
+  if (presenceRate < 30) leads.push({ priority: "🔴 Priorité haute", label: "Présence < 30%", reco: "Créer des contenus de recommandation",
+    why: "Votre marque est presque absente des réponses IA : sans contenu ciblé, les moteurs génératifs n'ont rien à citer sur vous face aux questions de vos prospects.",
+    how: "Produisez des pages qui répondent frontalement aux questions sans présence, structurées en listes comparatives explicites (« meilleurs X », « X ou Y ») que les LLMs reprennent facilement.",
+    howMuch: "Ciblez d'abord les 10 à 15 questions à plus fort volume sans mention, une page ou section dédiée par groupe de questions." });
+  if (presenceRate >= 30 && presenceRate < 50) leads.push({ priority: "🟠 À améliorer", label: `Présence ${presenceRate}%`, reco: "Enrichir les pages existantes",
+    why: "Votre présence est partielle : les pages existent mais ne répondent pas assez directement aux questions fan-out pour être citées de façon régulière.",
+    how: "Ajoutez sur vos pages des sections dédiées aux comparatifs et aux questions précises, avec une réponse claire dès le premier paragraphe.",
+    howMuch: "Reprenez en priorité les pages déjà proches du top 3, une dizaine à retravailler pour commencer." });
+  if (avgPos && parseFloat(avgPos) > 3) leads.push({ priority: "🟠 Position", label: `Position moyenne ${avgPos}`, reco: "Remonter en top 3 des réponses",
+    why: "Votre position moyenne se situe au delà du top 3 : les IA vous mentionnent mais rarement en tête, là où se concentre la visibilité réelle.",
+    how: "Répondez à la question dès la première phrase, structurez en listes ordonnées et renforcez les signaux d'autorité (sources, données chiffrées).",
+    howMuch: "Concentrez l'effort sur les questions où vous êtes en position 4 à 8, les gains les plus accessibles." });
+  if (withSources < withBrand) leads.push({ priority: "🟡 Sources", label: "Peu cité en source", reco: "Renforcer l'autorité des pages",
+    why: "Votre marque est évoquée mais peu citée comme source : les IA parlent de vous sans pointer vers vos pages, ce qui limite le trafic et la crédibilité.",
+    how: "Obtenez des backlinks depuis les domaines fréquemment cités dans votre secteur et soumettez vos URLs prioritaires à IndexNow.",
+    howMuch: "Concentrez l'effort sur 5 à 8 URLs stratégiques plutôt que de le disperser." });
   if (Object.keys(compStats).length > 0) {
     const topComp = Object.entries(compStats).sort((a, b) => b[1].mentions - a[1].mentions)[0];
-    leads.push({ priority: "🟠 Concurrence", label: `${topComp[0]} dominant`, action: `**Analyser le contenu de ${topComp[0]}** et créer des pages alternatives plus complètes avec données propriétaires et avis d'experts.` });
+    leads.push({ priority: "🟠 Concurrence", label: `${topComp[0]} dominant`, reco: `Contrer ${topComp[0]}`,
+      why: `${topComp[0]} capte une large part des réponses IA sur votre périmètre, au détriment de votre visibilité.`,
+      how: "Analysez ses pages les mieux citées et créez des alternatives plus complètes, avec données propriétaires et avis d'experts qu'il n'a pas.",
+      howMuch: "Commencez par les 3 à 5 questions où il apparaît et où vous êtes absent." });
   }
-  leads.push({ priority: "📝 Contenu", label: "Volume et structure", action: "**Viser 1 500–2 500 mots** sur les pages à forte intention. Structurez avec H2/H3 clairs, FAQ en bas de page, et schema JSON-LD Organization + FAQ." });
-  leads.push({ priority: "🔗 Maillage", label: "Hubs thématiques", action: "**Créer des hubs de contenu** regroupant toutes les pages liées à chaque axe fan-out. Le maillage interne fort signale l'importance aux LLMs." });
+  leads.push({ priority: "📝 Contenu", label: "Volume et structure", reco: "Structurer des contenus complets",
+    why: "Les pages courtes ou mal structurées sont moins bien comprises et citées par les moteurs génératifs.",
+    how: "Visez 1 500 à 2 500 mots sur les pages à forte intention, avec des H2/H3 clairs, une FAQ en bas de page et un schema JSON-LD Organization + FAQ.",
+    howMuch: "Appliquez ce standard à vos pages piliers en priorité, pas à l'ensemble du site." });
+  leads.push({ priority: "🔗 Maillage", label: "Hubs thématiques", reco: "Créer des hubs de contenu",
+    why: "Un maillage interne fort signale aux LLMs quelles pages font autorité sur chaque thème.",
+    how: "Regroupez toutes les pages liées à un même axe fan-out autour d'une page hub, avec des liens internes descriptifs.",
+    howMuch: "Un hub par axe stratégique majeur suffit pour commencer, soit 3 à 5 hubs." });
+
 
   const providerStats = {};
   results.forEach(r => {
@@ -1413,7 +1435,7 @@ function RoadmapAuditPanel({ roadmapData, setRoadmapData, questions, results, br
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A3C2E" }}>Plan d'action — « Et maintenant ? »</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A3C2E" }}>Et maintenant ?</div>
           <div style={{ fontSize: 11, color: "#1A3C2E99" }}>
             {roadmapData?.generated_at
               ? `Généré le ${new Date(roadmapData.generated_at).toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} · même analyse que l'onglet Suivi GEO`
@@ -1422,8 +1444,8 @@ function RoadmapAuditPanel({ roadmapData, setRoadmapData, questions, results, br
         </div>
         <button onClick={run} disabled={status === "loading" || !claudeKey || !results.length}
           title={!claudeKey ? "Aucune clé API Claude renseignée — ajoutez-la dans \u2699\ufe0f Providers" : (!results.length ? "Aucun résultat à analyser" : undefined)}
-          style={{ padding: "5px 14px", background: (status === "loading" || !claudeKey || !results.length) ? "transparent" : "#1A3C2E", color: (status === "loading" || !claudeKey || !results.length) ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: (status === "loading" || !claudeKey || !results.length) ? "default" : "pointer" }}>
-          {status === "loading" ? "Génération…" : roadmapData ? "↺ Régénérer" : "Générer le plan"}
+          style={{ padding: "5px 14px", background: (status === "loading" || !claudeKey || !results.length) ? "transparent" : "#1A3C2E", color: (status === "loading" || !claudeKey || !results.length) ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: (status === "loading" || !claudeKey || !results.length) ? "default" : "pointer" }}>
+          {status === "loading" ? "⏳ Analyse…" : roadmapData ? "↺ Régénérer" : "✦ Générer le plan"}
         </button>
       </div>
       {err && <div style={{ fontSize: 11, color: "#C0352A", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>{err}</div>}
@@ -1796,8 +1818,8 @@ Commence DIRECTEMENT par ## POURQUOI LES LLM LES CITENT. Sois précis et actionn
           />
           <button onClick={analyze} disabled={!url || !claudeKey || status === "loading"}
             title={!claudeKey ? "Aucune clé API Claude renseignée — ajoutez-la dans ⚙️ Providers" : (!url ? "Saisissez une URL de concurrent à analyser" : undefined)}
-            style={{ padding: "5px 14px", background: (!url||!claudeKey||status==="loading") ? "transparent" : "#1A3C2E", color: (!url||!claudeKey||status==="loading") ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: (!url||!claudeKey||status==="loading") ? "not-allowed" : "pointer" }}>
-            {status === "loading" ? "Analyse…" : "Analyser"}
+            style={{ padding: "5px 14px", background: (!url||!claudeKey||status==="loading") ? "transparent" : "#1A3C2E", color: (!url||!claudeKey||status==="loading") ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: (!url||!claudeKey||status==="loading") ? "default" : "pointer" }}>
+            {status === "loading" ? "⏳ Analyse…" : "✦ Analyser"}
           </button>
         </div>
       )}
@@ -2069,9 +2091,9 @@ RÈGLES : Commence DIRECTEMENT par ## ÉTAT DES LIEUX. Recommandations concrète
             </button>
           )}
           <button onClick={run} disabled={status === "loading" || !claudeKey}
-            style={{ padding: "5px 14px", background: (!claudeKey || status === "loading") ? "transparent" : "#1A3C2E", color: (!claudeKey || status === "loading") ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: (!claudeKey || status === "loading") ? "not-allowed" : "pointer" }}
+            style={{ padding: "5px 14px", background: (!claudeKey || status === "loading") ? "transparent" : "#1A3C2E", color: (!claudeKey || status === "loading") ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: (!claudeKey || status === "loading") ? "default" : "pointer" }}
             title={!claudeKey ? "Aucune clé API Claude renseignée — ajoutez-la dans ⚙️ Providers" : undefined}>
-            {status === "loading" ? "Analyse…" : status === "done" ? "↺ Relancer" : "Analyser"}
+            {status === "loading" ? "⏳ Analyse…" : status === "done" ? "↺ Relancer" : "✦ Analyser"}
           </button>
         </div>
       </div>
@@ -2419,8 +2441,8 @@ function SentimentAuditPanel({ results, brand, claudeKey, projectId, siteId, onD
         </div>
         <button onClick={run} disabled={disabled}
           title={!claudeKey ? "Aucune clé API Claude renseignée — ajoutez-la dans \u2699\ufe0f Providers" : (!presentCount ? "Aucune réponse où la marque est présente" : undefined)}
-          style={{ padding: "5px 14px", background: disabled ? "transparent" : "#1A3C2E", color: disabled ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: disabled ? "default" : "pointer" }}>
-          {status === "loading" ? "Analyse…" : data ? "↺ Ré-analyser" : "Analyser le sentiment"}
+          style={{ padding: "5px 14px", background: disabled ? "transparent" : "#1A3C2E", color: disabled ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: disabled ? "default" : "pointer" }}>
+          {status === "loading" ? "⏳ Analyse…" : data ? "↺ Ré-analyser" : "✦ Analyser le sentiment"}
         </button>
       </div>
       {err && <div style={{ fontSize: 11, color: "#C0352A", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>{err}</div>}
@@ -3179,9 +3201,14 @@ export default function GeoAuditTab({
                 {audit.leads.map((l, i) => {
                   const accentColor = l.priority.includes("🔴") ? "#C0352A" : l.priority.includes("🟠") ? "#C97820" : l.priority.includes("🟡") ? "#C97820" : "#1A7A4A";
                   return (
-                    <div key={i} style={{ paddingLeft: 12, borderLeft: `2px solid ${accentColor}22`, marginBottom: 10 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: accentColor, marginBottom: 2, letterSpacing: "0.04em" }}>{l.label}</div>
-                      <div style={{ fontSize: 12, color: "#1A3C2E", lineHeight: 1.65 }}>{renderBold(l.action)}</div>
+                    <div key={i} style={{ paddingLeft: 12, borderLeft: `2px solid ${accentColor}22`, marginBottom: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: accentColor, marginBottom: 3, letterSpacing: "0.04em" }}>{l.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1A3C2E", marginBottom: 5 }}>{l.reco}</div>
+                      <div style={{ fontSize: 11.5, color: "#1A3C2E", lineHeight: 1.6, display: "flex", flexDirection: "column", gap: 3 }}>
+                        <div><span style={{ fontWeight: 600, color: accentColor }}>Pourquoi</span> · {l.why}</div>
+                        <div><span style={{ fontWeight: 600, color: accentColor }}>Comment</span> · {l.how}</div>
+                        <div><span style={{ fontWeight: 600, color: accentColor }}>Combien</span> · {l.howMuch}</div>
+                      </div>
                     </div>
                   );
                 })}
