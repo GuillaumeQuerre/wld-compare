@@ -51,23 +51,35 @@ export default async function handler(request, context) {
     const attempts = models.map(m => ({ model: m, search: true }));
     attempts.push({ model: SAFE_MODEL, search: false });
 
-    let result = null, grounded = true, lastStatus = 0, lastErr = "";
-    const triedModels = new Set();
+    let result = null, grounded = true, lastStatus = 0, lastErr = "", lastData = null;
+    const triedConfigs = new Set();
     for (const a of attempts) {
-      // Sur quota (429), rejouer le MÊME modèle ne ferait qu'aggraver la consommation :
-      // on ne retente qu'un modèle différent (quotas séparés par modèle).
-      if (lastStatus === 429 && triedModels.has(a.model)) continue;
-      triedModels.add(a.model);
+      // On ne rejoue jamais une config STRICTEMENT identique (même modèle + même grounding).
+      // En revanche, sur un 429 on tente quand même le MÊME modèle sans grounding : la
+      // recherche Google (grounding) a son PROPRE quota, distinct de celui du modèle.
+      const key = `${a.model}:${a.search}`;
+      if (triedConfigs.has(key)) continue;
+      triedConfigs.add(key);
       const r = await callGemini(a.model, a.search);
       if (r.ok) { result = r.data; grounded = a.search; break; }
       lastStatus = r.status;
       lastErr = r.data?.error?.message || "";
+      lastData = r.data;
       // Clé invalide / non autorisée : inutile d'insister avec les replis.
       if (r.status === 401 || r.status === 403) break;
     }
 
     if (!result) {
-      return new Response(JSON.stringify({ error: lastErr || `Gemini HTTP ${lastStatus}` }), {
+      // Diagnostic : extraire le métrique de quota (révèle free-tier vs payant).
+      let quotaInfo = "";
+      try {
+        const details = lastData?.error?.details || [];
+        const qf = details.find((d) => (d["@type"] || "").includes("QuotaFailure"));
+        const v = qf?.violations?.[0];
+        const id = v?.quotaId || v?.quotaMetric || "";
+        if (id) quotaInfo = ` [quota: ${id}]`;
+      } catch { /* noop */ }
+      return new Response(JSON.stringify({ error: (lastErr || `Gemini HTTP ${lastStatus}`) + quotaInfo }), {
         status: lastStatus || 502, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       });
     }
