@@ -30,6 +30,8 @@ import UploadCard from "../components/UploadCard";
 import { newProject, parseCSV, parseSemrushCSV } from "../lib/helpers";
 import { parseSemrush } from "../lib/parsers";
 import { C, SITE_PALETTE } from "../lib/constants";
+import { matchGscForQuestion } from "../lib/auditTools";
+// Note: sbSaveGeoAxes is called via onSaveAxes prop from App.jsx
 
 // ── Throttle par provider (prévention des 429 RPM, surtout Gemini) ──────────
 // Intervalle minimum entre deux appels d'un MÊME provider. Les autres providers
@@ -44,8 +46,6 @@ function throttleProvider(providerId) {
   _providerGate[providerId] = chain.then(() => new Promise(res => setTimeout(res, gap)));
   return chain; // on attend la fin du délai de l'appel précédent avant de lancer celui-ci
 }
-import { matchGscForQuestion } from "../lib/auditTools";
-// Note: sbSaveGeoAxes is called via onSaveAxes prop from App.jsx
 
 
 
