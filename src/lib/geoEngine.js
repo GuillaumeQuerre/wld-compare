@@ -248,7 +248,7 @@ export async function callProvider(provider, apiKey, prompt, maxTokens = 2000, b
     catch { throw new Error(`Réponse Gemini illisible (${res.status}) : ${raw.slice(0, 120)}`); }
     if (!res.ok) {
       const msg = data?.error?.message || data?.error || `Gemini ${res.status}`;
-      const hint = res.status === 429 ? " — quota dépassé, vérifiez votre plan/facturation Google AI"
+      const hint = res.status === 429 ? " — quota Gemini dépassé. Activez la facturation sur le PROJET Google Cloud de la clé (AI Studio → Set up Billing → Tier 1). Compter 24-48 h après upgrade free→payant, et vérifier les limites RPM/RPD du modèle."
                  : (res.status === 401 || res.status === 403) ? " — clé Gemini invalide ou non autorisée"
                  : res.status === 404 ? " — modèle Gemini introuvable (peut-être retiré)"
                  : res.status >= 500 ? " — erreur serveur Gemini, réessayez dans un instant" : "";
@@ -323,7 +323,7 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
   const headingBoldRe = /^\s*(?:#{1,4}\s*)?\*\*([^*\n]{2,90})\*\*\s*:?\s*$/;
   const headingPlainRe = /^\s*#{1,4}\s*([^\n]{2,90})$/;
   const matchHeading = (s) => {
-    const lvl = (s.match(/^\s*(#{1,4})/) || [, ""])[1].length || 0;
+    const lvl = (s.match(/^\s*(#{1,4})/)?.[1] || "").length;
     let m = s.match(headingLinkRe); if (m) return { title: m[1].replace(/\*/g, "").trim(), level: lvl };
     m = s.match(headingBoldRe);    if (m) return { title: m[1].trim(), level: lvl };
     m = s.match(headingPlainRe);   if (m) return { title: m[1].replace(/[[\]]|\(.*\)/g, "").replace(/\*/g, "").trim(), level: lvl };

@@ -52,7 +52,12 @@ export default async function handler(request, context) {
     attempts.push({ model: SAFE_MODEL, search: false });
 
     let result = null, grounded = true, lastStatus = 0, lastErr = "";
+    const triedModels = new Set();
     for (const a of attempts) {
+      // Sur quota (429), rejouer le MÊME modèle ne ferait qu'aggraver la consommation :
+      // on ne retente qu'un modèle différent (quotas séparés par modèle).
+      if (lastStatus === 429 && triedModels.has(a.model)) continue;
+      triedModels.add(a.model);
       const r = await callGemini(a.model, a.search);
       if (r.ok) { result = r.data; grounded = a.search; break; }
       lastStatus = r.status;

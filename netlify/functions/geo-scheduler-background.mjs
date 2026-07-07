@@ -88,6 +88,18 @@ const PROVIDERS = {
   claude:     { model: "claude-haiku-4-5-20251001", keyField: "claude_geo_key_enc" },
 };
 
+// ── Throttle par provider (anti-429 RPM, surtout Gemini) — même logique que le front ──
+// Intervalle minimum entre deux appels d'un MÊME provider ; files indépendantes par provider.
+const PROVIDER_MIN_GAP_MS = { gemini: 3000, perplexity: 1500, openai: 0, claude: 0 };
+const _providerGate = {};
+function throttleProvider(providerId) {
+  const gap = PROVIDER_MIN_GAP_MS[providerId] || 0;
+  if (!gap) return Promise.resolve();
+  const chain = _providerGate[providerId] || Promise.resolve();
+  _providerGate[providerId] = chain.then(() => new Promise((res) => setTimeout(res, gap)));
+  return chain;
+}
+
 // ── Process one schedule ──────────────────────────────────────────
 async function processSchedule(schedule, project, brand, site, secondBrand = null) {
   const providerIds = schedule.providers || ["openai"];
@@ -132,6 +144,7 @@ async function processSchedule(schedule, project, brand, site, secondBrand = nul
         // Recherche web : réglage par projet (provider_web_search). Défaut ON pour OpenAI,
         // toujours ON pour Gemini/Perplexity, jamais pour Claude — identique à l'onglet Questions.
         const useWebSearch = webSearchEnabled(providerId, project.provider_web_search || {});
+        await throttleProvider(providerId); // respecte l'intervalle mini du provider (anti-429 RPM)
         const parsed = await callProvider({ id: providerId, model: pDef.model }, apiKey, prompt, 2000, site, useWebSearch);
         const answer = parsed.answer || "";
         const sources = parsed.sources || [];

@@ -1,12 +1,15 @@
 // netlify/edge-functions/geo-scheduler.js
-// DISPATCHER LÉGER — Edge Function (cron + trigger manuel)
+// DISPATCHER LÉGER — Edge Function pour le TRIGGER MANUEL uniquement.
 // Ne fait PLUS le travail lourd (qui dépassait le timeout ~50s des Edge Functions).
 // Il invoque la BACKGROUND FUNCTION geo-scheduler-background (timeout 15 min)
 // en fire-and-forget, puis retourne 202 immédiatement.
+//
+// ⚠️ Le CRON n'est PAS géré ici : les Edge Functions Netlify ne supportent pas le
+// `schedule`. Le déclenchement horaire est assuré par la fonction planifiée
+// netlify/functions/geo-scheduler-cron.mjs.
 
 export const config = {
-  schedule: "0 * * * *",   // chaque heure (cron Netlify)
-  path: "/api/geo-scheduler",
+  path: "/api/geo-scheduler", // trigger manuel (front) — le cron est dans geo-scheduler-cron.mjs
 };
 
 export default async function(request) {
