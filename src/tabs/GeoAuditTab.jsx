@@ -858,10 +858,10 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     if (!calByDate[d]) calByDate[d] = { tested: 0, present: 0, mentions: 0, citations: 0, evocations: 0 };
     calByDate[d].tested++;
     if (e.brand_present === true || e.brand_present === 1) calByDate[d].present++;
-    // Ventilation M/É/C depuis les champs étendus si disponibles
-    if (e.brand_mention_position != null) calByDate[d].mentions++;
-    else if (e.brand_in_sources) calByDate[d].citations++;
-    else if (e.brand_present === true || e.brand_present === 1) calByDate[d].evocations++;
+    // Ventilation M/É/C depuis les colonnes du calendrier (brand_mention / brand_citation / brand_evocation)
+    if (e.brand_mention === 1 || e.brand_mention === true || e.mention_position != null) calByDate[d].mentions++;
+    else if (e.brand_citation === 1 || e.brand_citation === true) calByDate[d].citations++;
+    else if (e.brand_evocation === 1 || e.brand_evocation === true || e.brand_present === true || e.brand_present === 1) calByDate[d].evocations++;
   });
 
   // Source 2 : résultats en mémoire — TOUJOURS ventiler M/É/C
@@ -891,10 +891,15 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
       // Jour non couvert par calendarEntries → utiliser les results directement
       calByDate[d] = rv;
     } else {
-      // Enrichir la ventilation M/É/C sans toucher tested/present (déjà calculés)
-      calByDate[d].mentions  = rv.mentions;
-      calByDate[d].citations = rv.citations;
-      calByDate[d].evocations= rv.evocations;
+      // Le calendrier couvre TOUTES les interrogations du jour (une entrée par test) :
+      // sa ventilation est prioritaire. On ne complète depuis les results que si le
+      // calendrier n'a aucune ventilation alors qu'il y a de la présence (anciennes lignes).
+      const calVent = calByDate[d].mentions + calByDate[d].citations + calByDate[d].evocations;
+      if (calVent === 0 && calByDate[d].present > 0) {
+        calByDate[d].mentions  = rv.mentions;
+        calByDate[d].citations = rv.citations;
+        calByDate[d].evocations= rv.evocations;
+      }
     }
   });
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -1045,20 +1050,23 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   }
 
   // ── Présence dans le temps : taux de présence par JOUR DE TEST (jours actifs uniquement) ──
-  const presenceTrend = Object.entries(mentionByDay)
-    .map(([date, d]) => ({ date, tested: d.total, present: d.mentions + d.evocations, rate: d.total ? Math.round(((d.mentions + d.evocations) / d.total) * 100) : 0 }))
-    .sort((x, y) => x.date.localeCompare(y.date));
+  // Les deux séries temporelles sont construites sur calByDate : la FUSION du
+  // calendrier (une entrée par interrogation, toutes dates) et des résultats en
+  // mémoire — un point par date de test réelle.
+  const _activeDays = Object.entries(calByDate)
+    .filter(([, v]) => v.tested > 0)
+    .sort((x, y) => x[0].localeCompare(y[0]));
+  const presenceTrend = _activeDays
+    .map(([date, v]) => ({ date, tested: v.tested, present: v.present, rate: Math.round((v.present / v.tested) * 100) }));
 
   // ── Évolution des mentions : % de Mentions / Évocations / Citations par jour de test ──
-  const mecTrend = Object.entries(mentionByDay)
-    .filter(([, d]) => d.total > 0)
-    .map(([date, d]) => ({
-      date, tested: d.total,
-      mentions:   Math.round((d.mentions   / d.total) * 100),
-      evocations: Math.round((d.evocations / d.total) * 100),
-      citations:  Math.round((d.citations  / d.total) * 100),
-    }))
-    .sort((x, y) => x.date.localeCompare(y.date));
+  const mecTrend = _activeDays
+    .map(([date, v]) => ({
+      date, tested: v.tested,
+      mentions:   Math.round((v.mentions   / v.tested) * 100),
+      evocations: Math.round((v.evocations / v.tested) * 100),
+      citations:  Math.round((v.citations  / v.tested) * 100),
+    }));
 
   const compStats = {};
   // 1. Depuis competitors_mentioned (résultats récents)
