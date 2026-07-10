@@ -59,7 +59,9 @@ const PROVIDER_LABEL = { openai: "ChatGPT", claude: "Claude", gemini: "Gemini", 
 const fmtDate = () => new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 const fileDate = () => new Date().toISOString().slice(0, 10);
 const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
-const scoreVerdict = (r) => r >= 70 ? ["Excellente présence", C.ok] : r >= 50 ? ["Bonne présence", C.blue] : r >= 30 ? ["Potentiel à développer", C.warn] : ["Potentiel à exploiter", C.danger];
+const fmtVol = (v) => v >= 1000 ? (v / 1000).toFixed(1).replace(".0", "") + "k" : String(v);
+const catLabel = (c) => c.volume > 0 ? `${c.name} · ${fmtVol(c.volume)} rech./mois` : c.name;
+const scoreVerdict = (r) => r >= 70 ? ["Excellente présence", "1A7A4A"] : r >= 50 ? ["Bonne présence", C.green] : r >= 30 ? ["Potentiel à développer", "C97820"] : ["Potentiel à exploiter", "C97820"];
 
 // Construit le modèle commun (liste de slides) depuis l'audit.
 export function buildAuditDeck(audit, brand, site, roadmapData, categories = [], sentiment = null) {
@@ -75,7 +77,7 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
   // Catégories (taux de présence)
   const cats = Object.entries(a.byQuestionCategory || {})
     .filter(([cid]) => cid !== "__none__")
-    .map(([cid, s]) => ({ name: catName[cid] || "Sans catégorie", rate: pct(s.withBrand, s.total), qCount: s.qCount, total: s.total, withBrand: s.withBrand }))
+    .map(([cid, s]) => ({ name: catName[cid] || "Sans catégorie", rate: pct(s.withBrand, s.total), qCount: s.qCount, total: s.total, withBrand: s.withBrand, volume: s.volume || 0 }))
     .sort((x, y) => y.rate - x.rate);
 
   // Concurrents (part de citations) — gère le format [name, statsObj] de competitorsRanked
@@ -108,8 +110,7 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
       { v: `${a.mentionCount || 0}`, l: "Mentions classées" },
       { v: `${a.evocationCount || 0}`, l: "Évocations" },
       { v: `${a.citationCount || 0}`, l: "Citations sources" },
-      { v: a.avgMentionPos ? a.avgMentionPos.toFixed(1) : "—", l: "Position moyenne" },
-      { v: `${providers.filter(p => p.rate > 0).length}/${providers.length || 0}`, l: "Moteurs couverts" },
+      { v: (() => { const p = parseFloat(a.avgMentionPos); return Number.isFinite(p) && p > 0 ? p.toFixed(1) : "—"; })(), l: "Position moyenne" },
     ],
     providers, cats, comps, compMax, sovBrandPct, blindSpotsCount, trend,
     sources: {
@@ -120,7 +121,7 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
       topOwn: (a.brandOwnUrls || []).slice(0, 6).map(u => ({ url: (u.norm || u.url || "").replace(/^https?:\/\//, ""), n: u.count_as_source ?? 0 })),
     },
     diagnostic: rm.diagnostic || null,
-    leads: (a.leads || []).slice(0, 5).map(l => ({
+    leads: (a.leads || []).slice(0, 4).map(l => ({
       label: l.label || "", reco: l.reco || l.action || "", why: l.why || "", how: l.how || "", howMuch: l.howMuch || "",
       col: (l.priority || "").includes("🔴") ? "9B2335" : ((l.priority || "").includes("🟠") || (l.priority || "").includes("🟡")) ? "C2790F" : "4A8C6A",
     })),
@@ -171,15 +172,15 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       chartColors: [d.score.color, C.creamDark], dataBorder: { pt: 0, color: C.white },
     });
     s.addText([{ text: `${d.score.rate}`, options: { fontSize: 54, bold: true, color: d.score.color, fontFace: "Georgia" } }, { text: "%", options: { fontSize: 24, color: d.score.color } }], { x: 0.6, y: 3.35, w: 4.2, h: 0.8, align: "center" });
-    s.addText(d.score.label, { x: 0.6, y: 5.9, w: 4.2, h: 0.4, align: "center", fontSize: 13, bold: true, color: d.score.color });
+    s.addText(d.score.label, { x: 0.6, y: 5.9, w: 4.2, h: 0.45, align: "center", fontSize: 15, bold: true, color: d.score.color });
     // KPIs (2x3 grid à droite)
     const gx = 5.3, gw = 3.7, gh = 1.55, gap = 0.25;
     d.kpis.slice(0, 4).forEach((k, i) => {
       const col = i % 2, row = Math.floor(i / 2);
       const x = gx + col * (gw + gap), y = 1.95 + row * (gh + gap);
       s.addShape(p.ShapeType.roundRect, { x, y, w: gw, h: gh, rectRadius: 0.08, fill: { color: C.greenPale }, line: { color: C.creamDark, pt: 0.5 } });
-      s.addText(k.v, { x, y: y + 0.18, w: gw, h: 0.7, align: "center", fontSize: 26, bold: true, color: C.green, fontFace: "Georgia" });
-      s.addText(k.l, { x, y: y + 0.95, w: gw, h: 0.4, align: "center", fontSize: 11, color: C.inkMid });
+      s.addText(k.v, { x, y: y + 0.16, w: gw, h: 0.72, align: "center", fontSize: 30, bold: true, color: C.green, fontFace: "Georgia" });
+      s.addText(k.l, { x, y: y + 0.98, w: gw, h: 0.4, align: "center", fontSize: 12, color: C.inkMid });
     });
     s.addText(`${d.score.withBrand} réponses sur ${d.score.total} citent la marque, à travers ${d.score.questions} questions suivies.`, { x: 5.3, y: 5.5, w: 7.6, h: 0.6, fontSize: 13, color: C.inkMid });
     footer(s, 2);
@@ -213,7 +214,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
   if (d.cats.length) {
     const s = slide();
     kicker(s, "Thématiques"); title(s, "Présence par catégorie");
-    s.addChart(p.ChartType.bar, [{ name: "Présence %", labels: d.cats.map(c => c.name), values: d.cats.map(c => c.rate) }], {
+    s.addChart(p.ChartType.bar, [{ name: "Présence %", labels: d.cats.map(catLabel), values: d.cats.map(c => c.rate) }], {
       x: 0.6, y: 1.9, w: 12.1, h: 4.6, barDir: "bar", chartColors: [C.greenMid], showValue: true,
       dataLabelColor: C.white, dataLabelPosition: "inEnd", dataLabelFontSize: 11, valAxisMaxVal: 100,
       catAxisLabelColor: C.ink, catAxisLabelFontSize: 12, valGridLine: { style: "none" }, showLegend: false,
@@ -386,15 +387,15 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
   setFill(C.white); doc.circle(cx, cy, rOut * 0.66, "F");
   setText(d.score.color); doc.setFont("helvetica", "bold"); doc.setFontSize(34);
   doc.text(`${d.score.rate}%`, cx, cy + 4, { align: "center" });
-  doc.setFontSize(12); doc.text(d.score.label, cx, cy + rOut + 12, { align: "center" });
+  doc.setFontSize(13); doc.setFont("helvetica", "bold"); doc.text(d.score.label, cx, cy + rOut + 12, { align: "center" });
   // KPIs grid
   const kx = 110, ky = 56, kw = 100, kh = 26, kg = 8;
   d.kpis.slice(0, 4).forEach((k, i) => {
     const col = i % 2, row = Math.floor(i / 2);
     const x = kx + col * (kw + kg), y = ky + row * (kh + kg);
     setFill(C.greenPale); doc.roundedRect(x, y, kw, kh, 2, 2, "F");
-    setText(C.green); doc.setFont("helvetica", "bold"); doc.setFontSize(20); doc.text(`${k.v}`, x + 8, y + 14);
-    setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(k.l, x + 8, y + 22);
+    setText(C.green); doc.setFont("helvetica", "bold"); doc.setFontSize(23); doc.text(`${k.v}`, x + 8, y + 15);
+    setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(10.5); doc.text(k.l, x + 8, y + 22.5);
   });
   setText(C.inkMid); doc.setFontSize(12);
   doc.text(`${d.score.withBrand} réponses sur ${d.score.total} citent la marque, à travers ${d.score.questions} questions suivies.`, kx, ky + 2 * (kh + kg) + 8, { maxWidth: 210 });
@@ -430,7 +431,7 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
   // 5 — Catégories
   if (d.cats.length) {
     newPage(C.white); head("Thématiques", "Présence par catégorie");
-    hbars(d.cats.slice(0, 8).map(c => ({ label: c.name, val: c.rate })), 16, 50, 60, 190, C.greenMid, "%");
+    hbars(d.cats.slice(0, 8).map(c => ({ label: catLabel(c), val: c.rate })), 16, 50, 60, 190, C.greenMid, "%");
     foot();
   }
 

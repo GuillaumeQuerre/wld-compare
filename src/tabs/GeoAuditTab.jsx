@@ -690,19 +690,19 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
               : score >= 30 ? { label: "Potentiel à développer",   color: "#C97820", bar: "#C97820" }
               :               { label: "Potentiel à exploiter",    color: "#C97820", bar: "#C97820" };
   return (
-    <div style={{ background: "#fff", border: "0.5px solid #1A3C2E0D", borderRadius: 12, padding: "20px 24px", marginBottom: 16 }}>
+    <div style={{ background: "#fff", border: "0.5px solid #1A3C2E0D", borderRadius: 12, padding: "24px 28px", marginBottom: 18 }}>
       <div className="audit-banner-inner">
         {/* Score */}
         <div style={{ minWidth: 100 }}>
-          <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 6 }}>Présence GEO</div>
+          <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 8 }}>Présence GEO</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontSize: 44, fontWeight: 700, color: level.color, lineHeight: 1, letterSpacing: "-0.02em" }}>{score}</span>
-            <span style={{ fontSize: 18, color: level.color, fontWeight: 500 }}>%</span>
+            <span style={{ fontSize: 52, fontWeight: 800, color: level.color, lineHeight: 1, letterSpacing: "-0.02em" }}>{score}</span>
+            <span style={{ fontSize: 20, color: level.color, fontWeight: 600 }}>%</span>
           </div>
           <div style={{ marginTop: 8, height: 3, background: "#1A3C2E0C", borderRadius: 2, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${score}%`, background: level.bar, borderRadius: 2, transition: "width 0.5s" }} />
           </div>
-          <div style={{ marginTop: 5, fontSize: 11, color: level.color, fontWeight: 500 }}>{level.label}</div>
+          <div style={{ marginTop: 6, fontSize: 12.5, color: level.color, fontWeight: 600 }}>{level.label}</div>
           {/* Score favoris en parallèle */}
           {favScore != null && (
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid #1A3C2E0C" }}>
@@ -728,7 +728,7 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
 
         {/* Barre proportion M/É/C */}
         <div style={{ flex: "0 0 auto", minWidth: 140 }}>
-          <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 8 }}>Répartition</div>
+          <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 10 }}>Répartition</div>
           <div style={{ display: "flex", height: 4, borderRadius: 2, overflow: "hidden", background: "#1A3C2E0C", marginBottom: 10 }}>
             {audit.total > 0 && <>
               <div style={{ width: `${(audit.withRanked||0)/audit.total*100}%`, background: "#1A7A4A" }} />
@@ -743,8 +743,8 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
               { sym: "↗",  label: "Citation",  val: audit.withSourceOnly||0,  color: "#1A3C2E" },
             ].map(k => (
               <div key={k.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 11, color: "#1A3C2E" }}><span style={{ color: k.color }}>{k.sym}</span> {k.label}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: k.color }}>{k.val}</span>
+                <span style={{ fontSize: 12, color: "#1A3C2E" }}><span style={{ color: k.color }}>{k.sym}</span> {k.label}</span>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: k.color }}>{k.val}</span>
               </div>
             ))}
           </div>
@@ -755,7 +755,7 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
 
         {/* KPIs contextuels */}
         <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 8 }}>Contexte</div>
+          <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 10 }}>Contexte</div>
           <div className="audit-banner-context">
             {[
               { label: "Marque",                  val: brand?.brand_name || "—" },
@@ -766,8 +766,8 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
               { label: "Concurrents renseignés",  val: Object.keys(audit.compStats).length },
             ].map(k => (
               <div key={k.label} style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                <span style={{ fontSize: 10, color: "#1A3C2E" }}>{k.label}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#1A3C2E" }}>{k.val}</span>
+                <span style={{ fontSize: 11, color: "#1A3C2E99" }}>{k.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#1A3C2E" }}>{k.val}</span>
               </div>
             ))}
           </div>
@@ -2751,10 +2751,10 @@ export default function GeoAuditTab({
                     const rate = pct(s.withBrand, s.total);
                     const color = rate >= 50 ? "#1A7A4A" : rate > 0 ? "#C97820" : "#1A3C2E33";
                     return (
-                      <div key={pid} style={{ padding: "7px 14px", border: "0.5px solid #1A3C2E12", borderRadius: 8, background: "#fff", minWidth: 90 }}>
-                        <div style={{ fontSize: 9, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 3 }}>{pid}</div>
-                        <div style={{ fontSize: 18, fontWeight: 700, color, lineHeight: 1, letterSpacing: "-0.01em" }}>{rate}<span style={{ fontSize: 11, fontWeight: 400 }}>%</span></div>
-                        <div style={{ fontSize: 10, color: "#1A3C2E", marginTop: 1 }}>{s.withBrand}/{s.total}</div>
+                      <div key={pid} style={{ padding: "11px 16px", border: "0.5px solid #1A3C2E12", borderRadius: 8, background: "#fff", minWidth: 100 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 5 }}>{pid}</div>
+                        <div style={{ fontSize: 23, fontWeight: 800, color, lineHeight: 1, letterSpacing: "-0.01em" }}>{rate}<span style={{ fontSize: 12, fontWeight: 500 }}>%</span></div>
+                        <div style={{ fontSize: 11, color: "#1A3C2E99", marginTop: 3 }}>{s.withBrand}/{s.total}</div>
                       </div>
                     );
                   })}
@@ -2769,15 +2769,15 @@ export default function GeoAuditTab({
                     { label: "Évocation", icon: "⟶", color: "#C97820", pos: audit.avgEvocationPos, count: audit.evocationCount, hint: "Rang moyen d'apparition dans le corps du texte" },
                     { label: "Citation",  icon: "↗", color: "#1A3C2E", pos: audit.avgCitationPos,  count: audit.citationCount,  hint: "Rang moyen dans les sources citées" },
                   ].map(m => (
-                    <div key={m.label} title={m.hint} style={{ flex: "1 1 140px", minWidth: 130, padding: "9px 14px", border: "0.5px solid #1A3C2E12", borderRadius: 8, background: "#fff" }}>
+                    <div key={m.label} title={m.hint} style={{ flex: "1 1 150px", minWidth: 140, padding: "12px 16px", border: "0.5px solid #1A3C2E12", borderRadius: 8, background: "#fff" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, color: m.color }}>{m.icon}</span>
-                        <span style={{ fontSize: 9, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E" }}>{m.label}</span>
+                        <span style={{ fontSize: 12, color: m.color }}>{m.icon}</span>
+                        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99" }}>{m.label}</span>
                       </div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: m.pos ? m.color : "#1A3C2E", lineHeight: 1, letterSpacing: "-0.01em" }}>
-                        {m.pos ? <>#{m.pos}<span style={{ fontSize: 10, fontWeight: 400, color: "#1A3C2E" }}> moy.</span></> : "—"}
+                      <div style={{ fontSize: 23, fontWeight: 800, color: m.pos ? m.color : "#1A3C2E", lineHeight: 1, letterSpacing: "-0.01em" }}>
+                        {m.pos ? <>#{m.pos}<span style={{ fontSize: 11, fontWeight: 500, color: "#1A3C2E99" }}> moy.</span></> : "—"}
                       </div>
-                      <div style={{ fontSize: 10, color: "#1A3C2E", marginTop: 2 }}>{m.count} occurrence{m.count > 1 ? "s" : ""}</div>
+                      <div style={{ fontSize: 11, color: "#1A3C2E99", marginTop: 4 }}>{m.count} occurrence{m.count > 1 ? "s" : ""}</div>
                     </div>
                   ))}
                 </div>
