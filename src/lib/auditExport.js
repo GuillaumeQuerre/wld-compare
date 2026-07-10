@@ -114,6 +114,7 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
     ],
     providers, cats, comps, compMax, sovBrandPct, blindSpotsCount, trend,
     presenceTrend: (a.presenceTrend || []).filter(t => t.tested > 0),
+    mecTrend: (a.mecTrend || []).filter(t => t.tested > 0),
     distinctRuns: a.distinctRuns || 0,
     nProviders: providers.length,
     questionStatus: (a.questionStatus || []).map(q => ({ question: q.question, status: q.status, lost: !!q.lost, presentOn: q.presentOn || 0, providersOn: q.providersOn || 0 })),
@@ -218,7 +219,25 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     footer(s, 4);
   }
 
-  // 5 — Catégories (barres taux)
+  // 5 — Évolution des mentions (3 courbes lissées en %)
+  if (d.mecTrend.length > 1) {
+    const s = slide();
+    kicker(s, "Tendance"); title(s, "Évolution des mentions");
+    s.addText("Part des réponses avec mention, évocation ou citation, en % par jour de test. Un point par date d'interrogation.", { x: 0.6, y: 1.42, w: 12, h: 0.35, fontSize: 12, color: C.inkMid });
+    s.addChart(p.ChartType.line, [
+      { name: "Mentions",   labels: d.mecTrend.map(t => t.date?.slice(5)), values: d.mecTrend.map(t => t.mentions) },
+      { name: "Évocations", labels: d.mecTrend.map(t => t.date?.slice(5)), values: d.mecTrend.map(t => t.evocations) },
+      { name: "Citations",  labels: d.mecTrend.map(t => t.date?.slice(5)), values: d.mecTrend.map(t => t.citations) },
+    ], {
+      x: 0.6, y: 1.9, w: 12.1, h: 4.6, chartColors: ["1A7A4A", "C97820", "1A3C2E"], lineSize: 2.5, lineSmooth: true,
+      valAxisMaxVal: 100, valAxisMinVal: 0,
+      showLegend: true, legendPos: "b", legendFontSize: 11,
+      catAxisLabelFontSize: 10, catAxisLabelColor: C.inkMid, valGridLine: { color: C.creamDark, style: "solid" },
+    });
+    footer(s, 5);
+  }
+
+  // 6 — Catégories (barres taux)
   if (d.cats.length) {
     const s = slide();
     kicker(s, "Thématiques"); title(s, "Présence par catégorie");
@@ -227,7 +246,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       dataLabelColor: C.white, dataLabelPosition: "inEnd", dataLabelFontSize: 11, valAxisMaxVal: 100,
       catAxisLabelColor: C.ink, catAxisLabelFontSize: 12, valGridLine: { style: "none" }, showLegend: false,
     });
-    footer(s, 5);
+    footer(s, 6);
   }
 
   // 6 — Concurrents
@@ -245,7 +264,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       dataLabelColor: C.white, dataLabelPosition: "inEnd", dataLabelFontSize: 11,
       catAxisLabelColor: C.ink, catAxisLabelFontSize: 11, valGridLine: { style: "none" }, showLegend: false,
     });
-    footer(s, 6);
+    footer(s, 7);
   }
 
   // 7 — Perception de la marque (sentiment IA)
@@ -267,7 +286,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     s.addText("POINTS DE VIGILANCE", { x: 6.9, y: 3.85, w: 5.8, h: 0.3, fontSize: 11, bold: true, color: C.accent, charSpacing: 1 });
     const watch = (se.watchouts || []).slice(0, 5);
     s.addText(watch.length ? watch.map(t => ({ text: t, options: { bullet: { code: "2022" }, color: C.inkMid, fontSize: 12, paraSpaceAfter: 5 } })) : [{ text: "Aucun point de vigilance notable.", options: { color: C.inkLight, fontSize: 12, italic: true } }], { x: 6.9, y: 4.2, w: 5.8, h: 2.5, valign: "top" });
-    footer(s, 7);
+    footer(s, 8);
   }
 
   // 8 — Sources & URLs
@@ -291,7 +310,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       const rows = d.sources.topOwn.map(u => [{ text: u.url, options: { color: C.ink } }, { text: `${u.n} citations`, options: { align: "right", color: C.inkMid } }]);
       s.addTable(rows, { x: 0.6, y: 4.1, w: 12.1, colW: [9.6, 2.5], fontSize: 12, rowH: 0.38, border: { type: "solid", pt: 0.5, color: C.creamDark } });
     }
-    footer(s, 8);
+    footer(s, 9);
   }
 
   // 9 — Questions par statut (À défendre / À surveiller / Conquête prioritaire)
@@ -319,7 +338,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       { text: "Moteurs", options: { bold: true, color: C.white, fill: { color: C.green }, fontSize: 10, align: "center" } },
     ], ...rows], { x: 0.6, y: 1.9, w: 12.1, colW: [2.2, 8.7, 1.2], border: { type: "solid", pt: 0.5, color: C.creamDark }, rowH: 0.34, valign: "middle" });
     s.addText("⟳ = position perdue : la marque apparaissait sur cette question mais n'apparaît plus au dernier test.", { x: 0.6, y: 6.95, w: 12.1, h: 0.3, fontSize: 10, color: C.inkLight, italic: true });
-    footer(s, 9);
+    footer(s, 10);
   }
 
   // 10 — Pistes prioritaires (reco + pourquoi/comment/combien)
@@ -337,7 +356,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       ], { x: 0.85, y: y + 0.34, w: 11.9, h: 1.0, fontSize: 9.5, valign: "top", lineSpacingMultiple: 1.04 });
       y += 1.32;
     });
-    footer(s, 10);
+    footer(s, 11);
   }
 
   // 10 — Plan d'action
@@ -475,7 +494,56 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
     foot();
   }
 
-  // 5 — Catégories
+  // 5 — Évolution des mentions (3 courbes lissées en %)
+  if (d.mecTrend.length > 1) {
+    newPage(C.white); head("Tendance", "Évolution des mentions");
+    setText(C.inkMid); doc.setFontSize(11); doc.setFont("helvetica", "normal");
+    doc.text("Part des réponses avec mention, évocation ou citation, en % par jour de test.", 16, 42);
+    const gx = 28, gy = 156, gw = 284, gh = 96;
+    setDraw(C.creamDark); doc.setLineWidth(0.3);
+    [0, 25, 50, 75, 100].forEach(v => { const yy = gy - (v / 100) * gh; doc.line(gx, yy, gx + gw, yy); setText(C.inkLight); doc.setFontSize(7.5); doc.text(`${v}%`, gx - 3, yy + 2, { align: "right" }); });
+    const pts0 = d.mecTrend, nn = pts0.length;
+    const px = (i) => gx + (nn > 1 ? (i / (nn - 1)) * gw : gw / 2);
+    const py = (v) => gy - (Math.max(0, Math.min(100, v)) / 100) * gh;
+    // Lissage Catmull-Rom échantillonné en petits segments
+    const smooth = (key) => {
+      const P = pts0.map((t, i) => [px(i), py(t[key] || 0)]);
+      if (P.length < 2) return [];
+      const out = [P[0]];
+      for (let i = 0; i < P.length - 1; i++) {
+        const p0 = P[i - 1] || P[i], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2] || p2;
+        for (let st = 1; st <= 10; st++) {
+          const u = st / 10, u2 = u * u, u3 = u2 * u;
+          out.push([
+            0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * u + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * u3),
+            0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * u + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * u3),
+          ]);
+        }
+      }
+      return out;
+    };
+    const SER = [["mentions", "1A7A4A", "Mentions"], ["evocations", "C97820", "Évocations"], ["citations", "1A3C2E", "Citations"]];
+    SER.forEach(([key, col]) => {
+      const sm = smooth(key);
+      setDraw(col); doc.setLineWidth(1.1);
+      for (let i = 1; i < sm.length; i++) doc.line(sm[i - 1][0], sm[i - 1][1], sm[i][0], sm[i][1]);
+      setFill(col);
+      pts0.forEach((t, i) => doc.circle(px(i), py(t[key] || 0), 1.2, "F"));
+    });
+    // Légende + dates
+    let lx = gx;
+    SER.forEach(([, col, label]) => {
+      setFill(col); doc.rect(lx, gy + 12, 6, 2.2, "F");
+      setText(C.inkMid); doc.setFontSize(9); doc.text(label, lx + 8, gy + 14.5);
+      lx += 12 + doc.getTextWidth(label) + 10;
+    });
+    setText(C.inkMid); doc.setFontSize(7.5);
+    const step = Math.max(1, Math.ceil(nn / 8));
+    pts0.forEach((t, i) => { if (i % step === 0 || i === nn - 1) doc.text((t.date || "").slice(5), px(i), gy + 6, { align: "center" }); });
+    foot();
+  }
+
+  // 6 — Catégories
   if (d.cats.length) {
     newPage(C.white); head("Thématiques", "Présence par catégorie");
     hbars(d.cats.slice(0, 8).map(c => ({ label: catLabel(c), val: c.rate })), 16, 50, 60, 190, C.greenMid, "%");

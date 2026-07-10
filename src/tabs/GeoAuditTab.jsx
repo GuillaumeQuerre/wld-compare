@@ -1049,6 +1049,17 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     .map(([date, d]) => ({ date, tested: d.total, present: d.mentions + d.evocations, rate: d.total ? Math.round(((d.mentions + d.evocations) / d.total) * 100) : 0 }))
     .sort((x, y) => x.date.localeCompare(y.date));
 
+  // ── Évolution des mentions : % de Mentions / Évocations / Citations par jour de test ──
+  const mecTrend = Object.entries(mentionByDay)
+    .filter(([, d]) => d.total > 0)
+    .map(([date, d]) => ({
+      date, tested: d.total,
+      mentions:   Math.round((d.mentions   / d.total) * 100),
+      evocations: Math.round((d.evocations / d.total) * 100),
+      citations:  Math.round((d.citations  / d.total) * 100),
+    }))
+    .sort((x, y) => x.date.localeCompare(y.date));
+
   const compStats = {};
   // 1. Depuis competitors_mentioned (résultats récents)
   // Chaque entrée concurrent : { name, mentioned, position, in_sources }
@@ -1306,144 +1317,67 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     if (!brandSomewhere && !compSomewhere) blindSpots.push({ id: q.id, question: q.question, providers: rs.length });
   });
 
-  return { total, withBrand, withSources, withRanked, withSourceOnly, withMentionOnly, avgPos, avgMentionPos, avgEvocationPos, avgCitationPos, mentionCount, evocationCount, citationCount, presenceRate, trendDays, sortedUrls, brandUrls, brandOwnUrls, brandExternalUrls, urlDetails, competitorUrls, referenceUrls, topDomains, intentCount, typeCount, intentStatsList, pageTypeStatsList, mentionTrend, compStats, top5Competitors, competitorsRanked, byQuestionCategory, urlsToOptimize, urlsToRework, urlsToInspire, leads, questions: questions.length, providerStats, missingBrandQs, presentBrandQs, hasFavFilter, favCount, shareOfVoice, coMatrix, visibilityFunnel, blindSpots, presenceTrend, distinctRuns, questionStatus, _rawResults: results };
+  return { total, withBrand, withSources, withRanked, withSourceOnly, withMentionOnly, avgPos, avgMentionPos, avgEvocationPos, avgCitationPos, mentionCount, evocationCount, citationCount, presenceRate, trendDays, sortedUrls, brandUrls, brandOwnUrls, brandExternalUrls, urlDetails, competitorUrls, referenceUrls, topDomains, intentCount, typeCount, intentStatsList, pageTypeStatsList, mentionTrend, compStats, top5Competitors, competitorsRanked, byQuestionCategory, urlsToOptimize, urlsToRework, urlsToInspire, leads, questions: questions.length, providerStats, missingBrandQs, presentBrandQs, hasFavFilter, favCount, shareOfVoice, coMatrix, visibilityFunnel, blindSpots, presenceTrend, mecTrend, distinctRuns, questionStatus, _rawResults: results };
 }
 
 
-function TrendChart({ trendDays }) {
-  const W = 620, H = 140, PAD = 32, PADT = 12, plotW = W - PAD - 12, plotH = H - PADT - 28;
-  const active = trendDays.filter(d => d.tested > 0);
-  if (!active.length) return (
+// ── Évolution des mentions : 3 courbes lissées en % par jour de test ──
+function TrendChart({ points }) {
+  const data = Array.isArray(points) ? points : [];
+  if (!data.length) return (
     <div style={{ fontSize: 11, color: "#1A3C2E", fontStyle: "italic", padding: "20px 0" }}>
-      Aucun résultat enregistré ces 30 derniers jours.
+      Aucun résultat enregistré sur la période.
     </div>
   );
-
-  // ── Normaliser les données ─────────────────────────────────────
-  // Si les données ventilées (M/É/C) ne sont pas encore en base,
-  // on estime à partir de withRanked/withMentionOnly/withSourceOnly du jour
-  // OU on utilise present comme proxy pour les 3 courbes si rien d'autre.
-  const normalized = trendDays.map(d => {
-    const tot = d.mentions + d.citations + d.evocations;
-    if (tot > 0 || d.tested === 0) return d; // données ventilées disponibles
-    // Pas encore de ventilation → estimer depuis present
-    // (tous les présents comptent comme "évocations" au sens large)
-    return {
-      ...d,
-      mentions:   0,
-      citations:  0,
-      evocations: d.present || 0,
-    };
-  });
-
-  // Toujours afficher les 3 séries — les données sont normalisées ci-dessus
+  const W = 640, H = 190, PADL = 36, PADR = 14, PADT = 14, PADB = 30;
+  const plotW = W - PADL - PADR, plotH = H - PADT - PADB;
+  const n = data.length;
+  const toX = (i) => PADL + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
+  const toY = (v) => PADT + (1 - Math.max(0, Math.min(100, v)) / 100) * plotH;
+  // Lissage Catmull-Rom → Bézier
+  const smoothPath = (key) => {
+    const pts = data.map((d, i) => [toX(i), toY(d[key] || 0)]);
+    if (pts.length < 2) return "";
+    let path = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+      const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+      path += ` C ${c1[0].toFixed(1)} ${c1[1].toFixed(1)}, ${c2[0].toFixed(1)} ${c2[1].toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+    }
+    return path;
+  };
   const SERIES = [
-    { key: "mentions",   label: "Mention",   color: "#1A7A4A" },
-    { key: "evocations", label: "Évocation", color: "#C97820" },
-    { key: "citations",  label: "Citation",  color: "#1A3C2E" },
+    { key: "mentions",   label: "Mentions",   color: "#1A7A4A" },
+    { key: "evocations", label: "Évocations", color: "#C97820" },
+    { key: "citations",  label: "Citations",  color: "#1A3C2E" },
   ];
-
-  const yMax = Math.max(
-    ...normalized.flatMap(d => SERIES.map(s => d[s.key] || 0)),
-    ...normalized.map(d => d.tested || 0),
-    2
-  );
-  const toX = (i) => PAD + (i / Math.max(normalized.length - 1, 1)) * plotW;
-  const toY = (v) => PADT + plotH - (v / yMax) * plotH;
-  const ticks = yMax <= 4
-    ? [0, 1, 2, yMax].filter((v, i, a) => a.indexOf(v) === i)
-    : [0, Math.round(yMax / 2), yMax];
-
-  // Courbe tracée uniquement sur les jours avec au moins 1 résultat
-  const makePath = (key) => {
-    const pts = normalized
-      .map((d, i) => ({ x: toX(i), y: toY(d[key] || 0), v: d[key] || 0, tested: d.tested }))
-      .filter(p => p.tested > 0);
-    if (pts.length < 1) return null;
-    if (pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`; // point isolé
-    return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
-  };
-
-  // Courbe de volume total (tested) — grisée en fond
-  const makeTestedPath = () => {
-    const pts = normalized
-      .map((d, i) => ({ x: toX(i), y: toY(d.tested || 0), tested: d.tested }))
-      .filter(p => p.tested > 0);
-    if (pts.length < 2) return null;
-    return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
-  };
-
+  const labelEvery = Math.max(1, Math.ceil(n / 8));
   return (
     <div>
-      {/* Légende */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 14, marginBottom: 6 }}>
         {SERIES.map(s => (
-          <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#1A3C2E" }}>
-            <span style={{ width: 16, height: 2, background: s.color, display: "inline-block", borderRadius: 1 }} />
-            {s.label}
-          </div>
+          <span key={s.key} style={{ fontSize: 10.5, color: "#1A3C2E", display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 14, height: 3, background: s.color, borderRadius: 2, display: "inline-block" }} />{s.label}
+          </span>
         ))}
-        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#1A3C2E" }}>
-          <span style={{ width: 16, height: 1.5, background: "#1A3C2E22", display: "inline-block", borderRadius: 1, borderTop: "1px dashed #1A3C2E33" }} />
-          Interrogations
-        </div>
       </div>
-
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
-        {/* Grille */}
-        {ticks.map(v => (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: 720, display: "block" }}>
+        {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
-            <line x1={PAD} x2={W - 12} y1={toY(v)} y2={toY(v)} stroke="#1A3C2E06" strokeWidth={1} />
-            <text x={PAD - 5} y={toY(v) + 3} fontSize={7} fill="#1A3C2E28" textAnchor="end">{v}</text>
+            <line x1={PADL} x2={W - PADR} y1={toY(v)} y2={toY(v)} stroke="#1A3C2E0A" strokeWidth={1} />
+            <text x={PADL - 6} y={toY(v) + 3} fontSize={8} fill="#1A3C2E55" textAnchor="end">{v}%</text>
           </g>
         ))}
-        {/* Axe X */}
-        <line x1={PAD} x2={W - 12} y1={toY(0)} y2={toY(0)} stroke="#1A3C2E10" strokeWidth={1} />
-        {/* Étiquettes dates */}
-        {[0, 7, 14, 21, 29].map(i => (
-          <text key={i} x={toX(i)} y={H - 6} fontSize={7} fill="#1A3C2E33" textAnchor="middle">
-            {normalized[i]?.date?.slice(5)}
-          </text>
-        ))}
-
-        {/* Courbe interrogations totales (fond) */}
-        {(() => { const d = makeTestedPath(); return d ? <path d={d} fill="none" stroke="#1A3C2E18" strokeWidth={1} strokeDasharray="3,2" /> : null; })()}
-
-        {/* Courbes M/É/C */}
-        {SERIES.map(s => {
-          const d = makePath(s.key);
-          return d ? <path key={s.key} d={d} fill="none" stroke={s.color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" opacity={0.9} /> : null;
-        })}
-
-        {/* Points par date — 3 points distincts par jour actif */}
-        {normalized.map((day, i) => {
-          if (!day.tested) return null;
-          return (
-            <g key={i}>
-              {SERIES.map((s, si) => {
-                const val = day[s.key] || 0;
-                // Toujours afficher le point sur l'axe si val=0 (marque l'absence)
-                const cy = toY(val);
-                const isZero = val === 0;
-                return (
-                  <g key={s.key}>
-                    {/* Tooltip simple — title SVG */}
-                    <title>{s.label} : {val} · {day.date}</title>
-                    <circle
-                      cx={toX(i)}
-                      cy={cy}
-                      r={isZero ? 1.5 : 3}
-                      fill={isZero ? "#1A3C2E18" : s.color}
-                      stroke={isZero ? "none" : "#fff"}
-                      strokeWidth={isZero ? 0 : 1}
-                      opacity={isZero ? 0.4 : 0.9}
-                    />
-                  </g>
-                );
-              })}
-            </g>
-          );
-        })}
+        {SERIES.map(s => { const d = smoothPath(s.key); return d ? <path key={s.key} d={d} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" /> : null; })}
+        {SERIES.map(s => data.map((d, i) => (
+          <circle key={`${s.key}-${i}`} cx={toX(i)} cy={toY(d[s.key] || 0)} r={2.6} fill={s.color}>
+            <title>{`${d.date} — ${s.label} : ${d[s.key] || 0}% (${d.tested} réponses analysées)`}</title>
+          </circle>
+        )))}
+        {data.map((d, i) => (i % labelEvery === 0 || i === n - 1) ? (
+          <text key={`x-${i}`} x={toX(i)} y={H - 8} fontSize={8} fill="#1A3C2E66" textAnchor="middle">{d.date.slice(5)}</text>
+        ) : null)}
       </svg>
     </div>
   );
@@ -2868,8 +2802,9 @@ export default function GeoAuditTab({
 
               {/* Tendance 30 jours — mentions / évocations / citations (depuis les résultats) */}
               <div className="audit-trend-wrap" style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 8 }}>Évolution des mentions — 30 jours</div>
-                <TrendChart trendDays={(audit.mentionTrend && audit.mentionTrend.some(d => d.total > 0)) ? audit.mentionTrend.map(d => ({ date: d.date, tested: d.total, present: d.mentions + d.evocations, mentions: d.mentions, evocations: d.evocations, citations: d.citations })) : audit.trendDays} />
+                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 4 }}>Évolution des mentions</div>
+                <div style={{ fontSize: 10.5, color: "#94A3B8", marginBottom: 8 }}>Part des réponses avec mention, évocation ou citation, en % par jour de test. Un point par date d'interrogation.</div>
+                <TrendChart points={audit.mecTrend} />
               </div>
 
               {/* ── Segmentation par intention ── */}
