@@ -1029,6 +1029,14 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     const d = mentionByDay[key] || { mentions: 0, evocations: 0, citations: 0, total: 0 };
     mentionTrend.push({ date: key, ...d });
   }
+
+  // ── Présence dans le temps : taux de présence par JOUR DE TEST (jours actifs uniquement) ──
+  const presenceTrend = Object.entries(mentionByDay)
+    .map(([date, d]) => ({ date, tested: d.total, present: d.mentions + d.evocations, rate: d.total ? Math.round(((d.mentions + d.evocations) / d.total) * 100) : 0 }))
+    .sort((x, y) => x.date.localeCompare(y.date));
+
+  // ── Interrogations distinctes : paires (question, provider) réellement testées ──
+  const distinctRuns = new Set(results.map(r => `${r.question_id || "?"}|${r.provider || ""}`)).size;
   const compStats = {};
   // 1. Depuis competitors_mentioned (résultats récents)
   // Chaque entrée concurrent : { name, mentioned, position, in_sources }
@@ -1107,6 +1115,33 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
 
   const hasFavFilter = questions.some(q => q.is_favorite);
   const favCount = questions.filter(q => q.is_favorite).length;
+
+  // ── Statut par question : À défendre / À surveiller / Conquête prioritaire ──
+  // Basé sur le DERNIER résultat par (question, provider). "Conquête" inclut les
+  // positions perdues : la marque était présente auparavant mais ne l'est plus.
+  const _lastByQP = {};
+  results.forEach(r => {
+    const k = `${r.question_id || "?"}|${r.provider || ""}`;
+    if (!_lastByQP[k] || new Date(r.created_at || 0) > new Date(_lastByQP[k].created_at || 0)) _lastByQP[k] = r;
+  });
+  const _everByQ = {};
+  results.forEach(r => { if (r.brand_mentioned === true || r.brand_mentioned === 1) _everByQ[r.question_id] = true; });
+  const _nowByQ = {};
+  Object.values(_lastByQP).forEach(r => {
+    const q = r.question_id; if (!q) return;
+    if (!_nowByQ[q]) _nowByQ[q] = { providers: 0, present: 0 };
+    _nowByQ[q].providers++;
+    if (r.brand_mentioned === true || r.brand_mentioned === 1) _nowByQ[q].present++;
+  });
+  const _stRank = { conquest: 0, watch: 1, defend: 2 };
+  const questionStatus = questions
+    .filter(q => _nowByQ[q.id])
+    .map(q => {
+      const st = _nowByQ[q.id];
+      const status = st.present === 0 ? "conquest" : (st.present < st.providers ? "watch" : "defend");
+      return { question: q.question, status, lost: status === "conquest" && !!_everByQ[q.id], presentOn: st.present, providersOn: st.providers, isFav: !!q.is_favorite };
+    })
+    .sort((a, b) => (_stRank[a.status] - _stRank[b.status]) || ((b.lost ? 1 : 0) - (a.lost ? 1 : 0)));
 
   const leads = [];
   if (presenceRate < 30) leads.push({ priority: "🔴 Priorité haute", label: "Présence < 30%", reco: "Créer des contenus de recommandation",
@@ -1262,7 +1297,7 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     if (!brandSomewhere && !compSomewhere) blindSpots.push({ id: q.id, question: q.question, providers: rs.length });
   });
 
-  return { total, withBrand, withSources, withRanked, withSourceOnly, withMentionOnly, avgPos, avgMentionPos, avgEvocationPos, avgCitationPos, mentionCount, evocationCount, citationCount, presenceRate, trendDays, sortedUrls, brandUrls, brandOwnUrls, brandExternalUrls, urlDetails, competitorUrls, referenceUrls, topDomains, intentCount, typeCount, intentStatsList, pageTypeStatsList, mentionTrend, compStats, top5Competitors, competitorsRanked, byQuestionCategory, urlsToOptimize, urlsToRework, urlsToInspire, leads, questions: questions.length, providerStats, missingBrandQs, presentBrandQs, hasFavFilter, favCount, shareOfVoice, coMatrix, visibilityFunnel, blindSpots, _rawResults: results };
+  return { total, withBrand, withSources, withRanked, withSourceOnly, withMentionOnly, avgPos, avgMentionPos, avgEvocationPos, avgCitationPos, mentionCount, evocationCount, citationCount, presenceRate, trendDays, sortedUrls, brandUrls, brandOwnUrls, brandExternalUrls, urlDetails, competitorUrls, referenceUrls, topDomains, intentCount, typeCount, intentStatsList, pageTypeStatsList, mentionTrend, compStats, top5Competitors, competitorsRanked, byQuestionCategory, urlsToOptimize, urlsToRework, urlsToInspire, leads, questions: questions.length, providerStats, missingBrandQs, presentBrandQs, hasFavFilter, favCount, shareOfVoice, coMatrix, visibilityFunnel, blindSpots, presenceTrend, distinctRuns, questionStatus, _rawResults: results };
 }
 
 
@@ -2761,6 +2796,18 @@ export default function GeoAuditTab({
                 </div>
               )}
 
+              {/* Note : pourquoi les providers diffèrent */}
+              {Object.keys(audit.providerStats).length > 1 && (() => {
+                const rows = Object.entries(audit.providerStats).map(([pid, s]) => ({ pid, rate: pct(s.withBrand, s.total) })).sort((a, b) => b.rate - a.rate);
+                const top = rows[0], low = rows[rows.length - 1];
+                return (
+                  <div style={{ fontSize: 11, color: "#1A3C2E99", lineHeight: 1.6, marginTop: -6, marginBottom: 16, maxWidth: 720 }}>
+                    Les écarts entre moteurs sont normaux : chaque IA s'appuie sur des sources différentes (recherche web pour ChatGPT, Gemini et Perplexity, connaissances internes pour Claude) et sur ses propres critères de sélection.
+                    {top && low && top.pid !== low.pid && top.rate !== low.rate ? ` Ici, ${top.pid} vous cite le plus (${top.rate}%) et ${low.pid} le moins (${low.rate}%) : un écart marqué signale que vos contenus sont mieux relayés par certaines sources que d'autres.` : ""}
+                  </div>
+                );
+              })()}
+
               {/* Positions moyennes par type de présence (Mention / Évocation / Citation) */}
               {(audit.mentionCount > 0 || audit.evocationCount > 0 || audit.citationCount > 0) && (
                 <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
@@ -2788,6 +2835,25 @@ export default function GeoAuditTab({
                 <div style={{ marginBottom: 18 }}>
                   <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 10 }}>Funnel de visibilité</div>
                   <VisibilityFunnel funnel={audit.visibilityFunnel} />
+                </div>
+              )}
+
+              {/* ── Présence dans le temps : taux par jour de test ── */}
+              {Array.isArray(audit.presenceTrend) && audit.presenceTrend.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 10 }}>Présence dans le temps</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {audit.presenceTrend.slice(-12).map(d => (
+                      <div key={d.date} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ width: 74, flexShrink: 0, fontSize: 11, color: "#1A3C2E", fontVariantNumeric: "tabular-nums" }}>{d.date.slice(5)}</span>
+                        <div style={{ flex: 1, height: 14, background: "#1A3C2E08", borderRadius: 4, overflow: "hidden" }}>
+                          <div style={{ width: `${Math.max(1, d.rate)}%`, height: "100%", background: d.rate >= 50 ? "#1A7A4A" : d.rate > 0 ? "#C97820" : "#1A3C2E22", borderRadius: 4 }} />
+                        </div>
+                        <span style={{ width: 110, flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#1A3C2E", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{d.rate}% <span style={{ fontWeight: 400, color: "#1A3C2E99" }}>({d.present}/{d.tested})</span></span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#94A3B8", marginTop: 8 }}>Taux de présence de la marque par jour de test (réponses avec marque / réponses analysées ce jour).</div>
                 </div>
               )}
 

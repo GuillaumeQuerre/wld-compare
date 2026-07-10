@@ -113,6 +113,10 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
       { v: (() => { const p = parseFloat(a.avgMentionPos); return Number.isFinite(p) && p > 0 ? p.toFixed(1) : "—"; })(), l: "Position moyenne" },
     ],
     providers, cats, comps, compMax, sovBrandPct, blindSpotsCount, trend,
+    presenceTrend: (a.presenceTrend || []).filter(t => t.tested > 0),
+    distinctRuns: a.distinctRuns || 0,
+    nProviders: providers.length,
+    questionStatus: (a.questionStatus || []).map(q => ({ question: q.question, status: q.status, lost: !!q.lost, presentOn: q.presentOn || 0, providersOn: q.providersOn || 0 })),
     sources: {
       own: (a.brandOwnUrls || []).length,
       optimize: (a.urlsToOptimize || []).length,
@@ -182,7 +186,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       s.addText(k.v, { x, y: y + 0.16, w: gw, h: 0.72, align: "center", fontSize: 30, bold: true, color: C.green, fontFace: "Georgia" });
       s.addText(k.l, { x, y: y + 0.98, w: gw, h: 0.4, align: "center", fontSize: 12, color: C.inkMid });
     });
-    s.addText(`${d.score.withBrand} réponses sur ${d.score.total} citent la marque, à travers ${d.score.questions} questions suivies.`, { x: 5.3, y: 5.5, w: 7.6, h: 0.6, fontSize: 13, color: C.inkMid });
+    s.addText(`${d.score.withBrand} réponses sur ${d.score.total} analysées citent la marque — ${d.score.questions} questions suivies sur ${d.nProviders} moteur${d.nProviders > 1 ? "s" : ""}${d.distinctRuns ? ` (${d.distinctRuns} interrogations distinctes)` : ""}.`, { x: 5.3, y: 5.5, w: 7.6, h: 0.6, fontSize: 13, color: C.inkMid });
     footer(s, 2);
   }
 
@@ -196,15 +200,19 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       valAxisMaxVal: 100, valAxisMinVal: 0, catAxisLabelColor: C.ink, catAxisLabelFontSize: 13,
       valGridLine: { style: "none" }, showLegend: false,
     });
+    s.addText("Les écarts entre moteurs sont normaux : chaque IA s'appuie sur des sources différentes (recherche web pour ChatGPT, Gemini et Perplexity, connaissances internes pour Claude) et sur ses propres critères de sélection.", { x: 0.6, y: 6.55, w: 12.1, h: 0.5, fontSize: 11, color: C.inkMid, italic: true });
     footer(s, 3);
   }
 
-  // 4 — Évolution dans le temps (ligne)
-  if (d.trend.length > 1) {
+  // 4 — Présence dans le temps (taux par jour de test)
+  if (d.presenceTrend.length > 1) {
     const s = slide();
-    kicker(s, "Tendance"); title(s, "Évolution de la présence");
-    s.addChart(p.ChartType.line, [{ name: "Réponses présentes", labels: d.trend.map(t => t.date?.slice(5)), values: d.trend.map(t => t.present) }], {
-      x: 0.6, y: 1.9, w: 12.1, h: 4.6, chartColors: [C.accent], lineSize: 3, lineSmooth: true,
+    kicker(s, "Tendance"); title(s, "Présence dans le temps");
+    s.addText("Taux de présence de la marque par jour de test (réponses avec marque / réponses analysées).", { x: 0.6, y: 1.42, w: 12, h: 0.35, fontSize: 12, color: C.inkMid });
+    s.addChart(p.ChartType.line, [{ name: "Présence %", labels: d.presenceTrend.map(t => t.date?.slice(5)), values: d.presenceTrend.map(t => t.rate) }], {
+      x: 0.6, y: 1.9, w: 12.1, h: 4.6, chartColors: [C.accent], lineSize: 3, lineSmooth: false,
+      showValue: true, dataLabelColor: C.accent, dataLabelFontSize: 11,
+      valAxisMaxVal: 100, valAxisMinVal: 0,
       showLegend: false, catAxisLabelFontSize: 10, catAxisLabelColor: C.inkMid, valGridLine: { color: C.creamDark, style: "solid" },
     });
     footer(s, 4);
@@ -286,7 +294,35 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     footer(s, 8);
   }
 
-  // 9 — Pistes prioritaires (reco + pourquoi/comment/combien)
+  // 9 — Questions par statut (À défendre / À surveiller / Conquête prioritaire)
+  if (d.questionStatus.length) {
+    const s = slide();
+    kicker(s, "Questions"); title(s, "Statut GEO des questions suivies");
+    const ST = { defend: { label: "À défendre", col: "1A7A4A" }, watch: { label: "À surveiller", col: C.warn }, conquest: { label: "Conquête prioritaire", col: C.accent } };
+    const counts = { defend: 0, watch: 0, conquest: 0, lost: 0 };
+    d.questionStatus.forEach(q => { counts[q.status]++; if (q.lost) counts.lost++; });
+    s.addText([
+      { text: `${counts.defend} à défendre`, options: { color: ST.defend.col, bold: true } }, { text: "   ·   ", options: { color: C.inkLight } },
+      { text: `${counts.watch} à surveiller`, options: { color: ST.watch.col, bold: true } }, { text: "   ·   ", options: { color: C.inkLight } },
+      { text: `${counts.conquest} en conquête prioritaire`, options: { color: ST.conquest.col, bold: true } },
+      { text: counts.lost ? `   (dont ${counts.lost} position${counts.lost > 1 ? "s" : ""} perdue${counts.lost > 1 ? "s" : ""})` : "", options: { color: C.inkMid, italic: true } },
+      { text: d.blindSpotsCount > 0 ? `   ·   ${d.blindSpotsCount} angle${d.blindSpotsCount > 1 ? "s" : ""} mort${d.blindSpotsCount > 1 ? "s" : ""} (ni vous ni vos concurrents)` : "", options: { color: C.inkMid, italic: true } },
+    ], { x: 0.6, y: 1.42, w: 12.1, h: 0.35, fontSize: 12 });
+    const rows = d.questionStatus.slice(0, 13).map(q => ([
+      { text: ST[q.status].label + (q.lost ? " ⟳" : ""), options: { color: ST[q.status].col, bold: true, fontSize: 10 } },
+      { text: (q.question || "").length > 105 ? q.question.slice(0, 102) + "…" : (q.question || ""), options: { color: C.ink, fontSize: 11 } },
+      { text: `${q.presentOn}/${q.providersOn}`, options: { color: C.inkMid, fontSize: 10, align: "center" } },
+    ]));
+    s.addTable([[
+      { text: "Statut", options: { bold: true, color: C.white, fill: { color: C.green }, fontSize: 10 } },
+      { text: "Question", options: { bold: true, color: C.white, fill: { color: C.green }, fontSize: 10 } },
+      { text: "Moteurs", options: { bold: true, color: C.white, fill: { color: C.green }, fontSize: 10, align: "center" } },
+    ], ...rows], { x: 0.6, y: 1.9, w: 12.1, colW: [2.2, 8.7, 1.2], border: { type: "solid", pt: 0.5, color: C.creamDark }, rowH: 0.34, valign: "middle" });
+    s.addText("⟳ = position perdue : la marque apparaissait sur cette question mais n'apparaît plus au dernier test.", { x: 0.6, y: 6.95, w: 12.1, h: 0.3, fontSize: 10, color: C.inkLight, italic: true });
+    footer(s, 9);
+  }
+
+  // 10 — Pistes prioritaires (reco + pourquoi/comment/combien)
   if (d.leads && d.leads.length) {
     const s = slide();
     kicker(s, "Recommandations"); title(s, "Pistes prioritaires");
@@ -301,7 +337,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       ], { x: 0.85, y: y + 0.34, w: 11.9, h: 1.0, fontSize: 9.5, valign: "top", lineSpacingMultiple: 1.04 });
       y += 1.32;
     });
-    footer(s, 9);
+    footer(s, 10);
   }
 
   // 10 — Plan d'action
@@ -312,7 +348,6 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     if (d.diagnostic?.verdict) {
       s.addText([{ text: "Verdict.  ", options: { bold: true, color: C.accent } }, { text: d.diagnostic.verdict, options: { color: "E8EFE9" } }], { x: 0.6, y: 1.7, w: 12.1, h: 0.9, fontSize: 14, valign: "top" });
     }
-    if (d.blindSpotsCount > 0) s.addText(`${d.blindSpotsCount} angle${d.blindSpotsCount > 1 ? "s" : ""} mort${d.blindSpotsCount > 1 ? "s" : ""} à conquérir — questions où ni vous ni vos concurrents n'apparaissez.`, { x: 0.6, y: 7.0, w: 12.1, h: 0.35, fontSize: 11, color: "9DB3A6", italic: true });
     const startY = d.diagnostic?.verdict ? 2.7 : 1.8;
     const PR = { haute: C.accent, moyenne: C.warn, basse: C.greenLight };
     (d.roadmap.length ? d.roadmap : [{ action: "Générez le plan d'action depuis l'onglet « Et maintenant ? » pour l'inclure ici.", priority: "moyenne" }]).forEach((r, i) => {
@@ -356,7 +391,8 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
     doc.setFontSize(26); setText(C.green); doc.text(ttl, 16, 32);
   };
   const hbars = (items, x, y, w, maxBarW, color, suffix = "%") => {
-    const max = Math.max(1, ...items.map(i => i.val));
+    // En %, la barre pleine représente 100 % ; sinon échelle relative au max.
+    const max = suffix === "%" ? 100 : Math.max(1, ...items.map(i => i.val));
     doc.setFontSize(11);
     items.forEach((it, i) => {
       const yy = y + i * 13;
@@ -380,51 +416,62 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
 
   // 2 — Score & KPIs
   newPage(C.white); head("Synthèse", "Score de présence GEO");
-  // anneau (cercle simplifié)
-  const cx = 56, cy = 110, rOut = 34;
-  setFill(C.creamDark); doc.circle(cx, cy, rOut, "F");
-  setFill(d.score.color); doc.circle(cx, cy, rOut, "F"); // base couleur
-  setFill(C.white); doc.circle(cx, cy, rOut * 0.66, "F");
-  setText(d.score.color); doc.setFont("helvetica", "bold"); doc.setFontSize(34);
+  // Anneau proportionnel : la piste crème = 100 %, l'arc coloré = le taux de présence.
+  const cx = 56, cy = 110, rMid = 29, ring = 11;
+  const arc = (from, to, color) => {
+    setDraw(color); doc.setLineWidth(ring); doc.setLineCap("butt");
+    const steps = Math.max(2, Math.ceil((to - from) / 4));
+    for (let i = 0; i < steps; i++) {
+      const a1 = ((from + ((to - from) * i) / steps) - 90) * Math.PI / 180;
+      const a2 = ((from + ((to - from) * (i + 1)) / steps) - 90) * Math.PI / 180;
+      doc.line(cx + rMid * Math.cos(a1), cy + rMid * Math.sin(a1), cx + rMid * Math.cos(a2), cy + rMid * Math.sin(a2));
+    }
+  };
+  arc(0, 360, C.creamDark);
+  if (d.score.rate > 0) arc(0, Math.max(4, (d.score.rate / 100) * 360), d.score.color);
+  doc.setLineWidth(0.3);
+  setText(d.score.color); doc.setFont("helvetica", "bold"); doc.setFontSize(30);
   doc.text(`${d.score.rate}%`, cx, cy + 4, { align: "center" });
-  doc.setFontSize(13); doc.setFont("helvetica", "bold"); doc.text(d.score.label, cx, cy + rOut + 12, { align: "center" });
-  // KPIs grid
-  const kx = 110, ky = 56, kw = 100, kh = 26, kg = 8;
+  doc.setFontSize(13); doc.text(d.score.label, cx, cy + rMid + ring / 2 + 14, { align: "center" });
+  // Cards KPI empilées verticalement, valeur + libellé sur la même ligne
+  const kx = 110, ky = 52, kw = W - 16 - kx, kh = 18, kg = 7;
   d.kpis.slice(0, 4).forEach((k, i) => {
-    const col = i % 2, row = Math.floor(i / 2);
-    const x = kx + col * (kw + kg), y = ky + row * (kh + kg);
-    setFill(C.greenPale); doc.roundedRect(x, y, kw, kh, 2, 2, "F");
-    setText(C.green); doc.setFont("helvetica", "bold"); doc.setFontSize(23); doc.text(`${k.v}`, x + 8, y + 15);
-    setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(10.5); doc.text(k.l, x + 8, y + 22.5);
+    const y = ky + i * (kh + kg);
+    setFill(C.greenPale); doc.roundedRect(kx, y, kw, kh, 2, 2, "F");
+    setText(C.green); doc.setFont("helvetica", "bold"); doc.setFontSize(17); doc.text(`${k.v}`, kx + 10, y + 12.5);
+    setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.text(k.l, kx + 44, y + 12.5);
   });
   setText(C.inkMid); doc.setFontSize(12);
-  doc.text(`${d.score.withBrand} réponses sur ${d.score.total} citent la marque, à travers ${d.score.questions} questions suivies.`, kx, ky + 2 * (kh + kg) + 8, { maxWidth: 210 });
+  doc.text(`${d.score.withBrand} réponses sur ${d.score.total} analysées citent la marque — ${d.score.questions} questions suivies sur ${d.nProviders} moteur${d.nProviders > 1 ? "s" : ""}${d.distinctRuns ? ` (${d.distinctRuns} interrogations distinctes)` : ""}.`, kx, ky + 4 * (kh + kg) + 8, { maxWidth: 212 });
   foot();
 
   // 3 — Providers
   if (d.providers.length) {
     newPage(C.white); head("Visibilité", "Présence par moteur IA");
     hbars(d.providers.map(p => ({ label: p.label, val: p.rate })), 16, 50, 50, 200, C.green, "%");
+    setText(C.inkMid); doc.setFont("helvetica", "italic"); doc.setFontSize(10);
+    doc.text(doc.splitTextToSize("Les écarts entre moteurs sont normaux : chaque IA s'appuie sur des sources différentes (recherche web pour ChatGPT, Gemini et Perplexity, connaissances internes pour Claude) et sur ses propres critères de sélection.", W - 40), 16, 58 + d.providers.length * 13 + 8);
+    doc.setFont("helvetica", "normal");
     foot();
   }
 
-  // 4 — Évolution (polyligne)
-  if (d.trend.length > 1) {
-    newPage(C.white); head("Tendance", "Évolution de la présence");
-    const gx = 24, gy = 150, gw = 290, gh = 95;
-    const max = Math.max(1, ...d.trend.map(t => t.total));
-    setDraw(C.creamDark); doc.setLineWidth(0.3); doc.line(gx, gy, gx + gw, gy);
+  // 4 — Présence dans le temps (taux par jour de test)
+  if (d.presenceTrend.length > 1) {
+    newPage(C.white); head("Tendance", "Présence dans le temps");
+    setText(C.inkMid); doc.setFontSize(11); doc.setFont("helvetica", "normal");
+    doc.text("Taux de présence de la marque par jour de test (réponses avec marque / réponses analysées).", 16, 42);
+    const gx = 24, gy = 158, gw = 290, gh = 100;
+    setDraw(C.creamDark); doc.setLineWidth(0.3);
+    [0, 50, 100].forEach(v => { const yy = gy - (v / 100) * gh; doc.line(gx, yy, gx + gw, yy); setText(C.inkLight); doc.setFontSize(8); doc.text(`${v}%`, gx - 3, yy + 2, { align: "right" }); });
+    const pts = d.presenceTrend, n = pts.length;
     setDraw(C.accent); doc.setLineWidth(1.2);
-    const n = d.trend.length;
-    d.trend.forEach((t, i) => {
-      if (i === 0) return;
-      const x1 = gx + ((i - 1) / (n - 1)) * gw, y1 = gy - (d.trend[i - 1].present / max) * gh;
-      const x2 = gx + (i / (n - 1)) * gw, y2 = gy - (t.present / max) * gh;
-      doc.line(x1, y1, x2, y2);
+    pts.forEach((t, i) => {
+      const x = gx + (n > 1 ? (i / (n - 1)) * gw : gw / 2), y = gy - (t.rate / 100) * gh;
+      if (i > 0) { const px = gx + ((i - 1) / (n - 1)) * gw, py = gy - (pts[i - 1].rate / 100) * gh; doc.line(px, py, x, y); }
+      setFill(C.accent); doc.circle(x, y, 1.4, "F");
+      setText(C.accent); doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.text(`${t.rate}%`, x, y - 4, { align: "center" });
+      setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.text((t.date || "").slice(5), x, gy + 6, { align: "center" });
     });
-    setText(C.inkMid); doc.setFontSize(9);
-    doc.text(d.trend[0].date || "", gx, gy + 6);
-    doc.text(d.trend[n - 1].date || "", gx + gw, gy + 6, { align: "right" });
     foot();
   }
 
@@ -499,7 +546,37 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
   }
   foot();
 
-  // 9 — Pistes prioritaires (reco + pourquoi/comment/combien)
+  // 9 — Questions par statut (À défendre / À surveiller / Conquête prioritaire)
+  if (d.questionStatus.length) {
+    newPage(C.white); head("Questions", "Statut GEO des questions suivies");
+    const STp = { defend: { label: "À défendre", col: "1A7A4A" }, watch: { label: "À surveiller", col: C.warn }, conquest: { label: "Conquête prioritaire", col: C.accent } };
+    const cnt = { defend: 0, watch: 0, conquest: 0, lost: 0 };
+    d.questionStatus.forEach(q => { cnt[q.status]++; if (q.lost) cnt.lost++; });
+    doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    setText(STp.defend.col); doc.text(`${cnt.defend} à défendre`, 16, 42);
+    setText(STp.watch.col); doc.text(`${cnt.watch} à surveiller`, 70, 42);
+    setText(STp.conquest.col); doc.text(`${cnt.conquest} en conquête prioritaire`, 126, 42);
+    if (cnt.lost) { setText(C.inkMid); doc.setFont("helvetica", "italic"); doc.setFontSize(10); doc.text(`dont ${cnt.lost} position${cnt.lost > 1 ? "s" : ""} perdue${cnt.lost > 1 ? "s" : ""} (⟳)`, 210, 42); }
+    if (d.blindSpotsCount > 0) { setText(C.inkMid); doc.setFont("helvetica", "italic"); doc.setFontSize(9.5); doc.text(`${d.blindSpotsCount} angle${d.blindSpotsCount > 1 ? "s" : ""} mort${d.blindSpotsCount > 1 ? "s" : ""} : questions où ni vous ni vos concurrents n'apparaissez.`, 16, 49); doc.setFont("helvetica", "normal"); }
+    let qy = 56;
+    d.questionStatus.slice(0, 16).forEach(q => {
+      const st = STp[q.status];
+      setFill(st.col); doc.rect(16, qy - 3.2, 2.6, 4.4, "F");
+      setText(st.col); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+      doc.text(st.label.toUpperCase() + (q.lost ? " ⟳" : ""), 21, qy);
+      setText(C.ink); doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      const qt = (q.question || "").length > 118 ? q.question.slice(0, 115) + "…" : (q.question || "");
+      doc.text(qt, 66, qy);
+      setText(C.inkMid); doc.setFontSize(9); doc.text(`${q.presentOn}/${q.providersOn}`, W - 16, qy, { align: "right" });
+      qy += 7.4;
+    });
+    setText(C.inkLight); doc.setFont("helvetica", "italic"); doc.setFontSize(9);
+    doc.text("⟳ = position perdue : la marque apparaissait sur cette question mais n'apparaît plus au dernier test.", 16, H - 14);
+    doc.setFont("helvetica", "normal");
+    foot();
+  }
+
+  // 10 — Pistes prioritaires (reco + pourquoi/comment/combien)
   if (d.leads && d.leads.length) {
     newPage(C.white); head("Recommandations", "Pistes prioritaires");
     let y = 46;
@@ -539,7 +616,35 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
     if (r.priority) { setText(PR[r.priority] || C.greenLight); doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.text(r.priority.toUpperCase(), W - 16, y + 3, { align: "right" }); }
     y += Math.max(13, lines.length * 6 + 6);
   });
-  if (d.blindSpotsCount > 0) { doc.setFontSize(11); setText("9DB3A6"); doc.setFont("helvetica", "italic"); doc.text(`${d.blindSpotsCount} angle${d.blindSpotsCount > 1 ? "s" : ""} mort${d.blindSpotsCount > 1 ? "s" : ""} a conquerir - questions ou ni vous ni vos concurrents n'apparaissez.`, 16, H - 14); }
+
+  // 12 — Roadmap ICE (priorisation Impact / Confiance / Effort)
+  if (d.roadmap.length && d.roadmap.some(r => r.impact != null || r.confidence != null || r.ease != null)) {
+    newPage(C.white); head("Roadmap", "Priorisation ICE");
+    setText(C.inkMid); doc.setFontSize(10.5); doc.setFont("helvetica", "normal");
+    doc.text("Chaque action est notée de 1 à 10 sur trois critères : Impact attendu, Confiance dans le résultat, Facilité de mise en œuvre. Score ICE = I + C + E (sur 30).", 16, 42, { maxWidth: W - 32 });
+    const col = { act: 16, i: 236, c: 256, e: 276, ice: 296, pr: 314 };
+    let ry = 58;
+    setFill(C.green); doc.rect(14, ry - 5, W - 28, 8, "F");
+    setText(C.white); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+    doc.text("Action", col.act + 4, ry); doc.text("I", col.i, ry, { align: "center" }); doc.text("C", col.c, ry, { align: "center" }); doc.text("E", col.e, ry, { align: "center" }); doc.text("ICE", col.ice, ry, { align: "center" }); doc.text("Priorité", col.pr, ry);
+    ry += 9;
+    const PRc = { haute: C.accent, moyenne: C.warn, basse: C.greenLight };
+    d.roadmap.forEach((r) => {
+      const ice = (r.impact || 0) + (r.confidence || 0) + (r.ease || 0);
+      setText(C.ink); doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      const lines = doc.splitTextToSize(r.action || "", 208);
+      doc.text(lines, col.act + 4, ry);
+      setText(C.inkMid); doc.setFontSize(10);
+      doc.text(`${r.impact ?? "—"}`, col.i, ry, { align: "center" });
+      doc.text(`${r.confidence ?? "—"}`, col.c, ry, { align: "center" });
+      doc.text(`${r.ease ?? "—"}`, col.e, ry, { align: "center" });
+      setText(C.green); doc.setFont("helvetica", "bold"); doc.text(`${ice || "—"}`, col.ice, ry, { align: "center" });
+      setText(PRc[r.priority] || C.greenLight); doc.setFontSize(8); doc.text((r.priority || "").toUpperCase(), col.pr, ry);
+      ry += Math.max(9, lines.length * 5 + 4);
+      setDraw(C.creamDark); doc.setLineWidth(0.2); doc.line(14, ry - 6, W - 14, ry - 6);
+    });
+    foot();
+  }
 
   doc.save(`Audit_GEO_${d.brandName.replace(/\s+/g, "_")}_${fileDate()}.pdf`);
 }
