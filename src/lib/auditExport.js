@@ -186,7 +186,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       s.addText(k.v, { x, y: y + 0.16, w: gw, h: 0.72, align: "center", fontSize: 30, bold: true, color: C.green, fontFace: "Georgia" });
       s.addText(k.l, { x, y: y + 0.98, w: gw, h: 0.4, align: "center", fontSize: 12, color: C.inkMid });
     });
-    s.addText(`${d.score.withBrand} réponses sur ${d.score.total} analysées citent la marque — ${d.score.questions} questions suivies sur ${d.nProviders} moteur${d.nProviders > 1 ? "s" : ""}${d.distinctRuns ? ` (${d.distinctRuns} interrogations distinctes)` : ""}.`, { x: 5.3, y: 5.5, w: 7.6, h: 0.6, fontSize: 13, color: C.inkMid });
+    s.addText(`${d.score.withBrand} réponses sur ${d.score.total} analysées citent la marque — ${d.score.questions} questions suivies sur ${d.nProviders} moteur${d.nProviders > 1 ? "s" : ""}${d.distinctRuns && d.distinctRuns !== d.score.total ? ` (${d.distinctRuns} interrogations distinctes)` : ""}.`, { x: 5.3, y: 5.5, w: 7.6, h: 0.6, fontSize: 13, color: C.inkMid });
     footer(s, 2);
   }
 
@@ -442,7 +442,7 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
     setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.text(k.l, kx + 44, y + 12.5);
   });
   setText(C.inkMid); doc.setFontSize(12);
-  doc.text(`${d.score.withBrand} réponses sur ${d.score.total} analysées citent la marque — ${d.score.questions} questions suivies sur ${d.nProviders} moteur${d.nProviders > 1 ? "s" : ""}${d.distinctRuns ? ` (${d.distinctRuns} interrogations distinctes)` : ""}.`, kx, ky + 4 * (kh + kg) + 8, { maxWidth: 212 });
+  doc.text(`${d.score.withBrand} réponses sur ${d.score.total} analysées citent la marque — ${d.score.questions} questions suivies sur ${d.nProviders} moteur${d.nProviders > 1 ? "s" : ""}${d.distinctRuns && d.distinctRuns !== d.score.total ? ` (${d.distinctRuns} interrogations distinctes)` : ""}.`, kx, ky + 4 * (kh + kg) + 8, { maxWidth: 212 });
   foot();
 
   // 3 — Providers

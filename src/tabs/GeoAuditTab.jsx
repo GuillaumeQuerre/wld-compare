@@ -798,6 +798,20 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   const _aliasLut = {};
   Object.entries(aliasMap || {}).forEach(([a, b]) => { _aliasLut[(a || "").toLowerCase().trim()] = b; });
   const canonName = (name) => { if (!name) return name; return _aliasLut[name.toLowerCase().trim()] || name; };
+
+  // ── Instantané vs historique ─────────────────────────────────────
+  // L'audit est un INSTANTANÉ : seul le DERNIER résultat par couple
+  // (question, provider) compte dans les statistiques. L'historique complet
+  // (allResults) ne sert qu'aux séries temporelles et à la détection des
+  // positions perdues.
+  const allResults = results;
+  const _snapKey = {};
+  allResults.forEach(r => {
+    const k = `${r.question_id || "?"}|${getProviderId(r.model)}`;
+    if (!_snapKey[k] || new Date(r.created_at || 0) > new Date(_snapKey[k].created_at || 0)) _snapKey[k] = r;
+  });
+  results = Object.values(_snapKey);
+  const distinctRuns = results.length; // paires (question, provider) réellement testées
   const brandName = brand?.brand_name || "";
   const brandAliases = brand?.brand_aliases || [];
   const total = results.length;
@@ -854,7 +868,7 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   // On crée l'entrée si elle n'existe pas (nouveaux jours sans calendarEntries)
   // ET on enrichit les entrées existantes avec la ventilation précise
   const calByDateFromResults = {};
-  results.forEach(r => {
+  allResults.forEach(r => {
     const d = (r.created_at || "").slice(0, 10);
     if (!d) return;
     if (!calByDateFromResults[d]) calByDateFromResults[d] = { tested: 0, present: 0, mentions: 0, citations: 0, evocations: 0 };
@@ -1011,7 +1025,7 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   // ── UPGRADE 3 : Évolution temporelle des MENTIONS sur 30 jours ──
   // Par jour : nb de mentions (position de marque détectée) parmi les résultats du jour.
   const mentionByDay = {};
-  results.forEach(r => {
+  allResults.forEach(r => {
     if (!r.created_at) return;
     const key = String(r.created_at).slice(0, 10);
     if (!mentionByDay[key]) mentionByDay[key] = { mentions: 0, evocations: 0, citations: 0, total: 0 };
@@ -1035,8 +1049,6 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     .map(([date, d]) => ({ date, tested: d.total, present: d.mentions + d.evocations, rate: d.total ? Math.round(((d.mentions + d.evocations) / d.total) * 100) : 0 }))
     .sort((x, y) => x.date.localeCompare(y.date));
 
-  // ── Interrogations distinctes : paires (question, provider) réellement testées ──
-  const distinctRuns = new Set(results.map(r => `${r.question_id || "?"}|${r.provider || ""}`)).size;
   const compStats = {};
   // 1. Depuis competitors_mentioned (résultats récents)
   // Chaque entrée concurrent : { name, mentioned, position, in_sources }
@@ -1119,15 +1131,12 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   // ── Statut par question : À défendre / À surveiller / Conquête prioritaire ──
   // Basé sur le DERNIER résultat par (question, provider). "Conquête" inclut les
   // positions perdues : la marque était présente auparavant mais ne l'est plus.
-  const _lastByQP = {};
-  results.forEach(r => {
-    const k = `${r.question_id || "?"}|${r.provider || ""}`;
-    if (!_lastByQP[k] || new Date(r.created_at || 0) > new Date(_lastByQP[k].created_at || 0)) _lastByQP[k] = r;
-  });
+  // Les résultats sont déjà dédupliqués au dernier passage par (question, provider) ;
+  // l'historique complet (allResults) sert à détecter les positions PERDUES.
   const _everByQ = {};
-  results.forEach(r => { if (r.brand_mentioned === true || r.brand_mentioned === 1) _everByQ[r.question_id] = true; });
+  allResults.forEach(r => { if (r.brand_mentioned === true || r.brand_mentioned === 1) _everByQ[r.question_id] = true; });
   const _nowByQ = {};
-  Object.values(_lastByQP).forEach(r => {
+  results.forEach(r => {
     const q = r.question_id; if (!q) return;
     if (!_nowByQ[q]) _nowByQ[q] = { providers: 0, present: 0 };
     _nowByQ[q].providers++;
