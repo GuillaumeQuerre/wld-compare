@@ -13,7 +13,7 @@ import {
   buildCSV, downloadCSV, CSV_COLUMNS,
 } from "../lib/auditTools";
 import UploadCard from "../components/UploadCard";
-import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, applySfPerimeter, getSitePerimeter } from "../lib/compareEngine";
+import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, applySfPerimeter, getSitePerimeter, entityToolStats } from "../lib/compareEngine";
 import PageTypeClassifier from "../components/PageTypeClassifier";
 import { newProject } from "../lib/helpers";
 import { C, SITE_PALETTE } from "../lib/constants";
@@ -3385,6 +3385,13 @@ export default function GeoAuditTab({
                 const brandTool = { ...(sfStats || {}), ...(smStats || {}) };
                 const toolStatsByCol = Object.keys(brandTool).length ? { __brand__: brandTool } : {};
                 const importStatus = { __brand__: { sf: !!sfStats, semrush: !!smStats } };
+                (audit.compareCompEntries || []).forEach(ce => {
+                  const comp = (competitors || []).find(c => c.id === ce.key);
+                  const ts = entityToolStats(comp?.tool_imports);
+                  if (ts) toolStatsByCol[ce.key] = ts;
+                  const ti = comp?.tool_imports || {};
+                  importStatus[ce.key] = { sf: !!ti.sf, semrush: !!(ti.sm_overview || ti.sm_pages) };
+                });
                 const view = buildLlmComparison(brand?.brand_name || "Votre marque", audit.compareBrandStats, audit.compareCompEntries, toolStatsByCol);
                 return (
                   <div style={{ marginBottom: 22 }}>

@@ -29,7 +29,7 @@ import {
   sbSaveGeoAnalysis, sbGetGeoAnalyses,
 } from "../lib/supabase";
 import { ProviderConfigPanel, BrandConfigPanel } from "../components/GeoConfig";
-import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, parseSemrushOverview, applySfPerimeter, getSitePerimeter } from "../lib/compareEngine";
+import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, parseSemrushOverview, applySfPerimeter, getSitePerimeter, computeToolImport, entityToolStats } from "../lib/compareEngine";
 import UploadCard from "../components/UploadCard";
 import { newProject, parseCSV, parseSemrushCSV } from "../lib/helpers";
 import { parseSemrush } from "../lib/parsers";
@@ -1389,6 +1389,91 @@ const COMP_CATEGORIES = [
   { key: "other",       label: "Autre",                color: "#64748B", bg: "#F1F5F9" },
 ];
 
+// ── Overlay d'import SF / Semrush pour un concurrent (comparaison approfondie) ──
+function ToolImportOverlay({ target, tool, onClose, onSubmit }) {
+  // tool : "sf" | "semrush". Pour semrush, choix Overview / Top pages.
+  const [smKind, setSmKind] = useState("sm_overview");
+  const [file, setFile] = useState(null);
+  const [crawlDate, setCrawlDate] = useState("");
+  const [analysisDate, setAnalysisDate] = useState("");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  if (!target) return null;
+  const kind = tool === "sf" ? "sf" : smKind;
+
+  const submit = async () => {
+    if (!file) { setErr("Sélectionnez un fichier CSV."); return; }
+    setBusy(true); setErr("");
+    try {
+      const text = await file.text();
+      const meta = { filename: file.name };
+      if (kind === "sf") meta.crawl_date = crawlDate || null;
+      else if (kind === "sm_overview") meta.analysis_date = analysisDate || null;
+      else if (kind === "sm_pages") { meta.period_start = periodStart || null; meta.period_end = periodEnd || null; }
+      const rec = computeToolImport(kind, text, meta);
+      if (!rec) { setErr("Fichier non reconnu pour ce type d'import."); setBusy(false); return; }
+      await onSubmit(kind, rec);
+      setBusy(false); onClose();
+    } catch (e) { setErr("Erreur de lecture du fichier."); setBusy(false); }
+  };
+
+  const L = { fontSize: 11, color: "#64748B", marginBottom: 3, display: "block" };
+  const I = { width: "100%", padding: "7px 9px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, boxSizing: "border-box" };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(26,60,46,0.35)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 380, maxWidth: "100%", background: "#fff", borderRadius: 14, boxShadow: "0 12px 48px rgba(26,60,46,0.25)", padding: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#1A3C2E", marginBottom: 2 }}>
+          Importer {tool === "sf" ? "Screaming Frog" : "Semrush"}
+        </div>
+        <div style={{ fontSize: 11.5, color: "#94A3B8", marginBottom: 16 }}>pour <b style={{ color: target.color }}>{target.label}</b></div>
+
+        {tool === "semrush" && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+            {[{ id: "sm_overview", label: "Overview" }, { id: "sm_pages", label: "Top pages" }].map(k => (
+              <button key={k.id} onClick={() => setSmKind(k.id)}
+                style={{ flex: 1, padding: "6px 0", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  border: `1px solid ${smKind === k.id ? "#1A4A7A" : "#E2E8F0"}`, background: smKind === k.id ? "#1A4A7A" : "transparent", color: smKind === k.id ? "#fff" : "#64748B" }}>
+                {k.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <label style={L}>Fichier CSV export{kind === "sf" ? " (internal_all)" : kind === "sm_overview" ? " (Domain Overview)" : " (Organic Pages)"}</label>
+        <input type="file" accept=".csv" onChange={e => { setFile(e.target.files?.[0] || null); setErr(""); }} style={{ ...I, marginBottom: 14, padding: "6px" }} />
+
+        {kind === "sf" && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={L}>Date du crawl</label>
+            <input type="date" value={crawlDate} onChange={e => setCrawlDate(e.target.value)} style={I} />
+          </div>
+        )}
+        {kind === "sm_overview" && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={L}>Date d'analyse</label>
+            <input type="date" value={analysisDate} onChange={e => setAnalysisDate(e.target.value)} style={I} />
+          </div>
+        )}
+        {kind === "sm_pages" && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            <div style={{ flex: 1 }}><label style={L}>Début période</label><input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} style={I} /></div>
+            <div style={{ flex: 1 }}><label style={L}>Fin période</label><input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} style={I} /></div>
+          </div>
+        )}
+
+        {err && <div style={{ fontSize: 11, color: "#E8541A", marginBottom: 10 }}>{err}</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+          <button onClick={submit} disabled={busy} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", background: busy ? "#94A3B8" : "#1A7A4A", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: busy ? "default" : "pointer" }}>{busy ? "Import…" : "Importer"}</button>
+          <button onClick={onClose} style={{ padding: "9px 14px", borderRadius: 8, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Annuler</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CompetitorManager({ projectId, siteId, allResults, competitors, setCompetitors, brandLabel = "Votre marque", sfData = {}, smData = {}, smOverview = {}, sfPerimeter = null }) {
   const [newName, setNewName] = useState("");
   const [newCat,  setNewCat]  = useState("direct");
@@ -1551,6 +1636,20 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
   };
 
   // Agrégats Screaming Frog + Semrush de la marque (site courant) pour les lignes sf_*/sm_*
+  const [importTarget, setImportTarget] = useState(null); // colonne (concurrent) en cours d'import
+  const [importTool, setImportTool] = useState("sf");     // "sf" | "semrush"
+  const openImport = (col, needsTool) => {
+    if (col.isBrand) { window.alert("Pour votre marque, importez les données dans l'onglet Configuration (import par site)."); return; }
+    setImportTarget(col); setImportTool(needsTool);
+  };
+  const submitImport = async (kind, rec) => {
+    const compId = importTarget?.key;
+    if (!compId) return;
+    const comp = competitors.find(c => c.id === compId);
+    const nextImports = { ...(comp?.tool_imports || {}), [kind]: rec };
+    setCompetitors(prev => (Array.isArray(prev) ? prev : []).map(c => c.id === compId ? { ...c, tool_imports: nextImports } : c));
+    try { await sbUpdateCompetitor(compId, { tool_imports: nextImports }); } catch { /* colonne non migrée → l'état local reste */ }
+  };
   const sfStats = useMemo(() => sfCompareStats(applySfPerimeter((sfData || {})[siteId] || [], sfPerimeter)), [sfData, siteId, sfPerimeter]);
   const smStats = useMemo(() => resolveSmStats(((smOverview || {})[siteId] || [])[0], (smData || {})[siteId]), [smOverview, smData, siteId]);
 
@@ -1591,7 +1690,17 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
         stats: { mentions: st.mentions, evocations: st.evocations, citations: st.citations, avgPos: avg, urlsCited: null, bestUrlHits: null } };
     });
     const brandTool = { ...(sfStats || {}), ...(smStats || {}) };
-    return buildLlmComparison(brandLabel, brandFinal, compEntries, Object.keys(brandTool).length ? { __brand__: brandTool } : {});
+    const toolStatsByCol = {};
+    if (Object.keys(brandTool).length) toolStatsByCol.__brand__ = brandTool;
+    const importStatus = { __brand__: { sf: !!sfStats, semrush: !!smStats } };
+    deep.forEach(comp => {
+      const ts = entityToolStats(comp.tool_imports);
+      if (ts) toolStatsByCol[comp.id] = ts;
+      const ti = comp.tool_imports || {};
+      importStatus[comp.id] = { sf: !!ti.sf, semrush: !!(ti.sm_overview || ti.sm_pages) };
+    });
+    const view = buildLlmComparison(brandLabel, brandFinal, compEntries, toolStatsByCol);
+    return { ...view, importStatus };
   }, [allResults, competitors, brandLabel, sfStats, smStats]);
 
 
@@ -1745,17 +1854,20 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
             <span style={{ fontSize: 15 }}>⚖️</span>Comparaison approfondie
           </div>
           <div style={{ fontSize: 11.5, color: "#64748B", lineHeight: 1.55, marginBottom: 14, maxWidth: 680 }}>
-            Comparaison de votre marque avec {deepSelected.length} concurrent{deepSelected.length > 1 ? "s" : ""} sélectionné{deepSelected.length > 1 ? "s" : ""}. Cochez à gauche de chaque ligne pour l'inclure dans l'audit (navigateur + exports). La cellule encadrée en vert est la meilleure valeur de la ligne. Les lignes Screaming Frog et Semrush se rempliront après import (Lot B2).
+            Comparaison de votre marque avec {deepSelected.length} concurrent{deepSelected.length > 1 ? "s" : ""} sélectionné{deepSelected.length > 1 ? "s" : ""}. Cochez à gauche de chaque ligne pour l'inclure dans l'audit (navigateur + exports). La cellule encadrée en vert est la meilleure valeur de la ligne. Utilisez « Importer » sous une colonne concurrent pour ajouter son crawl Screaming Frog ou ses exports Semrush.
           </div>
           <CompareTable
             columns={compareView.columns}
             data={compareView.data}
             includedRows={includedRows}
             onToggleRow={toggleRow}
-            importStatus={{ __brand__: { sf: !!sfStats, semrush: !!smStats } }}
-            onImport={() => {}}
+            importStatus={compareView.importStatus}
+            onImport={openImport}
             mode="edit"
           />
+          {importTarget && (
+            <ToolImportOverlay target={importTarget} tool={importTool} onClose={() => setImportTarget(null)} onSubmit={submitImport} />
+          )}
         </div>
       )}
     </div>

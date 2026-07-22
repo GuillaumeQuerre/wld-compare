@@ -23,6 +23,10 @@ export const COMPARE_ROWS = [
   // Partie 3 — Semrush (Lot B2)
   { id: "sm_keywords",  group: "semrush", label: "Mots-clés organiques", better: "high", needs: "semrush" },
   { id: "sm_traffic",   group: "semrush", label: "Trafic organique",     better: "high", needs: "semrush" },
+  { id: "sm_pages",            group: "semrush", label: "Pages indexées",              better: "high", needs: "semrush" },
+  { id: "sm_pages_kw",         group: "semrush", label: "Pages positionnées (≥1 mot-clé)", better: "high", needs: "semrush" },
+  { id: "sm_pages_clicks",     group: "semrush", label: "Pages avec trafic (≥1 clic)", better: "high", needs: "semrush" },
+  { id: "sm_top_page_traffic", group: "semrush", label: "Trafic de la top page",       better: "high", needs: "semrush" },
 ];
 
 export const COMPARE_GROUPS = [
@@ -94,6 +98,60 @@ export function getSitePerimeter(site) {
   return site.sf_presets.find(p => p.id === site.sf_activePreset) || null;
 }
 
+// ── Import outils par entité (marque/concurrent) : parse + calcul agrégats ────
+// Parseur CSV autonome (virgules, guillemets, BOM). Renvoie un tableau d'objets.
+export function parseCsvRows(text) {
+  if (!text || typeof text !== "string") return [];
+  const clean = text.replace(/^\uFEFF/, "");
+  const rows = []; let cur = [], val = "", inQ = false;
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean[i];
+    if (inQ) { if (ch === '"') { if (clean[i + 1] === '"') { val += '"'; i++; } else inQ = false; } else val += ch; }
+    else { if (ch === '"') inQ = true; else if (ch === ",") { cur.push(val); val = ""; } else if (ch === "\n") { cur.push(val); rows.push(cur); cur = []; val = ""; } else if (ch === "\r") { /* skip */ } else val += ch; }
+  }
+  if (val.length || cur.length) { cur.push(val); rows.push(cur); }
+  if (!rows.length) return [];
+  const header = rows.shift();
+  return rows.filter(r => r.length > 1).map(r => Object.fromEntries(header.map((h, i) => [h, r[i]])));
+}
+
+// Calcule le résumé stocké pour un import, selon son type.
+// kind : "sf" | "sm_pages" | "sm_overview"
+// meta : { crawl_date?, period_start?, period_end?, analysis_date?, filename? }
+// Renvoie { stats, ...meta, import_date } ou null si le fichier n'est pas exploitable.
+export function computeToolImport(kind, csvText, meta = {}) {
+  const import_date = new Date().toISOString().slice(0, 10);
+  if (kind === "sf") {
+    const stats = sfCompareStats(parseCsvRows(csvText));
+    if (!stats) return null;
+    return { stats, crawl_date: meta.crawl_date || null, import_date, filename: meta.filename || null };
+  }
+  if (kind === "sm_pages") {
+    const s = smCompareStats(parseCsvRows(csvText));
+    if (!s) return null;
+    // On ne garde ici que les métriques "pages" (les totaux mots-clés/trafic viennent de l'Overview)
+    const stats = { sm_pages: s.sm_pages, sm_pages_kw: s.sm_pages_kw, sm_pages_clicks: s.sm_pages_clicks, sm_top_page_traffic: s.sm_top_page_traffic };
+    return { stats, period_start: meta.period_start || null, period_end: meta.period_end || null, import_date, filename: meta.filename || null };
+  }
+  if (kind === "sm_overview") {
+    const ov = parseSemrushOverview(csvText);
+    if (!ov) return null;
+    return { stats: { sm_keywords: ov.organic_keywords ?? null, sm_traffic: ov.organic_traffic ?? null }, analysis_date: meta.analysis_date || null, import_date, filename: meta.filename || null };
+  }
+  return null;
+}
+
+// Aplati les imports stockés d'une entité (competitor.tool_imports) en stats de tableau.
+export function entityToolStats(toolImports) {
+  if (!toolImports || typeof toolImports !== "object") return null;
+  const out = {};
+  ["sf", "sm_pages", "sm_overview"].forEach(k => {
+    const imp = toolImports[k];
+    if (imp && imp.stats) Object.assign(out, imp.stats);
+  });
+  return Object.keys(out).length ? out : null;
+}
+
 // ── Agrégats Screaming Frog pour la comparaison (à partir des lignes brutes) ──
 // rows : sfData[site.id] (lignes CSV brutes de l'export « internal_all »).
 // Renvoie { sf_pages200, sf_images, sf_h1multi, sf_titleLong } ou null si vide.
@@ -137,13 +195,22 @@ export function smCompareStats(rows) {
   };
   const num = (v) => { if (v == null) return null; const n = parseFloat(String(v).replace(/[^0-9.-]/g, "")); return Number.isFinite(n) ? n : null; };
   let kw = 0, tr = 0, kwFound = false, trFound = false;
+  let pages = 0, pagesKw = 0, pagesClicks = 0, topTraffic = 0;
   rows.forEach(row => {
     const k = num(F(row, "Number of Keywords", "nombre de mots-cles", "keywords", "num keywords", "nb keywords"));
     const t = num(F(row, "Traffic", "trafic", "organic traffic"));
-    if (k != null) { kw += k; kwFound = true; }
-    if (t != null) { tr += t; trFound = true; }
+    pages++;
+    if (k != null) { kw += k; kwFound = true; if (k >= 1) pagesKw++; }
+    if (t != null) { tr += t; trFound = true; if (t >= 1) pagesClicks++; if (t > topTraffic) topTraffic = t; }
   });
-  return { sm_keywords: kwFound ? Math.round(kw) : null, sm_traffic: trFound ? Math.round(tr) : null };
+  return {
+    sm_keywords: kwFound ? Math.round(kw) : null,
+    sm_traffic:  trFound ? Math.round(tr) : null,
+    sm_pages:    pages,
+    sm_pages_kw:     kwFound ? pagesKw : null,
+    sm_pages_clicks: trFound ? pagesClicks : null,
+    sm_top_page_traffic: trFound ? Math.round(topTraffic) : null,
+  };
 }
 
 // ── Semrush « Overview » : totaux autoritatifs du domaine ────────────────────
@@ -180,13 +247,16 @@ export function parseSemrushOverview(text) {
   return { organic_traffic, organic_keywords };
 }
 
-// Résout les stats Semrush du tableau (sm_keywords, sm_traffic) :
-// priorité à l'Overview (totaux du domaine), repli sur la somme des top pages.
+// Résout les stats Semrush du tableau : métriques par page depuis l'export top pages,
+// et totaux du domaine (mots-clés / trafic) prioritairement depuis l'Overview.
 export function resolveSmStats(overview, pagesRows) {
-  if (overview && (overview.organic_keywords != null || overview.organic_traffic != null)) {
-    return { sm_keywords: overview.organic_keywords ?? null, sm_traffic: overview.organic_traffic ?? null };
+  const pageStats = smCompareStats(pagesRows);
+  const out = pageStats ? { ...pageStats } : {};
+  if (overview) {
+    if (overview.organic_keywords != null) out.sm_keywords = overview.organic_keywords;
+    if (overview.organic_traffic != null) out.sm_traffic = overview.organic_traffic;
   }
-  return smCompareStats(pagesRows);
+  return Object.keys(out).length ? out : null;
 }
 
 // ── Détermine la meilleure cellule d'une ligne (pour la bordure) ─────────────
