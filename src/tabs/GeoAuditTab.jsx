@@ -20,6 +20,7 @@ import { C, SITE_PALETTE } from "../lib/constants";
 import { buildGeoPagesCsv, downloadCsv } from "../lib/exportOptimisations";
 import { generateRoadmap, RoadmapView, generateSentiment, SentimentView } from "../lib/roadmapShared";
 import { exportAuditPptx, exportAuditPdf } from "../lib/auditExport";
+import { detectBrand } from "../lib/geoEngine";
 
 // Catégories concurrents — miroir de GeoTab
 
@@ -1563,12 +1564,21 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     .filter(c => c.deep_compare === true)
     .slice(0, 5)
     .map(c => {
-      const st = compStats[c.name] || {};
-      const avg = (st.positions && st.positions.length) ? (st.positions.reduce((a, b) => a + b, 0) / st.positions.length) : null;
+      // Re-détection sur le texte des réponses (snapshot) plutôt que le figé
+      // competitors_mentioned → un concurrent ajouté après coup est bien compté.
+      const st = { mentions: 0, evocations: 0, citations: 0, positions: [] };
+      results.forEach(r => {
+        const d = detectBrand(r.answer || "", r.sources || [], c.name, c.aliases || [], []);
+        const mPos = d.mention?.position ?? null;
+        if (mPos != null && mPos > 0) { st.mentions++; st.positions.push(mPos); }
+        else if (d.brandMentioned || d.evocation?.position != null) st.evocations++;
+        if (d.brandInSources || d.citation?.position != null) st.citations++;
+      });
+      const avg = st.positions.length ? (st.positions.reduce((a, b) => a + b, 0) / st.positions.length) : null;
       return {
         key: c.id, label: c.name, color: c.color || "#64748B",
         stats: {
-          mentions: st.mentions || 0, evocations: st.evocations || 0, citations: st.citations || 0,
+          mentions: st.mentions, evocations: st.evocations, citations: st.citations,
           avgPos: avg != null ? Math.round(avg * 10) / 10 : null,
           urlsCited: null, bestUrlHits: null, // renseignés au Lot B2 (imports)
         },

@@ -1574,16 +1574,18 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
       mentions: brandStats.mentions, evocations: brandStats.evocations, citations: brandStats.citations,
       avgPos: bAvg, urlsCited: Object.keys(brandStats.urls).length, bestUrlHits: bBest,
     };
-    // Concurrents
+    // Concurrents : re-détection sur le TEXTE des réponses stockées (pas le figé
+    // competitors_mentioned, qui ne contient que les concurrents connus à l'interrogation).
+    // → un concurrent ajouté après coup est correctement compté.
     const compEntries = deep.map(comp => {
       const st = { mentions: 0, evocations: 0, citations: 0, positions: [] };
-      allResults.forEach(r => (r.competitors_mentioned || []).forEach(c => {
-        if (!c.name || c.name.toLowerCase() !== comp.name.toLowerCase()) return;
-        const mPos = c.mention_position != null ? c.mention_position : (c.position > 0 ? c.position : null);
+      allResults.forEach(r => {
+        const d = detectBrand(r.answer || "", r.sources || [], comp.name, comp.aliases || [], []);
+        const mPos = d.mention?.position ?? null;
         if (mPos != null && mPos > 0) { st.mentions++; st.positions.push(mPos); }
-        else if (c.mentioned || c.evocation_position != null) st.evocations++;
-        if (c.in_sources || c.citation_position != null) st.citations++;
-      }));
+        else if (d.brandMentioned || d.evocation?.position != null) st.evocations++;
+        if (d.brandInSources || d.citation?.position != null) st.citations++;
+      });
       const avg = st.positions.length ? Math.round((st.positions.reduce((a, b) => a + b, 0) / st.positions.length) * 10) / 10 : null;
       return { key: comp.id, label: comp.name, color: comp.color || "#64748B",
         stats: { mentions: st.mentions, evocations: st.evocations, citations: st.citations, avgPos: avg, urlsCited: null, bestUrlHits: null } };
