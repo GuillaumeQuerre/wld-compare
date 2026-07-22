@@ -149,11 +149,15 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
         { id: "sf_titleLong", label: "Titles trop longs", better: "low" },
         { id: "sm_keywords", label: "Mots-clés organiques", better: "high" },
         { id: "sm_traffic", label: "Trafic organique", better: "high" },
+        { id: "sm_pages", label: "Pages indexées", better: "high" },
+        { id: "sm_pages_kw", label: "Pages positionnées (≥1 mot-clé)", better: "high" },
+        { id: "sm_pages_clicks", label: "Pages avec trafic (≥1 clic)", better: "high" },
+        { id: "sm_top_page_traffic", label: "Trafic de la top page", better: "high" },
       ];
       const included = Array.isArray(a.compareRows) ? a.compareRows : ROWDEFS.map(r => r.id);
-      // Stats marque = LLM + agrégats outils (SF) ; concurrents externes n'ont pas de données outils.
+      // Stats marque = LLM + agrégats outils. Concurrents = LLM + imports outils par concurrent (compareCompTool).
       const statBy = { __brand__: { ...bs, ...(a.compareBrandTool || {}) } };
-      entries.forEach(c => { statBy[c.key] = c.stats || {}; });
+      entries.forEach(c => { statBy[c.key] = { ...(c.stats || {}), ...((a.compareCompTool || {})[c.key] || {}) }; });
       const rows = ROWDEFS.filter(r => included.includes(r.id)).map(r => {
         const cells = cols.map(col => (statBy[col.key] || {})[r.id]);
         // meilleure cellule
@@ -390,14 +394,15 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       s.addText(col.label + (col.isBrand ? " ★" : ""), { x: 0.6 + colW + ci * cellW, y: 1.7, w: cellW, h: 0.4, fontSize: 11, bold: true, color: col.color, align: "center" });
     });
     let yy = 2.15;
+    const rowH = Math.min(0.36, 4.6 / Math.max(d.compare.rows.length, 1));
     d.compare.rows.forEach(row => {
-      s.addText(row.label, { x: 0.6, y: yy, w: colW, h: 0.34, fontSize: 10.5, color: C.ink });
+      s.addText(row.label, { x: 0.6, y: yy, w: colW, h: rowH, fontSize: rowH < 0.3 ? 9.5 : 10.5, color: C.ink });
       row.cells.forEach((cell, ci) => {
         const isBest = ci === row.bestIndex;
-        if (isBest) s.addShape(p.ShapeType.roundRect, { x: 0.6 + colW + ci * cellW + 0.1, y: yy - 0.02, w: cellW - 0.2, h: 0.32, rectRadius: 0.04, fill: { color: "1A7A4A0A" }, line: { color: "1A7A4A", width: 1 } });
-        s.addText(cell, { x: 0.6 + colW + ci * cellW, y: yy, w: cellW, h: 0.32, fontSize: 11, bold: isBest, color: cols[ci].isBrand ? C.green : C.ink, align: "center" });
+        if (isBest) s.addShape(p.ShapeType.roundRect, { x: 0.6 + colW + ci * cellW + 0.1, y: yy - 0.02, w: cellW - 0.2, h: rowH - 0.04, rectRadius: 0.04, fill: { color: "1A7A4A0A" }, line: { color: "1A7A4A", width: 1 } });
+        s.addText(cell, { x: 0.6 + colW + ci * cellW, y: yy, w: cellW, h: rowH - 0.04, fontSize: rowH < 0.3 ? 10 : 11, bold: isBest, color: cols[ci].isBrand ? C.green : C.ink, align: "center" });
       });
-      yy += 0.36;
+      yy += rowH;
     });
     s.addText("Cellule encadrée = meilleure valeur de la ligne. Toutes marques du projet : la donnée outils n'existe que pour vos sites.", { x: 0.6, y: 6.95, w: 12, h: 0.3, fontSize: 10, color: C.inkLight, italic: true });
     footer(s, 10);
