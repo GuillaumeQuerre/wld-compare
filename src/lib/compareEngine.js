@@ -135,7 +135,7 @@ export function smCompareStats(rows) {
     for (const k of Object.keys(row)) { if (wanted.includes(norm(k))) return row[k]; }
     return undefined;
   };
-  const num = (v) => { if (v == null) return null; const n = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return Number.isFinite(n) ? n : null; };
+  const num = (v) => { if (v == null) return null; const n = parseFloat(String(v).replace(/[^0-9.-]/g, "")); return Number.isFinite(n) ? n : null; };
   let kw = 0, tr = 0, kwFound = false, trFound = false;
   rows.forEach(row => {
     const k = num(F(row, "Number of Keywords", "nombre de mots-cles", "keywords", "num keywords", "nb keywords"));
@@ -167,7 +167,7 @@ export function parseSemrushOverview(text) {
   const iMetric = header.indexOf("metric");
   const iSummary = header.indexOf("summary");
   if (iMetric === -1 || iSummary === -1) return null;
-  const num = (v) => { const n = parseFloat(String(v == null ? "" : v).replace(/[^0-9.\-]/g, "")); return Number.isFinite(n) ? n : null; };
+  const num = (v) => { const n = parseFloat(String(v == null ? "" : v).replace(/[^0-9.-]/g, "")); return Number.isFinite(n) ? n : null; };
   let organic_traffic = null, organic_keywords = null;
   for (let i = 1; i < lines.length; i++) {
     const cols = parseLine(lines[i]);
