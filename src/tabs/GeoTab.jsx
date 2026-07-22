@@ -15,6 +15,8 @@ import {
   sbSaveProjectSettings,
   sbGetCategories, sbSaveCategory, sbDeleteCategory,
   sbSetQuestionCategory,
+  sbSetQuestionIntent,
+  sbSetQuestionSites,
   sbBulkSetKeywordCategory, sbBulkSetQuestionCategory,
   sbGetUrlIndex, sbUpdateUrlMeta, sbIncrementUrlCounts,
   sbAddCalendarEntry, sbUpsertCalendarEntry, sbGetCalendarEntriesBatch,
@@ -23,9 +25,11 @@ import {
   sbGetAliases,
   sbSaveAlias,
   sbDeleteAlias, sbSaveCompetitor, sbUpdateCompetitor, sbDeleteCompetitor,
+  sbGetCompareSettings, sbSetCompareRows,
   sbSaveGeoAnalysis, sbGetGeoAnalyses,
 } from "../lib/supabase";
 import { ProviderConfigPanel, BrandConfigPanel } from "../components/GeoConfig";
+import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, parseSemrushOverview, applySfPerimeter, getSitePerimeter } from "../lib/compareEngine";
 import UploadCard from "../components/UploadCard";
 import { newProject, parseCSV, parseSemrushCSV } from "../lib/helpers";
 import { parseSemrush } from "../lib/parsers";
@@ -45,6 +49,82 @@ function throttleProvider(providerId) {
   const chain = _providerGate[providerId] || Promise.resolve();
   _providerGate[providerId] = chain.then(() => new Promise(res => setTimeout(res, gap)));
   return chain; // on attend la fin du délai de l'appel précédent avant de lancer celui-ci
+}
+
+// ── Intention manuelle de la question (tag contrôlé à 3 valeurs) ──────────────
+const QUESTION_INTENTS = [
+  { id: "transactional",  label: "Transactionnelle",     short: "Transac.", color: "#1A4A7A", bg: "#1A4A7A14" },
+  { id: "informational",  label: "Informationnelle",     short: "Info.",    color: "#1A7A4A", bg: "#1A7A4A14" },
+  { id: "brand",          label: "Notoriété de la marque", short: "Notoriété", color: "#C97820", bg: "#C9782014" },
+];
+const INTENT_BY_ID = Object.fromEntries(QUESTION_INTENTS.map(i => [i.id, i]));
+
+// Multi-sélecteur de marques (sites du projet) associées à une question.
+// value = liste d'IDs de sites ; sites = tous les sites du projet.
+function SiteBrandSelect({ value = [], sites = [], onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const sel = Array.isArray(value) ? value : [];
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  if (!sites || sites.length < 2) return null; // pertinent seulement en multi-sites
+  const toggle = (id) => onChange(sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
+  const selectedSites = sites.filter(s => sel.includes(s.id));
+  const label = selectedSites.length === 0 ? "Marques…"
+    : selectedSites.length === 1 ? selectedSites[0].label
+    : `${selectedSites.length} marques`;
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+      <button type="button" onClick={() => setOpen(o => !o)} title="Marques associées à cette question"
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          border: `0.5px solid ${sel.length ? "#2563EB44" : "#1A3C2E18"}`, background: sel.length ? "#2563EB10" : "transparent", color: sel.length ? "#2563EB" : "#94A3B8" }}>
+        {selectedSites.length > 0 && <span style={{ display: "inline-flex", gap: 2 }}>{selectedSites.slice(0, 3).map(s => <span key={s.id} style={{ width: 7, height: 7, borderRadius: "50%", background: s.color || "#2563EB" }} />)}</span>}
+        {label}
+        <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 200, minWidth: 180, maxHeight: 260, overflowY: "auto", background: "#fff", border: "0.5px solid #1A3C2E22", borderRadius: 8, boxShadow: "0 4px 16px rgba(26,60,46,0.12)", padding: 4 }}>
+          {sites.map(s => {
+            const on = sel.includes(s.id);
+            return (
+              <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 9px", fontSize: 11, color: "#1A3C2E", cursor: "pointer", borderRadius: 4 }}>
+                <input type="checkbox" checked={on} onChange={() => toggle(s.id)} style={{ cursor: "pointer", accentColor: s.color || "#2563EB" }} />
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color || "#2563EB", flexShrink: 0 }} />
+                <span>{s.label}</span>
+              </label>
+            );
+          })}
+          {sel.length > 0 && (
+            <div onClick={() => onChange([])} style={{ marginTop: 4, padding: "5px 9px", fontSize: 10, color: "#94A3B8", cursor: "pointer", borderTop: "0.5px solid #1A3C2E11" }}>✕ Tout retirer</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Petit sélecteur d'intention pour une ligne de question
+function IntentSelect({ value, onChange }) {
+  const cur = value ? INTENT_BY_ID[value] : null;
+  return (
+    <select
+      value={value || ""}
+      onChange={e => onChange(e.target.value || null)}
+      title="Intention de la question"
+      style={{
+        padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+        border: `0.5px solid ${cur ? cur.color + "44" : "#1A3C2E18"}`,
+        background: cur ? cur.bg : "transparent",
+        color: cur ? cur.color : "#94A3B8", appearance: "none", maxWidth: 130,
+      }}>
+      <option value="">Intention…</option>
+      {QUESTION_INTENTS.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+    </select>
+  );
 }
 
 
@@ -264,7 +344,7 @@ function getProviderLabel(model) {
 }
 
 // questionScope : "brand" (marque présente) | "favorites" (favoris) | "all" (toutes)
-function exportFanoutCSV({ questions, results, brandName, brandAliases = [], keywords = [], projectName = "export", selectedProviders = [], questionScope = "brand" }) {
+function exportFanoutCSV({ questions, results, brandName, brandAliases = [], keywords = [], projectName = "export", selectedProviders = [], questionScope = "brand", hintsMap = {} }) {
   const byQ = {};
   results.forEach(r => {
     if (!byQ[r.question_id]) byQ[r.question_id] = [];
@@ -284,10 +364,11 @@ function exportFanoutCSV({ questions, results, brandName, brandAliases = [], key
     "Position marque",
     "Marque dans sources",
     "Concurrents cités",
-    "Réponse (500 car.)",
+    "Réponse",
     "Sources citées",
     "Date interrogation",
     "Tokens (in+out)",
+    "Indice généré",
   ];
 
   const rows = [header];
@@ -309,7 +390,7 @@ function exportFanoutCSV({ questions, results, brandName, brandAliases = [], key
 
     if (qResults.length === 0) {
       // Question sans résultat — ligne vide pour tracer la question
-      rows.push([q.question, q.is_favorite ? "⭐" : "", kwMap[q.keyword_id] || "", "", "", "Non", "", "", "", "", "", "", ""]);
+      rows.push([q.question, q.is_favorite ? "⭐" : "", kwMap[q.keyword_id] || "", "", "", "Non", "", "", "", "", "", "", "", (hintsMap[q.id]?.text || "")]);
       return;
     }
 
@@ -330,10 +411,11 @@ function exportFanoutCSV({ questions, results, brandName, brandAliases = [], key
         r.brand_position ? `#${r.brand_position}` : "",
         brandSources.length > 0 ? brandSources.join(" | ") : "Non",
         comps || "—",
-        (r.answer || "").slice(0, 500),
+        (r.answer || ""),
         sources.join(" | "),
         fmtDateExport(r.created_at),
         String((r.input_tokens || 0) + (r.output_tokens || 0)),
+        (hintsMap[q.id]?.text || ""),
       ]);
     });
   });
@@ -443,7 +525,7 @@ function buildFanoutPDF({ questions, results, hintsMap = {}, brandName, brandAli
       ${sources.length ? `<div style="font-size:10px;color:#94A3B8">${sources.map(u=>{ const clean=stripQuery(u); return `<a href="${esc(u)}" style="color:#6366F1">${esc(clean.length>60?clean.slice(0,60)+"…":clean)}</a>`; }).join("  ·  ")}</div>` : ""}
       ${showHint && hint ? `<div style="margin-top:10px;padding:10px 12px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:7px;">
         <div style="font-size:10px;font-weight:700;color:#B45309;margin-bottom:4px">💡 HINT GEO${hintDate ? " · "+new Date(hintDate).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}) : ""}</div>
-        <div style="font-size:11px;color:#92400E;line-height:1.6;white-space:pre-wrap">${esc(hint.slice(0,400))}${hint.length>400?"…":""}</div>
+        <div style="font-size:11px;color:#92400E;line-height:1.6;white-space:pre-wrap">${esc(hint)}</div>
       </div>` : ""}
     </div>`;
   };
@@ -584,7 +666,7 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
   const doCSV = () => {
     setStatus("exporting");
     setTimeout(() => {
-      const n = exportFanoutCSV({ questions, results, brandName, brandAliases, keywords, projectName, selectedProviders, questionScope });
+      const n = exportFanoutCSV({ questions, results, brandName, brandAliases, keywords, projectName, selectedProviders, questionScope, hintsMap });
       setLastCount(n);
       setStatus(n > 0 ? "done" : "idle");
       if (n > 0) setTimeout(() => { setStatus("idle"); setLastCount(null); }, 4000);
@@ -1307,7 +1389,7 @@ const COMP_CATEGORIES = [
   { key: "other",       label: "Autre",                color: "#64748B", bg: "#F1F5F9" },
 ];
 
-function CompetitorManager({ projectId, siteId, allResults, competitors, setCompetitors }) {
+function CompetitorManager({ projectId, siteId, allResults, competitors, setCompetitors, brandLabel = "Votre marque", sfData = {}, smData = {}, smOverview = {}, sfPerimeter = null }) {
   const [newName, setNewName] = useState("");
   const [newCat,  setNewCat]  = useState("direct");
   const [saving,  setSaving]  = useState(false);
@@ -1441,6 +1523,76 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
     });
   }, [competitors, sortBy, detectedNames]);
 
+  // ── Lot B1 : comparaison approfondie ───────────────────────────────────────
+  const [includedRows, setIncludedRows] = useState(null); // null = toutes incluses
+  useEffect(() => {
+    if (!projectId) return;
+    sbGetCompareSettings(projectId).then(cfg => {
+      if (cfg && Array.isArray(cfg.compare_rows) && cfg.compare_rows.length) setIncludedRows(cfg.compare_rows);
+      else setIncludedRows(COMPARE_ROWS.map(r => r.id)); // défaut : tout coché
+    });
+  }, [projectId]);
+
+  const deepSelected = competitors.filter(c => c.deep_compare === true);
+  const MAX_DEEP = 5;
+
+  const toggleDeep = async (comp) => {
+    const next = !(comp.deep_compare === true);
+    if (next && deepSelected.length >= MAX_DEEP) return; // plafond
+    setCompetitors(prev => prev.map(c => c.id === comp.id ? { ...c, deep_compare: next } : c));
+    try { await sbUpdateCompetitor(comp.id, { deep_compare: next }); } catch { /* colonne non migrée → état local conservé */ }
+  };
+
+  const toggleRow = async (rowId) => {
+    const base = includedRows || COMPARE_ROWS.map(r => r.id);
+    const next = base.includes(rowId) ? base.filter(r => r !== rowId) : [...base, rowId];
+    setIncludedRows(next);
+    if (projectId) sbSetCompareRows(projectId, next).catch(() => {});
+  };
+
+  // Agrégats Screaming Frog + Semrush de la marque (site courant) pour les lignes sf_*/sm_*
+  const sfStats = useMemo(() => sfCompareStats(applySfPerimeter((sfData || {})[siteId] || [], sfPerimeter)), [sfData, siteId, sfPerimeter]);
+  const smStats = useMemo(() => resolveSmStats(((smOverview || {})[siteId] || [])[0], (smData || {})[siteId]), [smOverview, smData, siteId]);
+
+  // Stats LLM par site, calculées localement depuis allResults (autonome vs audit)
+  const compareView = useMemo(() => {
+    const deep = competitors.filter(c => c.deep_compare === true).slice(0, MAX_DEEP);
+    // Marque
+    const brandStats = { mentions: 0, evocations: 0, citations: 0, positions: [], urls: {} };
+    allResults.forEach(r => {
+      const mPos = r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null);
+      if (mPos != null && mPos > 0) { brandStats.mentions++; brandStats.positions.push(mPos); }
+      else if (r.brand_mentioned === true || r.brand_mentioned === 1) brandStats.evocations++;
+      if (r.brand_in_sources === true || r.brand_in_sources === 1) {
+        brandStats.citations++;
+        (r.sources || []).forEach(u => { const k = String(u || "").trim(); if (k) brandStats.urls[k] = (brandStats.urls[k] || 0) + 1; });
+      }
+    });
+    const bAvg = brandStats.positions.length ? Math.round((brandStats.positions.reduce((a, b) => a + b, 0) / brandStats.positions.length) * 10) / 10 : null;
+    const bBest = Object.values(brandStats.urls).sort((a, b) => b - a)[0] || 0;
+    const brandFinal = {
+      mentions: brandStats.mentions, evocations: brandStats.evocations, citations: brandStats.citations,
+      avgPos: bAvg, urlsCited: Object.keys(brandStats.urls).length, bestUrlHits: bBest,
+    };
+    // Concurrents
+    const compEntries = deep.map(comp => {
+      const st = { mentions: 0, evocations: 0, citations: 0, positions: [] };
+      allResults.forEach(r => (r.competitors_mentioned || []).forEach(c => {
+        if (!c.name || c.name.toLowerCase() !== comp.name.toLowerCase()) return;
+        const mPos = c.mention_position != null ? c.mention_position : (c.position > 0 ? c.position : null);
+        if (mPos != null && mPos > 0) { st.mentions++; st.positions.push(mPos); }
+        else if (c.mentioned || c.evocation_position != null) st.evocations++;
+        if (c.in_sources || c.citation_position != null) st.citations++;
+      }));
+      const avg = st.positions.length ? Math.round((st.positions.reduce((a, b) => a + b, 0) / st.positions.length) * 10) / 10 : null;
+      return { key: comp.id, label: comp.name, color: comp.color || "#64748B",
+        stats: { mentions: st.mentions, evocations: st.evocations, citations: st.citations, avgPos: avg, urlsCited: null, bestUrlHits: null } };
+    });
+    const brandTool = { ...(sfStats || {}), ...(smStats || {}) };
+    return buildLlmComparison(brandLabel, brandFinal, compEntries, Object.keys(brandTool).length ? { __brand__: brandTool } : {});
+  }, [allResults, competitors, brandLabel, sfStats, smStats]);
+
+
   return (
     <div>
       {/* Formulaire ajout */}
@@ -1555,6 +1707,14 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
                     </span>
                   ) : (
                   <>
+                  <label title={comp.deep_compare ? "Retirer de la comparaison approfondie" : (deepSelected.length >= MAX_DEEP ? `Maximum ${MAX_DEEP} concurrents comparés` : "Comparer en profondeur")}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: comp.deep_compare ? "#1A4A7A" : "#94A3B8", cursor: (comp.deep_compare || deepSelected.length < MAX_DEEP) ? "pointer" : "not-allowed", flexShrink: 0, userSelect: "none" }}>
+                    <input type="checkbox" checked={comp.deep_compare === true}
+                      disabled={!comp.deep_compare && deepSelected.length >= MAX_DEEP}
+                      onChange={() => toggleDeep(comp)}
+                      style={{ cursor: "inherit", accentColor: "#1A4A7A" }} />
+                    comparer
+                  </label>
                   <button onClick={() => updateEnabled(comp, !enabled)}
                     style={{ width: 32, height: 18, borderRadius: 9, border: "none", cursor: "pointer", background: enabled ? "#1A3C2E" : "#CBD5E1", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                     <span style={{ position: "absolute", top: 1, left: enabled ? 15 : 1, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
@@ -1574,6 +1734,27 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
       )}
       {competitors.length === 0 && detectedNames.length === 0 && (
         <div style={{ fontSize: 12, color: "#94A3B8", fontStyle: "italic" }}>Interrogez des questions pour détecter les concurrents cités.</div>
+      )}
+
+      {/* ── Lot B1 : Comparaison approfondie ── */}
+      {deepSelected.length > 0 && (
+        <div style={{ marginTop: 24, paddingTop: 20, borderTop: "0.5px solid #1A3C2E14" }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#1A3C2E", marginBottom: 3, display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ fontSize: 15 }}>⚖️</span>Comparaison approfondie
+          </div>
+          <div style={{ fontSize: 11.5, color: "#64748B", lineHeight: 1.55, marginBottom: 14, maxWidth: 680 }}>
+            Comparaison de votre marque avec {deepSelected.length} concurrent{deepSelected.length > 1 ? "s" : ""} sélectionné{deepSelected.length > 1 ? "s" : ""}. Cochez à gauche de chaque ligne pour l'inclure dans l'audit (navigateur + exports). La cellule encadrée en vert est la meilleure valeur de la ligne. Les lignes Screaming Frog et Semrush se rempliront après import (Lot B2).
+          </div>
+          <CompareTable
+            columns={compareView.columns}
+            data={compareView.data}
+            includedRows={includedRows}
+            onToggleRow={toggleRow}
+            importStatus={{ __brand__: { sf: !!sfStats, semrush: !!smStats } }}
+            onImport={() => {}}
+            mode="edit"
+          />
+        </div>
       )}
     </div>
   );
@@ -3095,7 +3276,44 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
 
 // ── Questions sub-tab (v2) ────────────────────────────────────────
 
-function QuestionsTab({ site, projectId, apiKey, model, brand, categories, setCategories, allResults, gscRows = [], aliasMap = {}, onResultSaved, activeProviders = ["openai"], providerKeys = {}, runMode = "parallel", keywordsOrder = [], refreshTrigger = 0, competitors = [], setCompetitors = null, onSaveKey = null, isReadOnly = false, webSearchSettings = {} }) {
+// Multi-sélecteur de sites pour le périmètre du Suivi GEO.
+// Tous cochés par défaut = vue globale. Toujours au moins un site coché.
+function SiteMultiSelect({ sites = [], value = [], onChange }) {
+  const list = Array.isArray(sites) ? sites : [];
+  if (list.length < 2) return null;
+  const sel = Array.isArray(value) && value.length ? value : list.map(s => s.id);
+  const allOn = sel.length === list.length;
+  const toggle = (id) => {
+    const next = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id];
+    if (next.length === 0) return; // au moins un site
+    onChange(next);
+  };
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <button onClick={() => onChange(list.map(s => s.id))}
+        title="Vue globale : tous les sites du projet"
+        style={{ padding: "3px 10px", borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          border: `1px solid ${allOn ? "#1A3C2E" : "#1A3C2E33"}`, background: allOn ? "#1A3C2E" : "transparent", color: allOn ? "#fff" : "#1A3C2E" }}>
+        ◎ Tous
+      </button>
+      {list.map(s => {
+        const on = sel.includes(s.id);
+        const only = on && sel.length === 1;
+        return (
+          <button key={s.id} onClick={() => toggle(s.id)}
+            title={only ? "Site actif — cochez-en d'autres pour agréger" : (on ? "Cliquer pour retirer" : "Cliquer pour ajouter")}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 5, fontSize: 11, fontWeight: 500, cursor: "pointer",
+              border: `1px solid ${s.color}${on ? "" : "33"}`, background: on ? s.color : "transparent", color: on ? "#fff" : s.color, opacity: allOn ? 0.85 : 1 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: on ? "#fff" : s.color }} />
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function QuestionsTab({ site, projectId, apiKey, model, brand, categories, setCategories, allResults, allSites = [], readSiteIds = null, siteBrandsMap = {}, gscRows = [], aliasMap = {}, onResultSaved, activeProviders = ["openai"], providerKeys = {}, runMode = "parallel", keywordsOrder = [], refreshTrigger = 0, competitors = [], setCompetitors = null, onSaveKey = null, isReadOnly = false, webSearchSettings = {} }) {
   const [questions, setQuestions]   = useState([]);
   const [results, setResults]       = useState(allResults || []);
   const [recomputing, setRecomputing]   = useState(false);
@@ -3176,12 +3394,16 @@ function QuestionsTab({ site, projectId, apiKey, model, brand, categories, setCa
   const [calendarEntries, setCalendarEntries] = useState([]); // entrées de la table geo_presence_calendar
 
   // Load all data on mount and when project/site/refreshTrigger changes
+  const _readIds = (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site?.id]).filter(Boolean);
+  const _readKey = _readIds.join(",");
   useEffect(() => {
     if (!projectId || !site?.id) return;
-    // Load in parallel
+    const ids = (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site.id]).filter(Boolean);
+    // Résultats + questions : agrégés sur tous les sites du périmètre.
+    // Hints / keywords / calendrier : gardés sur le site primaire (config/aux).
     Promise.all([
-      sbGetGeoResults(projectId, site.id),
-      sbGetQuestions(projectId, site.id),
+      Promise.all(ids.map(sid => sbGetGeoResults(projectId, sid).catch(() => []))).then(a => a.flat()),
+      Promise.all(ids.map(sid => sbGetQuestions(projectId, sid).catch(() => []))).then(a => a.flat()),
       sbGetHints(projectId, site.id),
       sbGetKeywords(projectId, site.id),
       sbGetCalendarEntriesBatch(projectId, site.id),
@@ -3201,12 +3423,13 @@ function QuestionsTab({ site, projectId, apiKey, model, brand, categories, setCa
       setKeywords(keywords);
       setCalendarEntries(calEntries || []);
     }).catch(e => console.warn("[QuestionsTab] load error:", e));
-  }, [projectId, site?.id, refreshTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectId, site?.id, refreshTrigger, _readKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-tag "Marque" : questions contenant le nom de marque ──────
   // Crée la catégorie "Marque" si absente puis tague les questions dont
   // le texte contient le nom de marque ou un alias.
   useEffect(() => {
+    if (isReadOnly) return; // pas d'écriture en vue agrégée / lecture seule
     if (!projectId || !site?.id) return;
     if (!questions.length) return;
     const brandName = (brand?.brand_name || "").trim();
@@ -3548,6 +3771,30 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
       const parsed = await callProvider(effectiveProvider, pk.dec, prompt, modeMaxTokens, "", useWebSearch);
       const detectedBrand = detectBrand(parsed.answer, parsed.sources, brand_name, brand_aliases, competitors);
       const { brandMentioned, brandPosition, brandInSources, competitorsMentioned, unknownEntities } = detectedBrand;
+
+      // ── Temps 2 : présence par marque associée (détectée dans la MÊME réponse) ──
+      // Aucun appel LLM supplémentaire : on ré-applique detectBrand localement pour
+      // chaque marque associée à la question. Rempli uniquement si la question est taguée.
+      const _assoc = Array.isArray(q.associated_sites) ? q.associated_sites : [];
+      const brand_presences = {};
+      if (_assoc.length) {
+        const _toPres = (d) => ({
+          mentioned: !!d.brandMentioned,
+          mention_position:   d.mention?.position   ?? null,
+          evocation_position: d.evocation?.position ?? null,
+          citation_position:  d.citation?.position  ?? null,
+          in_sources: !!d.brandInSources,
+        });
+        brand_presences[site.id] = _toPres(detectedBrand); // marque du site courant (déjà détectée)
+        _assoc.forEach(sid => {
+          if (sid === site.id) return;
+          const sb = siteBrandsMap[sid];
+          if (!sb || !sb.brand_name) return;
+          const d = detectBrand(parsed.answer, parsed.sources, sb.brand_name, sb.brand_aliases || [], []);
+          brand_presences[sid] = _toPres(d);
+        });
+      }
+
       const domain_counts = {};
       (parsed.sources || []).forEach(url => {
         if (!domain_counts[url]) domain_counts[url] = { as_source: 0, in_answer: 0, domain: extractDomain(url) };
@@ -3566,6 +3813,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         brand_mention_position:   detectedBrand.mention?.position   || null,
         brand_evocation_position: detectedBrand.evocation?.position || null,
         brand_citation_position:  detectedBrand.citation?.position  || null,
+        ...(Object.keys(brand_presences).length ? { brand_presences } : {}),
         input_tokens: parsed._input_tokens, output_tokens: parsed._output_tokens,
         web_searches: parsed._web_searches ?? null,
         created_at: now,
@@ -4340,6 +4588,21 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
+                    <SiteBrandSelect
+                      value={Array.isArray(q.associated_sites) ? q.associated_sites : []}
+                      sites={allSites}
+                      onChange={ids => {
+                        setQuestions(prev => prev.map(qq => qq.id === q.id ? { ...qq, associated_sites: ids } : qq));
+                        sbSetQuestionSites(q.id, ids).catch(() => {});
+                      }}
+                    />
+                    <IntentSelect
+                      value={q.intent || null}
+                      onChange={intent => {
+                        setQuestions(prev => prev.map(qq => qq.id === q.id ? { ...qq, intent } : qq));
+                        sbSetQuestionIntent(q.id, intent).catch(() => {});
+                      }}
+                    />
                     <TagSelect
                       values={Array.isArray(q.tags) ? q.tags : (q.category_id ? [q.category_id] : [])}
                       categories={categories}
@@ -5251,7 +5514,7 @@ function SetupSection({ icon, title, desc, children }) {
 
 function FanoutSetupPanel({
   projects, currentProjectId, setCurrentProjectId, setProjects, ownerEmail,
-  sites, setSites, smData, setSmData,
+  sites, setSites, smData, setSmData, smOverview = {}, setSmOverview,
   sfData, setSfData, gscData, setGscData, gaData, setGaData, bingData, setBingData,
   dbHistory, dbLoading, refreshHistory, confirmModal, setConfirmModal,
   project, projectId, onSaveProviderKeys,
@@ -5286,6 +5549,20 @@ function FanoutSetupPanel({
               </select>
               <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: C.blue, fontSize: 11 }}>▾</span>
             </div>
+            <input
+              value={safeProjects.find(p => p.id === currentProjectId)?.name || ""}
+              onChange={e => {
+                const name = e.target.value;
+                setProjects(prev => (Array.isArray(prev) ? prev : []).map(p => p.id === currentProjectId ? { ...p, name } : p));
+              }}
+              onBlur={e => {
+                const proj = safeProjects.find(p => p.id === currentProjectId);
+                if (proj) sbSaveProject({ ...proj, name: e.target.value.trim() || proj.name }).catch(() => {});
+              }}
+              placeholder="Nom du projet"
+              title="Renommer le projet actif"
+              style={{ flex: 1, minWidth: 160, padding: "7px 10px", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#1A3C2E", background: "#fff" }}
+            />
             {safeProjects.length > 1 && (
               <button onClick={() => setConfirmModal?.({ message: `Supprimer "${safeProjects.find(p => p.id === currentProjectId)?.name}" ?`, onConfirm: () => {
                 sbDeleteProject(currentProjectId).catch(() => {});
@@ -5317,9 +5594,9 @@ function FanoutSetupPanel({
                 )}
               </div>
             ))}
-            {safeSites.length < 3 && (
+            {(
               <button onClick={() => {
-                const palette = SITE_PALETTE[safeSites.length] || SITE_PALETTE[0];
+                const palette = SITE_PALETTE[safeSites.length % SITE_PALETTE.length] || SITE_PALETTE[0];
                 const newId = `site-${Date.now()}`;
                 setSites(prev => [...(Array.isArray(prev) ? prev : []), { id: newId, label: `Site ${safeSites.length + 1}`, ...palette }]);
                 setSmData(p => ({...p, [newId]: []}));
@@ -5330,8 +5607,9 @@ function FanoutSetupPanel({
           {/* Historique */}
           <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 11, color: C.textLight }}>
-              <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: dbLoading ? "#F59E0B" : safeHistory.length > 0 ? "#059669" : "#CBD5E1", marginRight: 5 }} />
-              {dbLoading ? "Chargement…" : `${safeHistory.length} imports en base`}
+              {dbLoading ? (<><span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#F59E0B", marginRight: 5 }} />Chargement…</>)
+                : safeHistory.length > 0 ? (<><span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#059669", marginRight: 5 }} />{safeHistory.length} import{safeHistory.length > 1 ? "s" : ""} en base</>)
+                : null}
             </span>
             <button onClick={() => { setShowHistory(h => !h); refreshHistory?.(); }}
               style={{ fontSize: 11, color: showHistory ? C.blue : C.textLight, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
@@ -5366,7 +5644,13 @@ function FanoutSetupPanel({
       {/* ── Configuration du suivi de marque ── */}
       <SetupSection icon="🏷️" title="Configuration du suivi de marque" desc="Déclarez le nom de votre marque, ses variantes, son domaine et vos concurrents. Ces éléments servent à détecter votre présence et celle des concurrents dans les réponses des LLMs.">
         <BrandConfigAccordion sites={safeSites} projectId={projectId} />
-      </SetupSection>      {/* ── Mots-clés — Axes de génération ── */}
+      </SetupSection>      {/* ── Génération à partir des mots-clés ── */}
+      <div style={{ marginBottom: 24, paddingLeft: 16, borderLeft: "3px solid #1A4A7A22" }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: "#1A3C2E", marginBottom: 3, display: "flex", alignItems: "center", gap: 7 }}>
+          <span style={{ fontSize: 16 }}>🔑</span>Génération à partir des mots clés
+        </div>
+        <div style={{ fontSize: 11.5, color: "#64748B", lineHeight: 1.55, marginBottom: 16, maxWidth: 640 }}>Cette partie du setup concerne la génération des questions à partir des mots clés.</div>
+      {/* ── Mots-clés — Axes de génération ── */}
       <SetupSection icon="🎯" title="Mots-clés — Axes de génération des questions" desc="Définissez les angles sous lesquels chaque mot-clé sera décliné en question, adaptés à votre secteur. Chaque mot-clé génèrera une question par axe ; pensez à sauvegarder.">
         <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -5394,7 +5678,7 @@ function FanoutSetupPanel({
       </SetupSection>
 
       {/* ── Ajout des volumes — Import Semrush ── */}
-      <SetupSection icon="📈" title="Ajout des volumes — Import Semrush" desc="Importez l'export Semrush « Organic pages » de chaque site pour associer un volume de recherche à vos mots-clés. Ces volumes priorisent les questions et enrichissent les analyses.">
+      <SetupSection icon="📈" title="Visibilité SEO — Import Semrush" desc="Pour chaque site, importez l'export « Domain Overview » (totaux mots-clés / trafic organiques du domaine) et l'export « Organic pages » (performance par page). Ces données alimentent la comparaison concurrentielle et l'audit.">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {safeSites.map(site => (
             <div key={site.id} style={{ flex: "1 1 200px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px" }}>
@@ -5405,17 +5689,37 @@ function FanoutSetupPanel({
                 onClear={() => setSmData(p => ({...p, [site.id]: []}))}
                 rawMode siteId={site.id} source="sm" projectId={projectId}
                 onAfterUpload={refreshHistory}
-                onLoadFromHistory={async row => { try { const t = await sbDownload(row.storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch(e) {} }}
+                onLoadFromHistory={async row => { try { const t = await sbDownload(row.storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch { } }}
               />
               {(smData||{})[site.id]?.length > 0 && <div style={{ marginTop: 4, fontSize: 10, color: site.color, fontWeight: 600 }}>✓ {(smData||{})[site.id].length} pages</div>}
               {lastImports[`${site.id}_sm`]?.storage_path && !(smData||{})[site.id]?.length && (
-                <button onClick={async () => { try { const t = await sbDownload(lastImports[`${site.id}_sm`].storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch(e) {} }}
+                <button onClick={async () => { try { const t = await sbDownload(lastImports[`${site.id}_sm`].storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch { } }}
                   style={{ marginTop: 4, width: "100%", padding: "3px 0", border: `1px solid ${site.color}`, borderRadius: 6, background: site.bg, color: site.color, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>↩ Dernier</button>
               )}
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #E2E8F0" }}>
+                <UploadCard label="Overview" icon="📊" hint="Domain Overview export" color={site.color}
+                  loaded={((smOverview||{})[site.id]||[]).length > 0} rows={(smOverview||{})[site.id]}
+                  onData={(_, rawText) => { const ov = parseSemrushOverview(rawText); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); }}
+                  onClear={() => setSmOverview(p => ({...p, [site.id]: []}))}
+                  rawMode siteId={site.id} source="smov" projectId={projectId}
+                  onAfterUpload={refreshHistory}
+                  onLoadFromHistory={async row => { try { const t = await sbDownload(row.storage_path); const ov = parseSemrushOverview(t); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); } catch { } }}
+                />
+                {((smOverview||{})[site.id]||[])[0] && (() => {
+                  const ov = ((smOverview||{})[site.id]||[])[0] || {};
+                  const fmt = (n) => n == null ? "—" : Number(n).toLocaleString("fr-FR");
+                  return <div style={{ marginTop: 4, fontSize: 10, color: site.color, fontWeight: 600 }}>✓ {fmt(ov.organic_keywords)} mots-clés · {fmt(ov.organic_traffic)} trafic</div>;
+                })()}
+                {lastImports[`${site.id}_smov`]?.storage_path && !((smOverview||{})[site.id]||[]).length && (
+                  <button onClick={async () => { try { const t = await sbDownload(lastImports[`${site.id}_smov`].storage_path); const ov = parseSemrushOverview(t); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); } catch { } }}
+                    style={{ marginTop: 4, width: "100%", padding: "3px 0", border: `1px solid ${site.color}`, borderRadius: 6, background: site.bg, color: site.color, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>↩ Dernier</button>
+                )}
+              </div>
             </div>
           ))}
         </div>
       </SetupSection>
+      </div>{/* /Génération à partir des mots-clés */}
 
 
 
@@ -5455,7 +5759,7 @@ function ScrollToTopButton() {
 export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes, onSaveProviderKeys, user,
   // Props setup (nouvelles — passées depuis App.jsx)
   projects, currentProjectId, setCurrentProjectId, setProjects, ownerEmail,
-  setSites, smData, setSmData,
+  setSites, smData, setSmData, smOverview = {}, setSmOverview,
   sfData, setSfData, gscData, setGscData, gaData, setGaData, bingData, setBingData,
   dbHistory, dbLoading, refreshHistory, confirmModal, setConfirmModal,
   isReadOnly = false,
@@ -5481,7 +5785,6 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
 
   const [model] = useState(projectSettings.model || "gpt-4o-mini"); // kept for variation generation (OpenAI completions endpoint)
   const [brand, setBrand]           = useState(null);
-  const [secondSiteBrand, setSecondSiteBrand] = useState(null); // 2e site → suivi comme concurrent tagué
   const [runMode] = useState(projectSettings.runMode || "parallel"); // parallel | sequential
   const [semrushKeyDec, setSemrushKeyDec] = useState(() => decodeKey(project?.semrush_key_enc || ""));
   // Sync semrush key when project changes
@@ -5567,6 +5870,21 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
 
   const site = (Array.isArray(sites) ? sites : []).find(s => s.id === selectedSite) || (Array.isArray(sites) ? sites : [])[0];
 
+  // ── Périmètre multi-sites du Suivi GEO ──────────────────────────────────
+  // Tous les sites cochés par défaut (vue globale). Au moins un site.
+  const [selectedSiteIds, setSelectedSiteIds] = useState((Array.isArray(sites) ? sites : []).map(s => s.id));
+  useEffect(() => {
+    setSelectedSiteIds((Array.isArray(sites) ? sites : []).map(s => s.id));
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const effSiteIds   = selectedSiteIds.length ? selectedSiteIds : (Array.isArray(sites) ? sites : []).map(s => s.id);
+  const activeSites  = (Array.isArray(sites) ? sites : []).filter(s => effSiteIds.includes(s.id));
+  const primarySite  = activeSites[0] || site;
+  const isMultiSite  = activeSites.length > 1;
+  // Le site primaire pilote brand / aliasMap / concurrents (chargés via selectedSite).
+  useEffect(() => {
+    if (activeSites[0] && activeSites[0].id !== selectedSite) setSelectedSite(activeSites[0].id);
+  }, [selectedSiteIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Sync axes when project changes
   useEffect(() => {
     setAxes(Array.isArray(geoAxes) ? geoAxes : DEFAULT_AXES);
@@ -5592,23 +5910,51 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
     }).catch(() => {});
   }, [projectId, site?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 2e site → chargé comme « 2nd site suivi » (concurrent tagué du site principal)
+  const [otherSiteBrands, setOtherSiteBrands] = useState([]); // toutes les autres marques du projet
+  // Map site_id → { brand_name, brand_aliases } pour la détection multi-marques (Temps 2).
+  const [siteBrandsMap, setSiteBrandsMap] = useState({});
   useEffect(() => {
     const list = Array.isArray(sites) ? sites : [];
-    if (!projectId || list.length < 2) { setSecondSiteBrand(null); return; }
-    sbGetBrand(projectId, list[1].id).then(b => setSecondSiteBrand(b || null)).catch(() => setSecondSiteBrand(null));
+    if (!projectId || !list.length) { setSiteBrandsMap({}); return; }
+    let cancelled = false;
+    Promise.all(list.map(s => sbGetBrand(projectId, s.id).then(b => [s.id, b]).catch(() => [s.id, null])))
+      .then(pairs => {
+        if (cancelled) return;
+        const m = {};
+        pairs.forEach(([sid, b]) => { if (b && b.brand_name) m[sid] = { brand_name: b.brand_name, brand_aliases: Array.isArray(b.brand_aliases) ? b.brand_aliases : [] }; });
+        setSiteBrandsMap(m);
+      });
+    return () => { cancelled = true; };
   }, [projectId, sites]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Autres sites du projet → chargés comme « 2nd site suivi » (marques associées, tag bleu)
+  useEffect(() => {
+    const list = Array.isArray(sites) ? sites : [];
+    const others = list.filter(s => s.id !== site?.id);
+    if (!projectId || others.length === 0) { setOtherSiteBrands([]); return; }
+    let cancelled = false;
+    Promise.all(others.map(s =>
+      sbGetBrand(projectId, s.id).then(b => (b ? { ...b, _siteColor: s.color, _siteLabel: s.label } : null)).catch(() => null)
+    )).then(rows => { if (!cancelled) setOtherSiteBrands(rows.filter(Boolean)); });
+    return () => { cancelled = true; };
+  }, [projectId, sites, site?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Liste de concurrents enrichie : injecte le 2e site (virtuel, non éditable) tagué « 2nd site suivi »
+  // Liste de concurrents enrichie : injecte les AUTRES sites du projet (marques associées),
+  // virtuels et non éditables, tagués « 2nd site suivi » (bleu).
   const competitorsView = useMemo(() => {
     const base = Array.isArray(competitors) ? competitors : [];
-    const name = secondSiteBrand?.brand_name?.trim();
-    if (!name) return base;
-    const exists = base.some(c => c.name?.toLowerCase() === name.toLowerCase());
-    if (exists) return base;
     const def = COMP_CATEGORIES.find(c => c.key === "second_site");
-    return [{ id: "__second_site__", name, category: "second_site", color: def?.color || "#2563EB", enabled: true, _virtual: true }, ...base];
-  }, [competitors, secondSiteBrand]);
+    const virtuals = [];
+    const seen = new Set(base.map(c => (c.name || "").toLowerCase()));
+    (otherSiteBrands || []).forEach(b => {
+      const name = b?.brand_name?.trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      virtuals.push({ id: `__site_${key}__`, name, category: "second_site", color: b._siteColor || def?.color || "#2563EB", enabled: true, _virtual: true });
+    });
+    return virtuals.length ? [...virtuals, ...base] : base;
+  }, [competitors, otherSiteBrands]);
 
   // Decode key when enc changes
   useEffect(() => {
@@ -5738,6 +6084,8 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
           setSites={setSites}
           smData={smData}
           setSmData={setSmData}
+          smOverview={smOverview}
+          setSmOverview={setSmOverview}
           sfData={sfData}
           setSfData={setSfData}
           gscData={gscData}
@@ -5800,18 +6148,31 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
 
         {/* ── Questions ── */}
         <div style={{ display: subTab === "questions" ? "block" : "none" }}>
+          {(Array.isArray(sites) ? sites : []).length > 1 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+              <SiteMultiSelect sites={safeSites} value={selectedSiteIds} onChange={setSelectedSiteIds} />
+              {isMultiSite && (
+                <span style={{ fontSize: 11, color: "#C97820", fontWeight: 600, background: "#FEF3E2", padding: "3px 10px", borderRadius: 12 }}>
+                  Vue agrégée ({activeSites.length} sites) — lecture seule. Sélectionnez un seul site pour gérer et lancer les questions.
+                </span>
+              )}
+            </div>
+          )}
           <QuestionsTab
-            site={site} projectId={projectId} apiKey={apiKeyDec} model={model}
-            gscRows={project?.gscData?.[site?.id] || []}
+            site={primarySite} projectId={projectId} apiKey={apiKeyDec} model={model}
+            allSites={safeSites}
+            readSiteIds={effSiteIds}
+            siteBrandsMap={siteBrandsMap}
+            gscRows={project?.gscData?.[primarySite?.id] || []}
             aliasMap={aliasMap}
             brand={brand} categories={categories} setCategories={setCategories}
-            allResults={allResults.filter(r => r.site_id === site?.id)}
-            onResultSaved={() => sbGetGeoResults(projectId, site.id).then(setAllResults)}
+            allResults={allResults.filter(r => effSiteIds.includes(r.site_id))}
+            onResultSaved={() => sbGetGeoResults(projectId, primarySite.id).then(setAllResults)}
             activeProviders={activeProviders} providerKeys={providerKeys}
             runMode={runMode} keywordsOrder={keywords.map(k => k.id)}
             refreshTrigger={questionsKey}
             competitors={competitorsView} setCompetitors={setCompetitors}
-            isReadOnly={isReadOnly}
+            isReadOnly={isReadOnly || isMultiSite}
             webSearchSettings={project?.provider_web_search || {}}
             onSaveKey={(keyPatch) => {
               setProviderKeys(prev => {
@@ -5842,6 +6203,11 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
               projectId={projectId} siteId={site?.id}
               allResults={allResults.filter(r => r.site_id === site?.id)}
               competitors={competitorsView} setCompetitors={setCompetitors}
+              brandLabel={brand?.brand_name || site?.name || "Votre marque"}
+              sfData={sfData}
+              smData={smData}
+              smOverview={smOverview}
+              sfPerimeter={getSitePerimeter(site)}
             />
           </div>
         )}

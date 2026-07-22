@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { C, SF_DIMS, RES_KPIS, RADAR_DIMS, DEFAULT_SITES, SEMRUSH_DIMS } from "./lib/constants";
 import { emptyDataMap, makeInitialProject, parseCSV, parseSemrushCSV } from "./lib/helpers";
 import { extractSF, extractGSC, extractGA, extractBing, extractSemrush, parseSemrush, filterByMode } from "./lib/parsers";
+import { parseSemrushOverview } from "./lib/compareEngine";
 import { buildUrlMaps, buildSfPageVectors, intraCorrFast, smIntraCorr } from "./lib/correlations";
 import { sbSaveProject, sbDeleteProject, sbGetHistory, sbGetLatest, sbDownload, sbGetPageTypes, sbSaveGeoAxes, sbGetGeoResultsAll, sbGetUrlIndex, sbRecordActivity } from "./lib/supabase";
 
@@ -176,7 +177,7 @@ export default function App() {
   const [user, setUser] = useState(() => getCurrentUser());
   const superAdmin = isSuperAdmin(user);
 
-  const EMPTY_PROJECT = useMemo(() => ({ sites: [], sfData: {}, gscData: {}, gaData: {}, bingData: {}, smData: {} }), []);
+  const EMPTY_PROJECT = useMemo(() => ({ sites: [], sfData: {}, gscData: {}, gaData: {}, bingData: {}, smData: {}, smOverview: {} }), []);
   const currentProject = useMemo(
     () => projects.find(p => p.id === currentProjectId) || projects[0] || EMPTY_PROJECT,
     [projects, currentProjectId, EMPTY_PROJECT]
@@ -224,6 +225,7 @@ export default function App() {
   const gaData   = useMemo(() => currentProject.gaData   || {}, [currentProject]);
   const bingData = useMemo(() => currentProject.bingData || {}, [currentProject]);
   const smData   = useMemo(() => currentProject.smData   || {}, [currentProject]);
+  const smOverview = useMemo(() => currentProject.smOverview || {}, [currentProject]);
 
   const setSfData   = useCallback((fn) => updateProject(p => ({ sfData:   typeof fn === "function" ? fn(p.sfData)   : fn })), [updateProject]);
   const setGscData  = useCallback((fn) => updateProject(p => ({ gscData:  typeof fn === "function" ? fn(p.gscData)  : fn })), [updateProject]);
@@ -231,6 +233,7 @@ export default function App() {
   const setBingData = useCallback((fn) => updateProject(p => ({ bingData: typeof fn === "function" ? fn(p.bingData) : fn })), [updateProject]);
   const setSites    = useCallback((fn) => updateProject(p => ({ sites:    typeof fn === "function" ? fn(p.sites)    : fn })), [updateProject]);
   const setSmData   = useCallback((fn) => updateProject(p => ({ smData:   typeof fn === "function" ? fn(p.smData)   : fn })), [updateProject]);
+  const setSmOverview = useCallback((fn) => updateProject(p => ({ smOverview: typeof fn === "function" ? fn(p.smOverview) : fn })), [updateProject]);
 
   // ── UI state ─────────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState(null);
@@ -284,7 +287,7 @@ export default function App() {
     });
     const alreadyLoaded = new Set();
     if (currentP) {
-      const dataKeys = { sfData: "sf", gscData: "gsc", gaData: "ga", bingData: "bing", smData: "sm" };
+      const dataKeys = { sfData: "sf", gscData: "gsc", gaData: "ga", bingData: "bing", smData: "sm", smOverview: "smov" };
       for (const [key, src] of Object.entries(dataKeys)) {
         const data = currentP[key] || {};
         if (Object.values(data).some(rows => Array.isArray(rows) && rows.length > 0)) {
@@ -299,11 +302,14 @@ export default function App() {
       try {
         const text = await sbDownload(row.storage_path);
         const src = row.source;
-        const key = src === "sf" ? "sfData" : src === "gsc" ? "gscData" : src === "ga" ? "gaData" : src === "bing" ? "bingData" : src === "sm" ? "smData" : null;
+        const key = src === "sf" ? "sfData" : src === "gsc" ? "gscData" : src === "ga" ? "gaData" : src === "bing" ? "bingData" : src === "sm" ? "smData" : src === "smov" ? "smOverview" : null;
         if (!key) return null;
         let rows;
         if (src === "sm") {
           rows = parseSemrush(parseSemrushCSV(text));
+        } else if (src === "smov") {
+          const ov = parseSemrushOverview(text);
+          rows = ov ? [ov] : [];
         } else {
           rows = parseCSV(text);
         }
@@ -908,6 +914,8 @@ export default function App() {
               ownerEmail={user?.email || null}
               setSites={setSites}
               smData={smData}
+          smOverview={smOverview}
+          setSmOverview={setSmOverview}
               setSmData={setSmData}
               dbHistory={dbHistory}
               dbLoading={dbLoading}
@@ -934,6 +942,10 @@ export default function App() {
               setSites={setSites}
               sfData={sfData}
               setSfData={setSfData}
+              smData={smData}
+              setSmData={setSmData}
+              smOverview={smOverview}
+              setSmOverview={setSmOverview}
               gscData={gscData}
               setGscData={setGscData}
               gaData={gaData}

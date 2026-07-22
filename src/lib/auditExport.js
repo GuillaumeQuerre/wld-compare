@@ -115,9 +115,55 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
     providers, cats, comps, compMax, sovBrandPct, blindSpotsCount, trend,
     presenceTrend: (a.presenceTrend || []).filter(t => t.tested > 0),
     mecTrend: (a.mecTrend || []).filter(t => t.tested > 0),
+    mec30: (() => {
+      const byDate = {}; (a.mecTrend || []).forEach(t => { if (t.tested > 0) byDate[t.date] = t; });
+      const out = []; const today = new Date(); today.setHours(0, 0, 0, 0);
+      for (let i = 29; i >= 0; i--) {
+        const dt = new Date(today); dt.setDate(dt.getDate() - i);
+        const key = dt.toISOString().slice(0, 10); const t = byDate[key];
+        out.push({ date: key, tested: t ? t.tested : 0, mentions: t ? t.mentions : null, evocations: t ? t.evocations : null, citations: t ? t.citations : null });
+      }
+      return out;
+    })(),
     distinctRuns: a.distinctRuns || 0,
     nProviders: providers.length,
     questionStatus: (a.questionStatus || []).map(q => ({ question: q.question, status: q.status, lost: !!q.lost, presentOn: q.presentOn || 0, providersOn: q.providersOn || 0 })),
+    questionIntent: (a.questionIntentList || []).map(st => ({ label: st.label, color: (st.color || "1A3C2E").replace("#", ""), questions: st.questions, total: st.total, presenceRate: st.presenceRate, mentions: st.mentions, evocations: st.evocations, citations: st.citations, avgPos: st.avgPos })),
+    compare: (() => {
+      const entries = a.compareCompEntries || [];
+      if (!entries.length) return null;
+      const bs = a.compareBrandStats || {};
+      const cols = [{ key: "__brand__", label: (brand && (brand.brand_name || brand.name)) || "Votre marque", isBrand: true, color: "1A3C2E" }]
+        .concat(entries.map(c => ({ key: c.key, label: c.label, isBrand: false, color: (c.color || "64748B").replace("#", "") })));
+      // Lignes LLM + Screaming Frog + Semrush (Lot B2 complet).
+      const ROWDEFS = [
+        { id: "mentions", label: "Mentions classées", better: "high" },
+        { id: "evocations", label: "Évocations", better: "high" },
+        { id: "citations", label: "Citations sources", better: "high" },
+        { id: "avgPos", label: "Position moyenne", better: "low", fmt: (v) => v == null ? "—" : "#" + v },
+        { id: "urlsCited", label: "URLs citées", better: "high" },
+        { id: "bestUrlHits", label: "Citations meilleure URL", better: "high" },
+        { id: "sf_pages200", label: "Pages 200", better: "high" },
+        { id: "sf_images", label: "Images", better: "high" },
+        { id: "sf_h1multi", label: "Pages à H1 multiples", better: "low" },
+        { id: "sf_titleLong", label: "Titles trop longs", better: "low" },
+        { id: "sm_keywords", label: "Mots-clés organiques", better: "high" },
+        { id: "sm_traffic", label: "Trafic organique", better: "high" },
+      ];
+      const included = Array.isArray(a.compareRows) ? a.compareRows : ROWDEFS.map(r => r.id);
+      // Stats marque = LLM + agrégats outils (SF) ; concurrents externes n'ont pas de données outils.
+      const statBy = { __brand__: { ...bs, ...(a.compareBrandTool || {}) } };
+      entries.forEach(c => { statBy[c.key] = c.stats || {}; });
+      const rows = ROWDEFS.filter(r => included.includes(r.id)).map(r => {
+        const cells = cols.map(col => (statBy[col.key] || {})[r.id]);
+        // meilleure cellule
+        let bi = -1, bv = null;
+        cells.forEach((v, i) => { const n = typeof v === "string" ? parseFloat(v) : v; if (n == null || !Number.isFinite(n)) return; if (bv == null || (r.better === "high" ? n > bv : n < bv)) { bv = n; bi = i; } });
+        const numeric = cells.filter(v => Number.isFinite(typeof v === "string" ? parseFloat(v) : v)).length;
+        return { label: r.label, cells: cells.map(v => r.fmt ? r.fmt(v) : (v == null ? "—" : String(v))), bestIndex: numeric > 1 ? bi : -1 };
+      });
+      return { columns: cols, rows };
+    })(),
     sources: {
       own: (a.brandOwnUrls || []).length,
       optimize: (a.urlsToOptimize || []).length,
@@ -205,6 +251,22 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     footer(s, 3);
   }
 
+  // 3bis — Analyse par intention de question (tag manuel)
+  if (d.questionIntent.length) {
+    const s = slide();
+    kicker(s, "Intention"); title(s, "Analyse par intention de question");
+    let yy = 1.95;
+    d.questionIntent.forEach(it => {
+      s.addText([{ text: it.label, options: { bold: true, color: it.color, fontSize: 14 } }, { text: `   ${it.questions} question${it.questions > 1 ? "s" : ""} · ${it.total} réponse${it.total > 1 ? "s" : ""}`, options: { color: C.inkMid, fontSize: 11 } }], { x: 0.6, y: yy, w: 12, h: 0.3 });
+      s.addShape(p.ShapeType.roundRect, { x: 0.6, y: yy + 0.36, w: 10.4, h: 0.28, rectRadius: 0.05, fill: { color: C.creamDark } });
+      s.addShape(p.ShapeType.roundRect, { x: 0.6, y: yy + 0.36, w: Math.max(0.05, 10.4 * (it.presenceRate / 100)), h: 0.28, rectRadius: 0.05, fill: { color: it.color } });
+      s.addText(`${it.presenceRate}%`, { x: 11.1, y: yy + 0.34, w: 1.6, h: 0.3, fontSize: 13, bold: true, color: it.color });
+      s.addText(`◎ ${it.mentions} mentions    → ${it.evocations} évocations    ↗ ${it.citations} citations${it.avgPos ? `    pos. moy. #${it.avgPos}` : ""}`, { x: 0.6, y: yy + 0.7, w: 12, h: 0.28, fontSize: 10, color: C.inkMid });
+      yy += 1.28;
+    });
+    footer(s, 4);
+  }
+
   // 4 — Présence dans le temps (taux par jour de test)
   if (d.presenceTrend.length > 1) {
     const s = slide();
@@ -216,7 +278,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       valAxisMaxVal: 100, valAxisMinVal: 0,
       showLegend: false, catAxisLabelFontSize: 10, catAxisLabelColor: C.inkMid, valGridLine: { color: C.creamDark, style: "solid" },
     });
-    footer(s, 4);
+    footer(s, 5);
   }
 
   // 5 — Évolution des mentions (3 courbes lissées en %)
@@ -225,16 +287,19 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     kicker(s, "Tendance"); title(s, "Évolution des mentions");
     s.addText("Part des réponses avec mention, évocation ou citation, en % par jour de test. Un point par date d'interrogation.", { x: 0.6, y: 1.42, w: 12, h: 0.35, fontSize: 12, color: C.inkMid });
     s.addChart(p.ChartType.line, [
-      { name: "Mentions",   labels: d.mecTrend.map(t => t.date?.slice(5)), values: d.mecTrend.map(t => t.mentions) },
-      { name: "Évocations", labels: d.mecTrend.map(t => t.date?.slice(5)), values: d.mecTrend.map(t => t.evocations) },
-      { name: "Citations",  labels: d.mecTrend.map(t => t.date?.slice(5)), values: d.mecTrend.map(t => t.citations) },
+      { name: "Mentions",   labels: d.mec30.map(t => t.date?.slice(8)), values: d.mec30.map(t => t.mentions) },
+      { name: "Évocations", labels: d.mec30.map(t => t.date?.slice(8)), values: d.mec30.map(t => t.evocations) },
+      { name: "Citations",  labels: d.mec30.map(t => t.date?.slice(8)), values: d.mec30.map(t => t.citations) },
     ], {
       x: 0.6, y: 1.9, w: 12.1, h: 4.6, chartColors: ["1A7A4A", "C97820", "1A3C2E"], lineSize: 2.5, lineSmooth: true,
+      displayBlanksAs: "span", // structure 30 jours : les jours sans interrogation sont enjambés
+      lineDataSymbol: "circle", lineDataSymbolSize: 6,
       valAxisMaxVal: 100, valAxisMinVal: 0,
       showLegend: true, legendPos: "b", legendFontSize: 11,
-      catAxisLabelFontSize: 10, catAxisLabelColor: C.inkMid, valGridLine: { color: C.creamDark, style: "solid" },
+      catAxisLabelFontSize: 8, catAxisLabelColor: C.inkMid, valGridLine: { color: C.creamDark, style: "solid" },
     });
-    footer(s, 5);
+    s.addText(`Fenêtre du ${d.mec30[0].date} au ${d.mec30[29].date} — points aux dates d'interrogation.`, { x: 0.6, y: 6.6, w: 12.1, h: 0.3, fontSize: 10, color: C.inkLight, italic: true });
+    footer(s, 6);
   }
 
   // 6 — Catégories (barres taux)
@@ -246,7 +311,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       dataLabelColor: C.white, dataLabelPosition: "inEnd", dataLabelFontSize: 11, valAxisMaxVal: 100,
       catAxisLabelColor: C.ink, catAxisLabelFontSize: 12, valGridLine: { style: "none" }, showLegend: false,
     });
-    footer(s, 6);
+    footer(s, 7);
   }
 
   // 6 — Concurrents
@@ -264,7 +329,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       dataLabelColor: C.white, dataLabelPosition: "inEnd", dataLabelFontSize: 11,
       catAxisLabelColor: C.ink, catAxisLabelFontSize: 11, valGridLine: { style: "none" }, showLegend: false,
     });
-    footer(s, 7);
+    footer(s, 8);
   }
 
   // 7 — Perception de la marque (sentiment IA)
@@ -286,7 +351,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     s.addText("POINTS DE VIGILANCE", { x: 6.9, y: 3.85, w: 5.8, h: 0.3, fontSize: 11, bold: true, color: C.accent, charSpacing: 1 });
     const watch = (se.watchouts || []).slice(0, 5);
     s.addText(watch.length ? watch.map(t => ({ text: t, options: { bullet: { code: "2022" }, color: C.inkMid, fontSize: 12, paraSpaceAfter: 5 } })) : [{ text: "Aucun point de vigilance notable.", options: { color: C.inkLight, fontSize: 12, italic: true } }], { x: 6.9, y: 4.2, w: 5.8, h: 2.5, valign: "top" });
-    footer(s, 8);
+    footer(s, 9);
   }
 
   // 8 — Sources & URLs
@@ -310,7 +375,32 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       const rows = d.sources.topOwn.map(u => [{ text: u.url, options: { color: C.ink } }, { text: `${u.n} citations`, options: { align: "right", color: C.inkMid } }]);
       s.addTable(rows, { x: 0.6, y: 4.1, w: 12.1, colW: [9.6, 2.5], fontSize: 12, rowH: 0.38, border: { type: "solid", pt: 0.5, color: C.creamDark } });
     }
-    footer(s, 9);
+    footer(s, 11);
+  }
+
+  // 8bis — Comparaison approfondie (marque vs concurrents sélectionnés)
+  if (d.compare && d.compare.rows.length) {
+    const s = slide();
+    kicker(s, "Concurrence"); title(s, "Comparaison approfondie");
+    const cols = d.compare.columns;
+    const colW = 3.2, cellW = (12.4 - colW) / cols.length;
+    // en-têtes
+    s.addText("Critère", { x: 0.6, y: 1.7, w: colW, h: 0.4, fontSize: 11, bold: true, color: C.inkMid });
+    cols.forEach((col, ci) => {
+      s.addText(col.label + (col.isBrand ? " ★" : ""), { x: 0.6 + colW + ci * cellW, y: 1.7, w: cellW, h: 0.4, fontSize: 11, bold: true, color: col.color, align: "center" });
+    });
+    let yy = 2.15;
+    d.compare.rows.forEach(row => {
+      s.addText(row.label, { x: 0.6, y: yy, w: colW, h: 0.34, fontSize: 10.5, color: C.ink });
+      row.cells.forEach((cell, ci) => {
+        const isBest = ci === row.bestIndex;
+        if (isBest) s.addShape(p.ShapeType.roundRect, { x: 0.6 + colW + ci * cellW + 0.1, y: yy - 0.02, w: cellW - 0.2, h: 0.32, rectRadius: 0.04, fill: { color: "1A7A4A0A" }, line: { color: "1A7A4A", width: 1 } });
+        s.addText(cell, { x: 0.6 + colW + ci * cellW, y: yy, w: cellW, h: 0.32, fontSize: 11, bold: isBest, color: cols[ci].isBrand ? C.green : C.ink, align: "center" });
+      });
+      yy += 0.36;
+    });
+    s.addText("Cellule encadrée = meilleure valeur de la ligne. Toutes marques du projet : la donnée outils n'existe que pour vos sites.", { x: 0.6, y: 6.95, w: 12, h: 0.3, fontSize: 10, color: C.inkLight, italic: true });
+    footer(s, 10);
   }
 
   // 9 — Questions par statut (À défendre / À surveiller / Conquête prioritaire)
@@ -338,7 +428,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       { text: "Moteurs", options: { bold: true, color: C.white, fill: { color: C.green }, fontSize: 10, align: "center" } },
     ], ...rows], { x: 0.6, y: 1.9, w: 12.1, colW: [2.2, 8.7, 1.2], border: { type: "solid", pt: 0.5, color: C.creamDark }, rowH: 0.34, valign: "middle" });
     s.addText("⟳ = position perdue : la marque apparaissait sur cette question mais n'apparaît plus au dernier test.", { x: 0.6, y: 6.95, w: 12.1, h: 0.3, fontSize: 10, color: C.inkLight, italic: true });
-    footer(s, 10);
+    footer(s, 12);
   }
 
   // 10 — Pistes prioritaires (reco + pourquoi/comment/combien)
@@ -356,7 +446,7 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
       ], { x: 0.85, y: y + 0.34, w: 11.9, h: 1.0, fontSize: 9.5, valign: "top", lineSpacingMultiple: 1.04 });
       y += 1.32;
     });
-    footer(s, 11);
+    footer(s, 13);
   }
 
   // 10 — Plan d'action
@@ -400,6 +490,7 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
   doc.splitTextToSize = (txt, w, o) => _split(sf(txt), w, o);
   const rgb = (hexc) => { const n = parseInt(hexc, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
   const setFill = (c) => doc.setFillColor(...rgb(c));
+  const hex = (h) => { const c = String(h || "1A3C2E").replace("#", ""); return [parseInt(c.slice(0,2),16)||26, parseInt(c.slice(2,4),16)||60, parseInt(c.slice(4,6),16)||46]; };
   const setText = (c) => doc.setTextColor(...rgb(c));
   const setDraw = (c) => doc.setDrawColor(...rgb(c));
   let page = 0;
@@ -474,6 +565,23 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
     foot();
   }
 
+  // 3bis — Analyse par intention de question (tag manuel)
+  if (d.questionIntent.length) {
+    newPage(C.white); head("Intention", "Analyse par intention de question");
+    let yy = 48;
+    d.questionIntent.forEach(it => {
+      setText(it.color); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text(it.label, 16, yy);
+      setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(`${it.questions} question(s) · ${it.total} réponse(s)`, W - 16, yy, { align: "right" });
+      setFill(C.creamDark); doc.roundedRect(16, yy + 4, 250, 6, 1.5, 1.5, "F");
+      setFill(it.color); doc.roundedRect(16, yy + 4, Math.max(1.5, 250 * (it.presenceRate / 100)), 6, 1.5, 1.5, "F");
+      setText(it.color); doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.text(`${it.presenceRate}%`, 272, yy + 9);
+      setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+      doc.text(`${it.mentions} mentions   ${it.evocations} évocations   ${it.citations} citations${it.avgPos ? `   pos. moy. #${it.avgPos}` : ""}`, 16, yy + 18);
+      yy += 28;
+    });
+    foot();
+  }
+
   // 4 — Présence dans le temps (taux par jour de test)
   if (d.presenceTrend.length > 1) {
     newPage(C.white); head("Tendance", "Présence dans le temps");
@@ -499,15 +607,27 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
     newPage(C.white); head("Tendance", "Évolution des mentions");
     setText(C.inkMid); doc.setFontSize(11); doc.setFont("helvetica", "normal");
     doc.text("Part des réponses avec mention, évocation ou citation, en % par jour de test.", 16, 42);
-    const gx = 28, gy = 156, gw = 284, gh = 96;
+    const gx = 28, gy = 152, gw = 288, gh = 94;
     setDraw(C.creamDark); doc.setLineWidth(0.3);
     [0, 25, 50, 75, 100].forEach(v => { const yy = gy - (v / 100) * gh; doc.line(gx, yy, gx + gw, yy); setText(C.inkLight); doc.setFontSize(7.5); doc.text(`${v}%`, gx - 3, yy + 2, { align: "right" }); });
-    const pts0 = d.mecTrend, nn = pts0.length;
-    const px = (i) => gx + (nn > 1 ? (i / (nn - 1)) * gw : gw / 2);
+    // Structure fixe 30 jours : un slot par jour, points uniquement aux dates d'interrogation
+    const dayIdx = {}; d.mec30.forEach((t, i) => { dayIdx[t.date] = i; });
+    const pts0 = d.mecTrend.filter(t => dayIdx[t.date] != null);
+    const px = (i) => gx + (i / 29) * gw;
     const py = (v) => gy - (Math.max(0, Math.min(100, v)) / 100) * gh;
+    // Ticks + dates des 30 jours (jour du mois ; interrogés en foncé)
+    d.mec30.forEach((t, i) => {
+      const tested = t.tested > 0;
+      setDraw(tested ? "D8D2C2" : "EFEAE0"); doc.setLineWidth(0.25); doc.line(px(i), gy - gh, px(i), gy + 1.5);
+      setText(tested ? C.ink : C.inkLight); doc.setFont("helvetica", tested ? "bold" : "normal"); doc.setFontSize(6);
+      doc.text(t.date.slice(8), px(i), gy + 6, { align: "center" });
+    });
+    setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+    doc.text(d.mec30[0].date, gx, gy + 11);
+    doc.text(d.mec30[29].date, gx + gw, gy + 11, { align: "right" });
     // Lissage Catmull-Rom échantillonné en petits segments
     const smooth = (key) => {
-      const P = pts0.map((t, i) => [px(i), py(t[key] || 0)]);
+      const P = pts0.map((t) => [px(dayIdx[t.date]), py(t[key] || 0)]);
       if (P.length < 2) return [];
       const out = [P[0]];
       for (let i = 0; i < P.length - 1; i++) {
@@ -528,18 +648,15 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
       setDraw(col); doc.setLineWidth(1.1);
       for (let i = 1; i < sm.length; i++) doc.line(sm[i - 1][0], sm[i - 1][1], sm[i][0], sm[i][1]);
       setFill(col);
-      pts0.forEach((t, i) => doc.circle(px(i), py(t[key] || 0), 1.2, "F"));
+      pts0.forEach((t) => doc.circle(px(dayIdx[t.date]), py(t[key] || 0), 1.3, "F"));
     });
     // Légende + dates
     let lx = gx;
     SER.forEach(([, col, label]) => {
-      setFill(col); doc.rect(lx, gy + 12, 6, 2.2, "F");
-      setText(C.inkMid); doc.setFontSize(9); doc.text(label, lx + 8, gy + 14.5);
+      setFill(col); doc.rect(lx, gy + 15, 6, 2.2, "F");
+      setText(C.inkMid); doc.setFontSize(9); doc.text(label, lx + 8, gy + 17.5);
       lx += 12 + doc.getTextWidth(label) + 10;
     });
-    setText(C.inkMid); doc.setFontSize(7.5);
-    const step = Math.max(1, Math.ceil(nn / 8));
-    pts0.forEach((t, i) => { if (i % step === 0 || i === nn - 1) doc.text((t.date || "").slice(5), px(i), gy + 6, { align: "center" }); });
     foot();
   }
 
@@ -613,6 +730,36 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
     });
   }
   foot();
+
+  // 8bis — Comparaison approfondie
+  if (d.compare && d.compare.rows.length) {
+    newPage(C.white); head("Concurrence", "Comparaison approfondie");
+    const cols = d.compare.columns;
+    const labW = 70, x0 = 16 + labW, cw = (W - 16 - x0) / cols.length;
+    let yy = 46;
+    // en-têtes
+    setText(C.inkMid); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+    doc.text("Critère", 16, yy);
+    cols.forEach((col, ci) => { doc.setTextColor(...hex(col.isBrand ? "1A3C2E" : col.color)); doc.text((col.label.length > 14 ? col.label.slice(0, 12) + "…" : col.label) + (col.isBrand ? " *" : ""), x0 + ci * cw + cw / 2, yy, { align: "center" }); });
+    yy += 3; setDraw(C.creamDark); doc.setLineWidth(0.3); doc.line(16, yy, W - 16, yy); yy += 6;
+    d.compare.rows.forEach(row => {
+      setText(C.ink); doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+      doc.text(row.label.length > 30 ? row.label.slice(0, 28) + "…" : row.label, 16, yy);
+      row.cells.forEach((cell, ci) => {
+        const isBest = ci === row.bestIndex;
+        const cx = x0 + ci * cw + cw / 2;
+        if (isBest) { setDraw("#1A7A4A"); doc.setLineWidth(0.6); doc.roundedRect(x0 + ci * cw + 3, yy - 4.4, cw - 6, 6.4, 1, 1, "S"); }
+        doc.setTextColor(...hex(cols[ci].isBrand ? "1A3C2E" : (isBest ? "1A7A4A" : "334155")));
+        doc.setFont("helvetica", isBest ? "bold" : "normal"); doc.setFontSize(10);
+        doc.text(cell, cx, yy, { align: "center" });
+      });
+      yy += 9;
+    });
+    setText(C.inkLight); doc.setFont("helvetica", "italic"); doc.setFontSize(9);
+    doc.text("Cellule encadrée = meilleure valeur de la ligne. La donnee outils n'existe que pour vos sites du projet.", 16, H - 14);
+    doc.setFont("helvetica", "normal");
+    foot();
+  }
 
   // 9 — Questions par statut (À défendre / À surveiller / Conquête prioritaire)
   if (d.questionStatus.length) {

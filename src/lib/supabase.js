@@ -578,6 +578,7 @@ export async function sbSaveGeoResult(result) {
   if (result.brand_evocation_position !== undefined) detailCols.brand_evocation_position = result.brand_evocation_position ?? null;
   if (result.brand_citation_position  !== undefined) detailCols.brand_citation_position  = result.brand_citation_position  ?? null;
   if (result.unknown_entities         !== undefined) detailCols.unknown_entities         = result.unknown_entities         || [];
+  if (result.brand_presences          !== undefined) detailCols.brand_presences          = result.brand_presences          || {};
 
   // ── Dédoublonnage : la contrainte unique est geo_results_question_model_unique
   // sur (question_id, model) — SANS la date. On doit donc supprimer TOUT
@@ -708,6 +709,27 @@ export async function sbSetQuestionCategory(id, category_id) {
     headers: { ...authHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify({ category_id }),
   });
+}
+
+// Intention manuelle de la question : "transactional" | "informational" | "brand" | null
+export async function sbSetQuestionIntent(id, intent) {
+  const res = await fetch(`${PROXY}/rest/v1/geo_questions?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ intent }),
+  });
+  // Colonne non migrée → ne pas casser l'UI (silencieux, l'état local reste)
+  if (!res.ok) throw new Error(`intent PATCH ${res.status}`);
+}
+
+// Marques (sites) associées à une question : liste d'IDs de sites du projet.
+export async function sbSetQuestionSites(id, associated_sites) {
+  const res = await fetch(`${PROXY}/rest/v1/geo_questions?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ associated_sites: Array.isArray(associated_sites) ? associated_sites : [] }),
+  });
+  if (!res.ok) throw new Error(`associated_sites PATCH ${res.status}`);
 }
 
 export async function sbSetKeywordTags(id, tags) {
@@ -1161,6 +1183,29 @@ export async function sbDeleteCompetitor(id) {
     { method: "DELETE", headers: authHeaders() }
   );
   return res.ok;
+}
+
+// ── Lot B1 : réglages de la comparaison concurrentielle (niveau projet) ──
+// compare_rows = liste d'IDs de lignes (métriques) incluses dans l'audit.
+export async function sbGetCompareSettings(project_id) {
+  try {
+    const res = await fetch(
+      `${PROXY}/rest/v1/geo_compare_settings?project_id=eq.${encodeURIComponent(project_id)}&select=*`,
+      { headers: authHeaders() }
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return rows && rows[0] ? rows[0] : null;
+  } catch { return null; }
+}
+
+export async function sbSetCompareRows(project_id, compare_rows) {
+  const res = await fetch(`${PROXY}/rest/v1/geo_compare_settings`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify({ project_id, compare_rows, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`compare_rows upsert ${res.status}`);
 }
 
 // ── Alias de marques (table geo_aliases) ─────────────────────────

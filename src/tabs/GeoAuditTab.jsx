@@ -4,7 +4,7 @@ import TourGuide from "./TourGuide";
 import { sbGetBrand, sbGetQuestions, sbGetGeoResults, sbGetUrlIndex,
   sbSaveProject, sbDeleteProject, sbDownload,
   sbGetCalendarEntriesBatch, sbGetKeywords, sbGetCategories, sbGetCompetitors, sbGetAliases,
-  sbSaveGeoAnalysis, sbGetGeoAnalyses } from "../lib/supabase";
+  sbSaveGeoAnalysis, sbGetGeoAnalyses, sbGetCompareSettings } from "../lib/supabase";
 import {
   urlPath, sfRowMetrics, gscRowMetrics, gaRowMetrics,
   computePagesToUnblock, computeCitabilityScores, computeOrphanCited,
@@ -13,6 +13,7 @@ import {
   buildCSV, downloadCSV, CSV_COLUMNS,
 } from "../lib/auditTools";
 import UploadCard from "../components/UploadCard";
+import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, applySfPerimeter, getSitePerimeter } from "../lib/compareEngine";
 import PageTypeClassifier from "../components/PageTypeClassifier";
 import { newProject } from "../lib/helpers";
 import { C, SITE_PALETTE } from "../lib/constants";
@@ -42,6 +43,108 @@ function getProviderId(model) {
 }
 
 
+// ── Périmètre SF : sélection de preset + éditeur (par site) ──────────
+function SfPerimeterControl({ site, totalCount = 0, scopedCount = 0, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState(null); // id du preset édité, ou "__new__"
+  const presets = Array.isArray(site?.sf_presets) ? site.sf_presets : [];
+  const activeId = site?.sf_activePreset || null;
+  const active = presets.find(p => p.id === activeId) || null;
+  const blank = { name: "", paths: "", indexableOnly: false, status200Only: false, minWords: "", maxDepth: "" };
+  const [form, setForm] = useState(blank);
+
+  const setActive = (id) => onUpdate({ sf_activePreset: id });
+  const startEdit = (p) => {
+    setEditId(p ? p.id : "__new__");
+    setForm(p ? { name: p.name || "", paths: (p.paths || []).join("\n"), indexableOnly: !!p.indexableOnly, status200Only: !!p.status200Only, minWords: p.minWords ?? "", maxDepth: p.maxDepth ?? "" } : blank);
+  };
+  const savePreset = () => {
+    const paths = form.paths.split("\n").map(x => x.trim()).filter(Boolean);
+    const rec = {
+      id: editId === "__new__" ? `sfp_${Date.now()}` : editId,
+      name: form.name.trim() || "Périmètre",
+      paths,
+      indexableOnly: !!form.indexableOnly,
+      status200Only: !!form.status200Only,
+      minWords: form.minWords === "" ? null : parseInt(form.minWords, 10),
+      maxDepth: form.maxDepth === "" ? null : parseInt(form.maxDepth, 10),
+    };
+    const next = editId === "__new__" ? [...presets, rec] : presets.map(p => p.id === editId ? rec : p);
+    onUpdate({ sf_presets: next, sf_activePreset: rec.id });
+    setEditId(null);
+  };
+  const deletePreset = (id) => {
+    const next = presets.filter(p => p.id !== id);
+    onUpdate({ sf_presets: next, sf_activePreset: activeId === id ? null : activeId });
+    setEditId(null);
+  };
+
+  const badge = active ? active.name : "Tout le site";
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button onClick={() => setOpen(o => !o)} title="Périmètre appliqué à toute l'analyse Screaming Frog"
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          border: `1px solid ${active ? "#1A7A4A" : "#1A3C2E33"}`, background: active ? "#1A7A4A" : "transparent", color: active ? "#fff" : "#1A3C2E" }}>
+        🎯 Périmètre SF : {badge}
+        {active && <span style={{ fontSize: 9, opacity: 0.85 }}>({scopedCount}/{totalCount})</span>}
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 300, width: 300, background: "#fff", border: "0.5px solid #1A3C2E22", borderRadius: 10, boxShadow: "0 6px 24px rgba(26,60,46,0.14)", padding: 10 }}>
+          {editId === null ? (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#1A3C2E99", marginBottom: 6 }}>Périmètre actif</div>
+              <div onClick={() => setActive(null)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", borderRadius: 6, fontSize: 12, cursor: "pointer", background: !activeId ? "#1A7A4A12" : "transparent", color: "#1A3C2E", fontWeight: !activeId ? 700 : 500 }}>
+                <span>Tout le site</span>{!activeId && <span style={{ color: "#1A7A4A" }}>✓</span>}
+              </div>
+              {presets.map(p => (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", borderRadius: 6, background: activeId === p.id ? "#1A7A4A12" : "transparent" }}>
+                  <span onClick={() => setActive(p.id)} style={{ flex: 1, fontSize: 12, cursor: "pointer", color: "#1A3C2E", fontWeight: activeId === p.id ? 700 : 500 }}>{p.name}</span>
+                  {activeId === p.id && <span style={{ color: "#1A7A4A", fontSize: 11 }}>✓</span>}
+                  <button onClick={() => startEdit(p)} title="Éditer" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 11, color: "#94A3B8" }}>✎</button>
+                </div>
+              ))}
+              <button onClick={() => startEdit(null)} style={{ marginTop: 8, width: "100%", padding: "6px 0", borderRadius: 6, border: "1px dashed #1A7A4A66", background: "#1A7A4A08", color: "#1A7A4A", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>+ Nouveau périmètre</button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#1A3C2E99", marginBottom: 8 }}>{editId === "__new__" ? "Nouveau périmètre" : "Éditer le périmètre"}</div>
+              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nom (ex. Blog indexable)"
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #E2E8F0", borderRadius: 6, fontSize: 12, marginBottom: 8, boxSizing: "border-box" }} />
+              <div style={{ fontSize: 10, color: "#64748B", marginBottom: 3 }}>Chemins d'URL (un par ligne, préfixes)</div>
+              <textarea value={form.paths} onChange={e => setForm(f => ({ ...f, paths: e.target.value }))} placeholder={"/blog/\n/produits/"} rows={3}
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #E2E8F0", borderRadius: 6, fontSize: 12, marginBottom: 8, boxSizing: "border-box", fontFamily: "inherit", resize: "vertical" }} />
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#1A3C2E", marginBottom: 5, cursor: "pointer" }}>
+                <input type="checkbox" checked={form.indexableOnly} onChange={e => setForm(f => ({ ...f, indexableOnly: e.target.checked }))} /> Indexables uniquement
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#1A3C2E", marginBottom: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={form.status200Only} onChange={e => setForm(f => ({ ...f, status200Only: e.target.checked }))} /> Code HTTP 200 uniquement
+              </label>
+              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: "#64748B", marginBottom: 3 }}>Mots ≥</div>
+                  <input type="number" value={form.minWords} onChange={e => setForm(f => ({ ...f, minWords: e.target.value }))} placeholder="—"
+                    style={{ width: "100%", padding: "5px 8px", border: "1px solid #E2E8F0", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: "#64748B", marginBottom: 3 }}>Profondeur ≤</div>
+                  <input type="number" value={form.maxDepth} onChange={e => setForm(f => ({ ...f, maxDepth: e.target.value }))} placeholder="—"
+                    style={{ width: "100%", padding: "5px 8px", border: "1px solid #E2E8F0", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={savePreset} style={{ flex: 1, padding: "6px 0", borderRadius: 6, border: "none", background: "#1A7A4A", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Enregistrer</button>
+                <button onClick={() => setEditId(null)} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Annuler</button>
+                {editId !== "__new__" && <button onClick={() => deletePreset(editId)} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #E8541A44", background: "transparent", color: "#E8541A", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Suppr.</button>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── AuditSetupPanel — vue props-only, zéro état local projet ────────
 function SetupSection({ icon, title, children }) {
   return (
@@ -56,7 +159,7 @@ function SetupSection({ icon, title, children }) {
 
 function AuditSetupPanel({
   projects, currentProjectId, setCurrentProjectId, setProjects, ownerEmail,
-  sites, setSites, sfData, setSfData, gscData, setGscData, gaData, setGaData, bingData, setBingData,
+  sites, setSites, sfData, setSfData, smData = {}, setSmData, smOverview = {}, setSmOverview, gscData, setGscData, gaData, setGaData, bingData, setBingData,
   dbHistory, dbLoading, refreshHistory, confirmModal, setConfirmModal,
   pageTypes, setPageTypes, project, projectId,
 }) {
@@ -693,14 +796,14 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
     <div style={{ background: "#fff", border: "0.5px solid #1A3C2E0D", borderRadius: 12, padding: "24px 28px", marginBottom: 18 }}>
       <div className="audit-banner-inner">
         {/* Score */}
-        <div style={{ minWidth: 100 }}>
+        <div style={{ minWidth: 150 }}>
           <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 8 }}>Présence GEO</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
             <span style={{ fontSize: 52, fontWeight: 800, color: level.color, lineHeight: 1, letterSpacing: "-0.02em" }}>{score}</span>
             <span style={{ fontSize: 20, color: level.color, fontWeight: 600 }}>%</span>
           </div>
-          <div style={{ marginTop: 8, height: 3, background: "#1A3C2E0C", borderRadius: 2, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${score}%`, background: level.bar, borderRadius: 2, transition: "width 0.5s" }} />
+          <div style={{ marginTop: 10, height: 5, background: "#1A3C2E0C", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${score}%`, background: level.bar, borderRadius: 3, transition: "width 0.5s" }} />
           </div>
           <div style={{ marginTop: 6, fontSize: 12.5, color: level.color, fontWeight: 600 }}>{level.label}</div>
           {/* Score favoris en parallèle */}
@@ -727,9 +830,9 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
         <div className="audit-banner-sep" />
 
         {/* Barre proportion M/É/C */}
-        <div style={{ flex: "0 0 auto", minWidth: 140 }}>
+        <div style={{ flex: "0 0 auto", minWidth: 200 }}>
           <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 10 }}>Répartition</div>
-          <div style={{ display: "flex", height: 4, borderRadius: 2, overflow: "hidden", background: "#1A3C2E0C", marginBottom: 10 }}>
+          <div style={{ display: "flex", height: 6, borderRadius: 3, overflow: "hidden", background: "#1A3C2E0C", marginBottom: 12 }}>
             {audit.total > 0 && <>
               <div style={{ width: `${(audit.withRanked||0)/audit.total*100}%`, background: "#1A7A4A" }} />
               <div style={{ width: `${(audit.withMentionOnly||0)/audit.total*100}%`, background: "#C97820" }} />
@@ -754,7 +857,7 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
         <div className="audit-banner-sep" />
 
         {/* KPIs contextuels */}
-        <div style={{ flex: 1, minWidth: 180 }}>
+        <div style={{ flex: 1, minWidth: 280 }}>
           <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 10 }}>Contexte</div>
           <div className="audit-banner-context">
             {[
@@ -765,9 +868,9 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
               { label: "Pos. moy.",               val: audit.avgPos ? `#${audit.avgPos}` : "—" },
               { label: "Concurrents renseignés",  val: Object.keys(audit.compStats).length },
             ].map(k => (
-              <div key={k.label} style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                <span style={{ fontSize: 11, color: "#1A3C2E99" }}>{k.label}</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#1A3C2E" }}>{k.val}</span>
+              <div key={k.label}>
+                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 3, whiteSpace: "nowrap" }}>{k.label}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#1A3C2E" }}>{k.val}</div>
               </div>
             ))}
           </div>
@@ -793,21 +896,105 @@ function normalizeUrl(raw) {
   return u.toLowerCase();
 }
 
-function computeAudit(questions, results, urlIndex, brand, site, calendarEntries = [], keywords = [], competitors = [], aliasMap = {}) {
+function computeAudit(questions, results, urlIndex, brand, site, calendarEntries = [], keywords = [], competitors = [], aliasMap = {}, aggregation = null, brandSiteId = null) {
   // Canonicalisation par alias : un nom A est compté comme son canonique B.
   const _aliasLut = {};
   Object.entries(aliasMap || {}).forEach(([a, b]) => { _aliasLut[(a || "").toLowerCase().trim()] = b; });
   const canonName = (name) => { if (!name) return name; return _aliasLut[name.toLowerCase().trim()] || name; };
+
+  // ── Multi-marques : normalisation de la présence par résultat ────────────
+  // aggregation : null (comportement actuel, marque propriétaire du site)
+  //             | "simple"     (vue globale : 1 présence max par question)
+  //             | "cumulative" (vue globale : somme des présences de chaque marque)
+  // brandSiteId : si défini, on lit la présence de CETTE marque (vue "une marque").
+  // brand_presences[site_id] fournit la présence par marque (rempli au Temps 2) ;
+  // à défaut, on se rabat sur les champs brand_* classiques (marque du site du résultat).
+  const _qSites = {}; // question_id → liste de site_ids associés
+  (questions || []).forEach(q => { _qSites[q.id] = Array.isArray(q.associated_sites) ? q.associated_sites : []; });
+  const _presenceOf = (r, siteId) => {
+    const bp = r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences[siteId] : null;
+    if (bp) return {
+      mentioned: !!bp.mentioned, mentionPos: bp.mention_position ?? null,
+      evocPos: bp.evocation_position ?? null, citPos: bp.citation_position ?? null, inSources: !!bp.in_sources,
+    };
+    if (siteId === r.site_id) return {
+      mentioned: r.brand_mentioned === true || r.brand_mentioned === 1,
+      mentionPos: r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null),
+      evocPos: r.brand_evocation_position ?? null, citPos: r.brand_citation_position ?? null,
+      inSources: r.brand_in_sources === true || r.brand_in_sources === 1,
+    };
+    return null; // pas de donnée pour cette marque sur ce résultat (avant Temps 2)
+  };
+  const _applyPresence = (r, p) => ({
+    ...r,
+    brand_mentioned: p ? (p.mentioned || p.mentionPos != null || p.evocPos != null) : false,
+    brand_mention_position: p ? p.mentionPos : null,
+    brand_evocation_position: p ? p.evocPos : null,
+    brand_citation_position: p ? p.citPos : null,
+    brand_position: p ? p.mentionPos : null,
+    brand_in_sources: p ? p.inSources : false,
+  });
+  // Marques à considérer pour un résultat = sites associés à sa question ∪ site du résultat.
+  const _brandsFor = (r) => {
+    const set = new Set([...(_qSites[r.question_id] || [])]);
+    if (r.site_id) set.add(r.site_id);
+    return [...set];
+  };
+  const _normalize = (rows) => {
+    if (!aggregation && !brandSiteId) return rows; // comportement historique : inchangé
+    if (brandSiteId) {
+      // Vue "une marque" : présence de cette marque uniquement.
+      return rows.map(r => _applyPresence(r, _presenceOf(r, brandSiteId)));
+    }
+    if (aggregation === "cumulative") {
+      // Somme des présences : un clone par marque présente (concurrents/sources
+      // conservés sur le 1er clone seulement pour ne pas gonfler leurs stats).
+      const out = [];
+      rows.forEach(r => {
+        const brands = _brandsFor(r);
+        let first = true;
+        brands.forEach(sid => {
+          const p = _presenceOf(r, sid);
+          if (!p) return; // pas de donnée pour cette marque (avant Temps 2) → ignorée
+          const present = p.mentioned || p.mentionPos != null || p.evocPos != null || p.inSources;
+          const clone = _applyPresence(r, present ? p : null); // détectée absente → ligne absente (compte au dénominateur, pas au numérateur)
+          if (!first) { clone.competitors_mentioned = []; clone.sources = []; clone.unknown_entities = []; }
+          clone.id = `${r.id}~${sid}`;
+          out.push(clone);
+          first = false;
+        });
+        if (first) out.push(_applyPresence(r, null)); // aucune donnée → 1 ligne absente
+      });
+      return out;
+    }
+    // "simple" : 1 présence max par résultat = OU sur les marques (meilleure position).
+    return rows.map(r => {
+      const brands = _brandsFor(r);
+      let best = null;
+      brands.forEach(sid => {
+        const p = _presenceOf(r, sid);
+        if (!p) return;
+        if (!best) { best = { ...p }; return; }
+        best.mentioned = best.mentioned || p.mentioned;
+        best.inSources = best.inSources || p.inSources;
+        const lo = (a, b) => a == null ? b : b == null ? a : Math.min(a, b);
+        best.mentionPos = lo(best.mentionPos, p.mentionPos);
+        best.evocPos = lo(best.evocPos, p.evocPos);
+        best.citPos = lo(best.citPos, p.citPos);
+      });
+      return _applyPresence(r, best);
+    });
+  };
 
   // ── Instantané vs historique ─────────────────────────────────────
   // L'audit est un INSTANTANÉ : seul le DERNIER résultat par couple
   // (question, provider) compte dans les statistiques. L'historique complet
   // (allResults) ne sert qu'aux séries temporelles et à la détection des
   // positions perdues.
-  const allResults = results;
+  const allResults = _normalize(results);
   const _snapKey = {};
   allResults.forEach(r => {
-    const k = `${r.question_id || "?"}|${getProviderId(r.model)}`;
+    const k = `${r.question_id || "?"}|${getProviderId(r.model)}${r.id && String(r.id).includes("~") ? "|" + String(r.id).split("~")[1] : ""}`;
     if (!_snapKey[k] || new Date(r.created_at || 0) > new Date(_snapKey[k].created_at || 0)) _snapKey[k] = r;
   });
   results = Object.values(_snapKey);
@@ -999,6 +1186,34 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   const intentStatsList = Object.values(intentStats)
     .map(s => ({ ...s, avgPos: s.positions.length ? (s.positions.reduce((a, b) => a + b, 0) / s.positions.length).toFixed(1) : null,
       presenceRate: s.total ? Math.round(((s.mentions + s.evocations) / s.total) * 100) : 0 }))
+    .sort((a, b) => b.total - a.total);
+
+  // ── LOT A : Analyse par INTENTION MANUELLE de la question (tag utilisateur) ──
+  // Jointure question → ses résultats (dédupliqués), agrégée par q.intent.
+  const INTENT_META = {
+    transactional: { label: "Transactionnelle", color: "#1A4A7A" },
+    informational: { label: "Informationnelle", color: "#1A7A4A" },
+    brand:         { label: "Notoriété de la marque", color: "#C97820" },
+  };
+  const qIntentTagged = questions.filter(q => q.intent && INTENT_META[q.intent]).length;
+  const questionIntentStats = {};
+  questions.forEach(q => {
+    if (!q.intent || !INTENT_META[q.intent]) return;
+    const it = q.intent;
+    if (!questionIntentStats[it]) questionIntentStats[it] = { intent: it, label: INTENT_META[it].label, color: INTENT_META[it].color, questions: 0, total: 0, mentions: 0, evocations: 0, citations: 0, positions: [] };
+    const st = questionIntentStats[it];
+    st.questions++;
+    (resultsByQ[q.id] || []).forEach(r => {
+      st.total++;
+      const mPos = r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null);
+      if (mPos != null && mPos > 0) { st.mentions++; st.positions.push(mPos); }
+      else if (r.brand_mentioned === true || r.brand_mentioned === 1) st.evocations++;
+      if (r.brand_in_sources === true || r.brand_in_sources === 1) st.citations++;
+    });
+  });
+  const questionIntentList = Object.values(questionIntentStats)
+    .map(st => ({ ...st, avgPos: st.positions.length ? (st.positions.reduce((a, b) => a + b, 0) / st.positions.length).toFixed(1) : null,
+      presenceRate: st.total ? Math.round(((st.mentions + st.evocations) / st.total) * 100) : 0 }))
     .sort((a, b) => b.total - a.total);
 
   // ── UPGRADE 2 : Classification du type de page citée (via patterns d'URL) ──
@@ -1325,26 +1540,66 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     if (!brandSomewhere && !compSomewhere) blindSpots.push({ id: q.id, question: q.question, providers: rs.length });
   });
 
-  return { total, withBrand, withSources, withRanked, withSourceOnly, withMentionOnly, avgPos, avgMentionPos, avgEvocationPos, avgCitationPos, mentionCount, evocationCount, citationCount, presenceRate, trendDays, sortedUrls, brandUrls, brandOwnUrls, brandExternalUrls, urlDetails, competitorUrls, referenceUrls, topDomains, intentCount, typeCount, intentStatsList, pageTypeStatsList, mentionTrend, compStats, top5Competitors, competitorsRanked, byQuestionCategory, urlsToOptimize, urlsToRework, urlsToInspire, leads, questions: questions.length, providerStats, missingBrandQs, presentBrandQs, hasFavFilter, favCount, shareOfVoice, coMatrix, visibilityFunnel, blindSpots, presenceTrend, mecTrend, distinctRuns, questionStatus, _rawResults: results };
+  // ── Lot B1 : stats de comparaison LLM par site (marque + concurrents) ──
+  // URLs citées distinctes + citations de la meilleure URL, par entité.
+  const _brandUrlHits = {};
+  results.forEach(r => {
+    if (!r.brand_in_sources) return;
+    (r.sources || []).forEach(u => {
+      const nu = normalizeUrl(u);
+      if (nu && brandUrls.some(b => b.norm === nu || (b.url && normalizeUrl(b.url) === nu))) _brandUrlHits[nu] = (_brandUrlHits[nu] || 0) + 1;
+    });
+  });
+  const _brandBestUrl = Object.values(_brandUrlHits).sort((a, b) => b - a)[0] || 0;
+  const compareBrandStats = {
+    mentions: mentionCount, evocations: evocationCount, citations: citationCount,
+    avgPos: avgMentionPos ? parseFloat(avgMentionPos) : null,
+    urlsCited: Object.keys(_brandUrlHits).length || brandOwnUrls.length || 0,
+    bestUrlHits: _brandBestUrl,
+  };
+  // Concurrents : URLs citées estimées via compStats (citations) — l'URL par concurrent
+  // n'est pas structurée en base aujourd'hui, on renseigne ce qu'on a de fiable.
+  const compareCompEntries = competitors
+    .filter(c => c.deep_compare === true)
+    .slice(0, 5)
+    .map(c => {
+      const st = compStats[c.name] || {};
+      const avg = (st.positions && st.positions.length) ? (st.positions.reduce((a, b) => a + b, 0) / st.positions.length) : null;
+      return {
+        key: c.id, label: c.name, color: c.color || "#64748B",
+        stats: {
+          mentions: st.mentions || 0, evocations: st.evocations || 0, citations: st.citations || 0,
+          avgPos: avg != null ? Math.round(avg * 10) / 10 : null,
+          urlsCited: null, bestUrlHits: null, // renseignés au Lot B2 (imports)
+        },
+      };
+    });
+
+  return { total, withBrand, withSources, withRanked, withSourceOnly, withMentionOnly, avgPos, avgMentionPos, avgEvocationPos, avgCitationPos, mentionCount, evocationCount, citationCount, presenceRate, trendDays, sortedUrls, brandUrls, brandOwnUrls, brandExternalUrls, urlDetails, competitorUrls, referenceUrls, topDomains, intentCount, typeCount, intentStatsList, pageTypeStatsList, questionIntentList, qIntentTagged, mentionTrend, compStats, top5Competitors, competitorsRanked, byQuestionCategory, urlsToOptimize, urlsToRework, urlsToInspire, leads, questions: questions.length, providerStats, missingBrandQs, presentBrandQs, hasFavFilter, favCount, shareOfVoice, coMatrix, visibilityFunnel, blindSpots, presenceTrend, mecTrend, distinctRuns, questionStatus, compareBrandStats, compareCompEntries, _rawResults: results };
 }
 
 
-// ── Évolution des mentions : 3 courbes lissées en % par jour de test ──
+// ── Évolution des mentions : axe fixe de 30 jours, points aux dates d'interrogation ──
 function TrendChart({ points }) {
-  const data = Array.isArray(points) ? points : [];
+  const all = Array.isArray(points) ? points : [];
+  // Fenêtre fixe : 30 derniers jours (structure du graphe), un slot par jour.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = [];
+  for (let i = 29; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); }
+  const dayIdx = {}; days.forEach((d, i) => { dayIdx[d] = i; });
+  const data = all.filter(p => dayIdx[p.date] != null); // points interrogés dans la fenêtre
   if (!data.length) return (
     <div style={{ fontSize: 11, color: "#1A3C2E", fontStyle: "italic", padding: "20px 0" }}>
-      Aucun résultat enregistré sur la période.
+      Aucun résultat enregistré ces 30 derniers jours.
     </div>
   );
-  const W = 640, H = 190, PADL = 36, PADR = 14, PADT = 14, PADB = 30;
+  const W = 1060, H = 230, PADL = 38, PADR = 12, PADT = 14, PADB = 34;
   const plotW = W - PADL - PADR, plotH = H - PADT - PADB;
-  const n = data.length;
-  const toX = (i) => PADL + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
+  const toX = (di) => PADL + (di / 29) * plotW;
   const toY = (v) => PADT + (1 - Math.max(0, Math.min(100, v)) / 100) * plotH;
-  // Lissage Catmull-Rom → Bézier
+  // Lissage Catmull-Rom → Bézier sur les seuls points interrogés (positionnés sur l'axe temps)
   const smoothPath = (key) => {
-    const pts = data.map((d, i) => [toX(i), toY(d[key] || 0)]);
+    const pts = data.map(p => [toX(dayIdx[p.date]), toY(p[key] || 0)]);
     if (pts.length < 2) return "";
     let path = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
     for (let i = 0; i < pts.length - 1; i++) {
@@ -1360,7 +1615,6 @@ function TrendChart({ points }) {
     { key: "evocations", label: "Évocations", color: "#C97820" },
     { key: "citations",  label: "Citations",  color: "#1A3C2E" },
   ];
-  const labelEvery = Math.max(1, Math.ceil(n / 8));
   return (
     <div>
       <div style={{ display: "flex", gap: 14, marginBottom: 6 }}>
@@ -1370,22 +1624,33 @@ function TrendChart({ points }) {
           </span>
         ))}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: 720, display: "block" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }}>
+        {/* Grille horizontale % */}
         {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
             <line x1={PADL} x2={W - PADR} y1={toY(v)} y2={toY(v)} stroke="#1A3C2E0A" strokeWidth={1} />
-            <text x={PADL - 6} y={toY(v) + 3} fontSize={8} fill="#1A3C2E55" textAnchor="end">{v}%</text>
+            <text x={PADL - 6} y={toY(v) + 3} fontSize={8.5} fill="#1A3C2E55" textAnchor="end">{v}%</text>
           </g>
         ))}
+        {/* Structure 30 jours : un tick + une date par jour */}
+        {days.map((d, i) => (
+          <g key={d}>
+            <line x1={toX(i)} x2={toX(i)} y1={toY(100)} y2={toY(0) + 3} stroke={dayIdx[d] != null && data.some(p => p.date === d) ? "#1A3C2E14" : "#1A3C2E05"} strokeWidth={1} />
+            <text x={toX(i)} y={H - 18} fontSize={7.5} fill={data.some(p => p.date === d) ? "#1A3C2E" : "#1A3C2E3D"} textAnchor="middle" fontWeight={data.some(p => p.date === d) ? 600 : 400}>{d.slice(8)}</text>
+          </g>
+        ))}
+        {/* Mois sous l'axe (premier jour + changements de mois) */}
+        {days.map((d, i) => (i === 0 || d.slice(8) === "01") ? (
+          <text key={`m-${d}`} x={toX(i)} y={H - 6} fontSize={8} fill="#1A3C2E66" textAnchor="start">{d.slice(0, 7)}</text>
+        ) : null)}
+        {/* Courbes lissées (points interrogés uniquement) */}
         {SERIES.map(s => { const d = smoothPath(s.key); return d ? <path key={s.key} d={d} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" /> : null; })}
-        {SERIES.map(s => data.map((d, i) => (
-          <circle key={`${s.key}-${i}`} cx={toX(i)} cy={toY(d[s.key] || 0)} r={2.6} fill={s.color}>
-            <title>{`${d.date} — ${s.label} : ${d[s.key] || 0}% (${d.tested} réponses analysées)`}</title>
+        {/* Points aux dates d'interrogation */}
+        {SERIES.map(s => data.map(p => (
+          <circle key={`${s.key}-${p.date}`} cx={toX(dayIdx[p.date])} cy={toY(p[s.key] || 0)} r={3} fill={s.color}>
+            <title>{`${p.date} — ${s.label} : ${p[s.key] || 0}% (${p.tested} réponses analysées)`}</title>
           </circle>
         )))}
-        {data.map((d, i) => (i % labelEvery === 0 || i === n - 1) ? (
-          <text key={`x-${i}`} x={toX(i)} y={H - 8} fontSize={8} fill="#1A3C2E66" textAnchor="middle">{d.date.slice(5)}</text>
-        ) : null)}
       </svg>
     </div>
   );
@@ -2443,16 +2708,21 @@ export default function GeoAuditTab({
   sites, projectId, project = null, corrMatrix = [], metrics = [], resultVals = [], bingData = {},
   // Props setup depuis App.jsx
   projects, currentProjectId, setCurrentProjectId, setProjects, ownerEmail,
-  setSites, sfData, setSfData, gscData, setGscData, gaData, setGaData,
+  setSites, sfData, setSfData, smData, setSmData, smOverview, setSmOverview, gscData, setGscData, gaData, setGaData,
   setBingData, dbHistory, dbLoading, refreshHistory,
   confirmModal, setConfirmModal, pageTypes, setPageTypes,
   isReadOnly = false, autoStartTour = false, onTourStarted = null,
 }) {
   const [mainTab, setMainTab]           = useState("audit");
-  const [selectedSite, setSelectedSite] = useState(sites?.[0]?.id || "");
-  // Sync selectedSite quand le projet change
+  // Vue globale par défaut ("__global__") ou un site précis.
+  const [selectedSite, setSelectedSite] = useState("__global__");
+  const [aggMode, setAggMode]           = useState("simple"); // "simple" | "cumulative" (vue globale)
+  const [globalQuestions, setGlobalQuestions] = useState([]);
+  const [globalResults, setGlobalResults]     = useState([]);
+  const [globalLoading, setGlobalLoading]     = useState(false);
+  // Sync selectedSite quand le projet change → repart en vue globale
   useEffect(() => {
-    setSelectedSite(sites?.[0]?.id || "");
+    setSelectedSite("__global__");
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [roadmapData, setRoadmapData]   = useState(null);
   const [exporting, setExporting]       = useState(false);
@@ -2468,10 +2738,19 @@ export default function GeoAuditTab({
   const [keywords, setKeywords]         = useState([]); // pour tri par volume
   const [categories, setCategories]     = useState([]); // catégories de mots-clés
   const [competitors, setCompetitors]   = useState([]); // concurrents qualifiés
+  const [compareRows, setCompareRows]   = useState(null); // lignes incluses dans la comparaison (null = toutes)
   const [loading, setLoading]           = useState(true);
   const [aliasMap, setAliasMap]         = useState({}); // alias(lower) → canonique
 
+  const isGlobal = selectedSite === "__global__";
   const site = (Array.isArray(sites) ? sites : []).find(s => s.id === selectedSite) || (Array.isArray(sites) ? sites : [])[0];
+
+  useEffect(() => {
+    if (!projectId) return;
+    sbGetCompareSettings(projectId).then(cfg => {
+      setCompareRows(cfg && Array.isArray(cfg.compare_rows) && cfg.compare_rows.length ? cfg.compare_rows : COMPARE_ROWS.map(r => r.id));
+    });
+  }, [projectId]);
   const claudeKey = decodeKey(project?.claude_geo_key_enc || "");
 
   const refreshData = useCallback(() => {
@@ -2505,6 +2784,25 @@ export default function GeoAuditTab({
 
   useEffect(() => { refreshData(); }, [projectId, site?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Vue globale : charge questions + résultats de TOUS les sites du projet ──
+  useEffect(() => {
+    if (!projectId || !isGlobal) return;
+    const list = Array.isArray(sites) ? sites : [];
+    if (!list.length) return;
+    let cancelled = false;
+    setGlobalLoading(true);
+    Promise.all(list.map(s => Promise.all([
+      sbGetQuestions(projectId, s.id).catch(() => []),
+      sbGetGeoResults(projectId, s.id).catch(() => []),
+    ]))).then(pairs => {
+      if (cancelled) return;
+      const allQ = [], allR = [];
+      pairs.forEach(([qs, rs]) => { allQ.push(...(qs || [])); allR.push(...(rs || [])); });
+      setGlobalQuestions(allQ); setGlobalResults(allR); setGlobalLoading(false);
+    }).catch(() => { if (!cancelled) setGlobalLoading(false); });
+    return () => { cancelled = true; };
+  }, [projectId, isGlobal, sites]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Charger l'analyse roadmap "Et maintenant ?" (générée dans Fan-outs) pour l'export présentation
   useEffect(() => {
     if (!projectId || !site?.id) return;
@@ -2529,13 +2827,33 @@ export default function GeoAuditTab({
   }, [siteResultsAll, periodDays]);
   const siteQuestions = useMemo(() => questions.filter(q => q.site_id === site?.id), [questions, site?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const siteUrls      = useMemo(() => urlIndex.filter(u => u.project_id === projectId), [urlIndex, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const audit         = useMemo(() => computeAudit(siteQuestions, siteResults, siteUrls, brand, site, calendarEntries, keywords, competitors, aliasMap), [siteQuestions, siteResults, siteUrls, brand, site, calendarEntries, keywords, competitors, aliasMap]);
+
+  // ── Sélection des données selon la vue (globale vs marque) ──────────────
+  // Vue globale : questions + résultats de tous les sites, agrégation simple/cumulée.
+  // Vue marque : chemin existant (résultats du site, marque propriétaire).
+  const globalResultsPeriod = useMemo(() => {
+    if (!periodDays) return globalResults;
+    const since = Date.now() - periodDays * 86400000;
+    const f = globalResults.filter(r => { const t = r.created_at ? new Date(r.created_at).getTime() : null; return t == null ? true : t >= since; });
+    return f.length ? f : globalResults;
+  }, [globalResults, periodDays]);
+  const effQuestions  = isGlobal ? globalQuestions : siteQuestions;
+  const effResults    = isGlobal ? globalResultsPeriod : siteResults;
+  const effAggregation = isGlobal ? aggMode : null;
+  const audit         = useMemo(() => computeAudit(effQuestions, effResults, siteUrls, brand, site, calendarEntries, keywords, competitors, aliasMap, effAggregation, null), [effQuestions, effResults, siteUrls, brand, site, calendarEntries, keywords, competitors, aliasMap, effAggregation]);
   // ── Audit recalculé sur le sous-ensemble FAVORIS (affichage parallèle) ──
   const favQuestions  = useMemo(() => siteQuestions.filter(q => q.is_favorite), [siteQuestions]);
   const favQIds       = useMemo(() => new Set(favQuestions.map(q => q.id)), [favQuestions]);
   const favResults    = useMemo(() => siteResults.filter(r => favQIds.has(r.question_id)), [siteResults, favQIds]);
   const auditFav      = useMemo(() => favQuestions.length ? computeAudit(favQuestions, favResults, siteUrls, brand, site, calendarEntries, keywords, competitors) : null, [favQuestions, favResults, siteUrls, brand, site, calendarEntries, keywords, competitors]); // eslint-disable-line react-hooks/exhaustive-deps
-  const noData        = !siteResults.length;
+  // Périmètre SF : filtre global appliqué à toute analyse SF de l'audit.
+  const sfPerimeter   = useMemo(() => getSitePerimeter(site), [site]);
+  const sfRowsScoped  = useMemo(() => applySfPerimeter((sfData || {})[site?.id] || [], sfPerimeter), [sfData, site, sfPerimeter]);
+  const updateSitePerimeter = (patch) => {
+    if (!site?.id || !setSites) return;
+    setSites(prev => (Array.isArray(prev) ? prev : []).map(s => s.id === site.id ? { ...s, ...patch } : s));
+  };
+  const noData        = !effResults.length;
 
 
   // Démarrer le tour automatiquement si demandé (depuis HomeTab) — après loading et noData
@@ -2655,7 +2973,7 @@ export default function GeoAuditTab({
         <AuditSetupPanel
           projects={projects} currentProjectId={currentProjectId} setCurrentProjectId={setCurrentProjectId}
           setProjects={setProjects} ownerEmail={ownerEmail} sites={sites} setSites={setSites}
-          sfData={sfData} setSfData={setSfData} gscData={gscData} setGscData={setGscData}
+          sfData={sfData} setSfData={setSfData} smData={smData} setSmData={setSmData} smOverview={smOverview} setSmOverview={setSmOverview} gscData={gscData} setGscData={setGscData}
           gaData={gaData} setGaData={setGaData} bingData={bingData} setBingData={setBingData}
           dbHistory={dbHistory} dbLoading={dbLoading} refreshHistory={refreshHistory}
           confirmModal={confirmModal} setConfirmModal={setConfirmModal}
@@ -2668,19 +2986,50 @@ export default function GeoAuditTab({
         <div>
           {/* Sélecteur de site + Export — barre fine */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 8 }}>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              {(Array.isArray(sites) ? sites : []).length > 1 && (
+                <button onClick={() => setSelectedSite("__global__")}
+                  title="Vue globale : agrège toutes les marques du projet"
+                  style={{ padding: "3px 10px", borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer", border: `1px solid ${isGlobal ? "#1A3C2E" : "#1A3C2E33"}`, background: isGlobal ? "#1A3C2E" : "transparent", color: isGlobal ? "#fff" : "#1A3C2E" }}>
+                  ◎ Vue globale
+                </button>
+              )}
               {(Array.isArray(sites) ? sites : []).length > 1 && (Array.isArray(sites) ? sites : []).map(s => (
                 <button key={s.id} onClick={() => setSelectedSite(s.id)} style={{ padding: "3px 10px", borderRadius: 5, fontSize: 11, fontWeight: 500, cursor: "pointer", border: `1px solid ${s.color}33`, background: selectedSite === s.id ? s.color : "transparent", color: selectedSite === s.id ? "#fff" : s.color }}>{s.label}</button>
               ))}
+              {/* Switch Simple / Cumulée — actif en vue globale uniquement */}
+              {isGlobal && (Array.isArray(sites) ? sites : []).length > 1 && (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 0, marginLeft: 4, background: "#1A3C2E0A", borderRadius: 7, padding: 2 }}>
+                  {[
+                    { id: "simple", label: "Simple", tip: "Une présence par question : si plusieurs marques associées sont présentes sur une question, on compte 1 seule fois (au moins une marque présente)." },
+                    { id: "cumulative", label: "Cumulée", tip: "Somme des présences : chaque marque associée présente est comptée. 3 marques présentes en mention sur une question = 3 mentions." },
+                  ].map(m => (
+                    <button key={m.id} onClick={() => setAggMode(m.id)} title={m.tip}
+                      style={{ padding: "3px 11px", fontSize: 11, fontWeight: 600, border: "none", borderRadius: 5, cursor: "pointer",
+                        background: aggMode === m.id ? "#fff" : "transparent", color: aggMode === m.id ? "#1A3C2E" : "#1A3C2E88",
+                        boxShadow: aggMode === m.id ? "0 1px 3px #1A3C2E1A" : "none" }}>
+                      {m.label}
+                    </button>
+                  ))}
+                  <span title="Simple : au moins une marque présente compte 1 par question. Cumulée : on somme les présences de chaque marque associée."
+                    style={{ marginLeft: 4, marginRight: 4, fontSize: 11, color: "#1A3C2E66", cursor: "help" }}>ⓘ</span>
+                </div>
+              )}
+              {isGlobal && globalLoading && (
+                <span style={{ fontSize: 10, color: "#C97820", marginLeft: 2 }}>agrégation…</span>
+              )}
+              {!isGlobal && ((sfData || {})[site?.id] || []).length > 0 && (
+                <SfPerimeterControl site={site} totalCount={((sfData || {})[site?.id] || []).length} scopedCount={sfRowsScoped.length} onUpdate={updateSitePerimeter} />
+              )}
             </div>
             <span data-tour="audit-export" style={{ display: "inline-flex", gap: 8 }}>
-              <button onClick={async () => { setExporting(true); try { await exportAuditPptx(audit, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
+              <button onClick={async () => { setExporting(true); try { await exportAuditPptx({ ...audit, compareRows, compareBrandTool: { ...(sfCompareStats(sfRowsScoped) || {}), ...(resolveSmStats(((smOverview || {})[site?.id] || [])[0], (smData || {})[site?.id]) || {}) } }, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
                 disabled={noData || exporting}
                 title="PowerPoint éditable (.pptx) : score, visibilité, concurrence, sources, plan d'action"
                 style={{ padding: "4px 12px", background: noData ? "transparent" : "#1A3C2E", color: noData ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 5, fontSize: 11, fontWeight: 500, cursor: noData ? "not-allowed" : "pointer" }}>
                 {exporting ? "…" : "⬇ PowerPoint"}
               </button>
-              <button onClick={async () => { setExporting(true); try { await exportAuditPdf(audit, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
+              <button onClick={async () => { setExporting(true); try { await exportAuditPdf({ ...audit, compareRows, compareBrandTool: { ...(sfCompareStats(sfRowsScoped) || {}), ...(resolveSmStats(((smOverview || {})[site?.id] || [])[0], (smData || {})[site?.id]) || {}) } }, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
                 disabled={noData || exporting}
                 title="PDF prêt à présenter — même contenu que le PowerPoint"
                 style={{ padding: "4px 12px", background: "transparent", color: "#1A3C2E", border: "0.5px solid #1A3C2E22", borderRadius: 5, fontSize: 11, fontWeight: 500, cursor: noData ? "not-allowed" : "pointer" }}>
@@ -2814,6 +3163,36 @@ export default function GeoAuditTab({
                 <div style={{ fontSize: 10.5, color: "#94A3B8", marginBottom: 8 }}>Part des réponses avec mention, évocation ou citation, en % par jour de test. Un point par date d'interrogation.</div>
                 <TrendChart points={audit.mecTrend} />
               </div>
+
+              {/* ── LOT A : Analyse par intention manuelle de la question ── */}
+              {(audit.questionIntentList || []).length > 0 && (
+                <div style={{ marginBottom: 22 }}>
+                  <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 4 }}>Analyse par intention de question</div>
+                  <div style={{ fontSize: 10.5, color: "#94A3B8", marginBottom: 12 }}>Présence de la marque selon l'intention que vous avez taguée sur chaque question ({audit.qIntentTagged} question{audit.qIntentTagged > 1 ? "s" : ""} taguée{audit.qIntentTagged > 1 ? "s" : ""}).</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {audit.questionIntentList.map(st => (
+                      <div key={st.intent} style={{ border: `0.5px solid ${st.color}22`, borderRadius: 8, padding: "10px 14px", background: `${st.color}08` }}>
+                        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: st.color }}>{st.label}</div>
+                          <div style={{ fontSize: 11, color: "#1A3C2E99" }}>{st.questions} question{st.questions > 1 ? "s" : ""} · {st.total} réponse{st.total > 1 ? "s" : ""}</div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                          <div style={{ flex: 1, height: 16, background: "#1A3C2E08", borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ width: `${st.presenceRate}%`, height: "100%", background: st.color, borderRadius: 4 }} />
+                          </div>
+                          <div style={{ width: 92, flexShrink: 0, fontSize: 13, fontWeight: 700, color: st.color, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{st.presenceRate}% <span style={{ fontSize: 10, fontWeight: 400, color: "#1A3C2E99" }}>présence</span></div>
+                        </div>
+                        <div style={{ display: "flex", gap: 16, fontSize: 11, color: "#1A3C2E" }}>
+                          <span>◎ {st.mentions} mention{st.mentions > 1 ? "s" : ""}</span>
+                          <span>→ {st.evocations} évocation{st.evocations > 1 ? "s" : ""}</span>
+                          <span>↗ {st.citations} citation{st.citations > 1 ? "s" : ""}</span>
+                          {st.avgPos && <span style={{ color: "#1A3C2E99" }}>pos. moy. #{st.avgPos}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* ── Segmentation par intention ── */}
               {(audit.intentStatsList || []).length > 0 && (
@@ -2988,6 +3367,23 @@ export default function GeoAuditTab({
                   <ShareOfVoice sov={audit.shareOfVoice} />
                 </div>
               )}
+
+              {/* ── Lot B1 : Comparaison approfondie (concurrents cochés dans l'onglet Concurrents) ── */}
+              {Array.isArray(audit.compareCompEntries) && audit.compareCompEntries.length > 0 && (() => {
+                const sfStats = sfCompareStats(sfRowsScoped);
+                const smStats = resolveSmStats(((smOverview || {})[site?.id] || [])[0], (smData || {})[site?.id]);
+                const brandTool = { ...(sfStats || {}), ...(smStats || {}) };
+                const toolStatsByCol = Object.keys(brandTool).length ? { __brand__: brandTool } : {};
+                const importStatus = { __brand__: { sf: !!sfStats, semrush: !!smStats } };
+                const view = buildLlmComparison(brand?.brand_name || "Votre marque", audit.compareBrandStats, audit.compareCompEntries, toolStatsByCol);
+                return (
+                  <div style={{ marginBottom: 22 }}>
+                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 4 }}>Comparaison approfondie</div>
+                    <div style={{ fontSize: 10.5, color: "#94A3B8", marginBottom: 12 }}>Votre marque face à {audit.compareCompEntries.length} concurrent{audit.compareCompEntries.length > 1 ? "s" : ""} sélectionné{audit.compareCompEntries.length > 1 ? "s" : ""}. La cellule encadrée est la meilleure valeur de chaque ligne. Réglez les lignes affichées dans l'onglet Concurrents.</div>
+                    <CompareTable columns={view.columns} data={view.data} includedRows={compareRows} mode="audit" importStatus={importStatus} />
+                  </div>
+                );
+              })()}
 
               {/* Tableau M/É/C top 5 concurrents */}
               {(() => {
@@ -3217,7 +3613,7 @@ export default function GeoAuditTab({
                 brand={brand}
                 competitors={competitors}
                 claudeKey={claudeKey}
-                sfRows={(sfData && site) ? (sfData[site.id] || []) : []}
+                sfRows={sfRowsScoped}
                 gscRows={(gscData && site) ? (gscData[site.id] || []) : []}
                 gaRows={(gaData && site) ? (gaData[site.id] || []) : []}
                 bingData={(bingData && site) ? (bingData[site.id] || {}) : {}}
@@ -3230,7 +3626,7 @@ export default function GeoAuditTab({
             ══════════════════════════════════════════════════════ */}
             <div data-tour="audit-corr" style={{ display: "contents" }}><Section title="Matrice de corrélation" sub="Croisez 2 sources de données pour identifier les corrélations avec votre présence GEO">
               <CorrelationMatrix
-                sfRows={(sfData && site) ? (sfData[site.id] || []) : []}
+                sfRows={sfRowsScoped}
                 gscRows={(gscData && site) ? (gscData[site.id] || []) : []}
                 gaRows={(gaData && site) ? (gaData[site.id] || []) : []}
                 bingData={(bingData && site) ? (bingData[site.id] || {}) : {}}

@@ -1,0 +1,592 @@
+/*
+ * geo-responsive.css — Responsive Design System pour GeoTab & GeoAuditTab
+ * Import dans GeoTab.jsx et GeoAuditTab.jsx
+ *
+ * Breakpoints :
+ *   Mobile  : < 640px  (sm)
+ *   Tablet  : 640–1023px (md)
+ *   Desktop : ≥ 1024px (lg)
+ *   Wide    : ≥ 1280px (xl)
+ *
+ * Convention : préfixe .geo- pour GeoTab, .audit- pour GeoAuditTab
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITAIRES RESPONSIVES PARTAGÉS
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Scroll horizontal — tableaux et pills sur mobile */
+.geo-scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.geo-scroll-x::-webkit-scrollbar { display: none; }
+
+/* Grilles responsives */
+.geo-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.geo-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.geo-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+/* Flex wrap helpers */
+.geo-flex-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GEOTAB — RESPONSIVE
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Header principal Fan-outs */
+.geo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+/* Navigation sous-onglets (keywords/questions/…) */
+.geo-subnav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+/* Zone filtres + toolbar actions */
+.geo-toolbar-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Pills providers — scroll horizontal sur mobile */
+.geo-provider-pills {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Zone actions du bas (export + lancer) */
+.geo-toolbar-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Ligne d'une question — layout principal */
+.geo-question-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* Actions droite d'une question */
+.geo-question-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/* Provider row — ligne provider dans une question */
+.geo-provider-row-wrap {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Export popup — fixe sur mobile */
+.geo-export-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 300;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.14);
+  padding: 16px;
+  min-width: 290px;
+  max-width: 320px;
+}
+
+/* Grille KPI StatsHeader — 3 colonnes desktop */
+.geo-stats-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* Grille KPI inférieure (concurrents + sites) */
+.geo-stats-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* Volume enrichment toolbar */
+.geo-volume-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.geo-volume-toolbar-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Automation — fréquences en grid */
+.geo-freq-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+/* Automation — status KPI */
+.geo-auto-kpi {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GEOAUDITTAB — RESPONSIVE
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Header audit : titre + onglets + actions sur 1 ligne */
+.audit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+
+/* GeoScoreBanner — conteneur principal */
+.audit-banner-inner {
+  display: flex;
+  gap: 36px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* GeoScoreBanner — séparateurs verticaux */
+.audit-banner-sep {
+  width: 1px;
+  background: #1A3C2E0C;
+  align-self: stretch;
+  min-height: 60px;
+}
+
+/* GeoScoreBanner — bloc contexte KPIs */
+.audit-banner-context {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, max-content));
+  gap: 14px 32px;
+  align-items: start;
+}
+
+/* Providers dans visibilité marque */
+.audit-providers-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+/* Questions présence/absence — 2 colonnes */
+.audit-questions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* Tableau concurrentiel M/É/C */
+.audit-comp-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 20px;
+}
+.audit-comp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 380px; /* évite l'écrasement sur mobile */
+}
+
+/* URLs marque — 2 colonnes */
+.audit-urls-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* TrendChart — conteneur responsive */
+.audit-trend-wrap {
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.audit-trend-wrap svg {
+  width: 100%;
+  height: auto;
+}
+
+/* Matrice corrélation — sélecteurs sources */
+.audit-corr-sources {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.audit-corr-source-btns {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* Matrice corrélation — table */
+.audit-corr-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Section URLs — top domaines */
+.audit-domains-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Plan d'action — pistes */
+.audit-leads-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+/* CompetitorPageAnalyzer — sélecteur + URL */
+.audit-comp-analyzer-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE  (< 640px)
+   ═══════════════════════════════════════════════════════════════ */
+
+@media (max-width: 639px) {
+
+  /* ── GeoTab mobile ── */
+
+  .geo-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .geo-subnav {
+    gap: 3px;
+  }
+  .geo-subnav button {
+    padding: 5px 10px !important;
+    font-size: 11px !important;
+  }
+
+  .geo-provider-pills {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+
+  .geo-toolbar-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  /* Questions toolbar : stack sur 2 lignes */
+  .geo-toolbar-row {
+    gap: 4px;
+  }
+
+  /* Actions question : compacter */
+  .geo-question-actions {
+    gap: 3px;
+  }
+  .geo-question-actions .gt-btn {
+    padding: 3px 8px !important;
+    font-size: 10px !important;
+  }
+
+  /* Provider row : réduire le gap */
+  .gt-provider-row {
+    gap: 6px;
+  }
+  .gt-provider-name {
+    min-width: 54px;
+    font-size: 10px;
+  }
+  .gt-provider-answer {
+    padding-left: 0 !important;
+  }
+
+  /* Stats KPI : 2 col sur mobile */
+  .geo-stats-kpi-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .geo-stats-2col {
+    grid-template-columns: 1fr;
+  }
+  .gt-kpi-val { font-size: 22px; }
+  .gt-kpi-card { padding: 12px 14px; }
+
+  /* Volume toolbar : stack */
+  .geo-volume-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .geo-volume-toolbar-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  /* Automation freq : 2×2 */
+  .geo-freq-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .geo-auto-kpi {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Export popup — fixe en bas */
+  .geo-export-popup {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    padding: 20px 16px;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.2);
+  }
+
+  /* ── GeoAuditTab mobile ── */
+
+  .audit-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .audit-header > div:last-child {
+    align-self: flex-end;
+  }
+
+  /* Banner : colonne sur mobile */
+  .audit-banner-inner {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .audit-banner-sep {
+    display: none;
+  }
+
+  /* Questions 1 col */
+  .audit-questions-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  /* URLs 1 col */
+  .audit-urls-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  /* Providers : scroll */
+  .audit-providers-row {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+
+  /* Corrélation sources : stack */
+  .audit-corr-sources {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  /* Competitor analyzer input : stack */
+  .audit-comp-analyzer-input {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* Grids 2-col → 1-col */
+  .geo-grid-2 { grid-template-columns: 1fr; }
+  .geo-grid-3 { grid-template-columns: 1fr 1fr; }
+  .geo-grid-4 { grid-template-columns: 1fr 1fr; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TABLET (640px–1023px)
+   ═══════════════════════════════════════════════════════════════ */
+
+@media (min-width: 640px) and (max-width: 1023px) {
+
+  /* ── GeoTab tablet ── */
+
+  .geo-stats-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* Provider pills : wrap autorisé */
+  .geo-provider-pills {
+    flex-wrap: wrap;
+  }
+
+  /* Toolbar actions : inline */
+  .geo-toolbar-actions {
+    flex-shrink: 0;
+  }
+
+  /* Automation : 2×2 */
+  .geo-freq-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* ── GeoAuditTab tablet ── */
+
+  /* Banner : flex horizontal mais compact */
+  .audit-banner-inner {
+    gap: 16px;
+  }
+  .audit-banner-sep {
+    display: none;
+  }
+
+  /* Questions : 1 col sur tablet pour lisibilité */
+  .audit-questions-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  /* URLs : 1 col sur tablet */
+  .audit-urls-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  /* Corr sources : wrap */
+  .audit-corr-source-btns {
+    flex-wrap: wrap;
+  }
+
+  .geo-grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DESKTOP (≥ 1024px) — Layout large
+   ═══════════════════════════════════════════════════════════════ */
+
+@media (min-width: 1024px) {
+
+  .geo-stats-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* Questions : 2 colonnes côte à côte */
+  .audit-questions-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* URLs : 2 colonnes */
+  .audit-urls-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Export popup : positionnement normal */
+  .geo-export-popup {
+    position: absolute;
+    top: calc(100% + 6px);
+    bottom: auto;
+    left: 0;
+    right: auto;
+    border-radius: 12px;
+    max-width: 320px;
+  }
+
+  /* Banner : toujours horizontal */
+  .audit-banner-inner {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 24px;
+  }
+  .audit-banner-sep {
+    display: block;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WIDE (≥ 1280px) — Grand écran
+   ═══════════════════════════════════════════════════════════════ */
+
+@media (min-width: 1280px) {
+  .geo-stats-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .geo-grid-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PRINT — Export PDF
+   ═══════════════════════════════════════════════════════════════ */
+
+@media print {
+  .geo-provider-pills,
+  .geo-toolbar-actions,
+  .geo-toolbar-row,
+  .geo-subnav,
+  .audit-header button,
+  .geo-export-popup {
+    display: none !important;
+  }
+
+  .audit-questions-grid,
+  .audit-urls-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
