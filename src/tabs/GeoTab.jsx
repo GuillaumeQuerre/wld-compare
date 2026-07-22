@@ -5868,6 +5868,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
   const [aliasMap, setAliasMap] = useState({}); // alias(lower) → canonique
   const [showTour, setShowTour]       = useState(false);
 
+  const safeSites = Array.isArray(sites) ? sites : [];
   const site = (Array.isArray(sites) ? sites : []).find(s => s.id === selectedSite) || (Array.isArray(sites) ? sites : [])[0];
 
   // ── Périmètre multi-sites du Suivi GEO ──────────────────────────────────
