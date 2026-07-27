@@ -29,11 +29,12 @@ import {
   sbSaveGeoAnalysis, sbGetGeoAnalyses,
 } from "../lib/supabase";
 import { ProviderConfigPanel, BrandConfigPanel } from "../components/GeoConfig";
-import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, parseSemrushOverview, applySfPerimeter, getSitePerimeter, computeToolImport, entityToolStats } from "../lib/compareEngine";
+import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, parseSemrushOverview, applySfPerimeter, getSitePerimeter, computeToolImport, entityToolStats, entityUrlStats, citedUrlSet } from "../lib/compareEngine";
 import UploadCard from "../components/UploadCard";
 import { newProject, parseCSV, parseSemrushCSV } from "../lib/helpers";
 import { parseSemrush } from "../lib/parsers";
 import { C, SITE_PALETTE } from "../lib/constants";
+import { PresenceTrendChart, earliestSelectableDate } from "../lib/presenceTrend";
 import { matchGscForQuestion } from "../lib/auditTools";
 // Note: sbSaveGeoAxes is called via onSaveAxes prop from App.jsx
 
@@ -882,6 +883,14 @@ export const PROVIDERS = [
     proxyPath: "/api/claude-geo",
     color: "#D97706",
   },
+  {
+    id: "aio",
+    label: "AI Overview",
+    icon: "🔶",
+    model: "AI Overview (google)",
+    external: true,          // alimenté par le scraper local, pas d'API/clé, pas interrogeable depuis l'app
+    color: "#4285F4",
+  },
 ];
 
 
@@ -1390,7 +1399,7 @@ const COMP_CATEGORIES = [
 ];
 
 // ── Overlay d'import SF / Semrush pour un concurrent (comparaison approfondie) ──
-function ToolImportOverlay({ target, tool, onClose, onSubmit }) {
+function ToolImportOverlay({ target, tool, citedUrls = null, onClose, onSubmit }) {
   // tool : "sf" | "semrush". Pour semrush, choix Overview / Top pages.
   const [smKind, setSmKind] = useState("sm_overview");
   const [file, setFile] = useState(null);
@@ -1412,7 +1421,7 @@ function ToolImportOverlay({ target, tool, onClose, onSubmit }) {
       if (kind === "sf") meta.crawl_date = crawlDate || null;
       else if (kind === "sm_overview") meta.analysis_date = analysisDate || null;
       else if (kind === "sm_pages") { meta.period_start = periodStart || null; meta.period_end = periodEnd || null; }
-      const rec = computeToolImport(kind, text, meta);
+      const rec = computeToolImport(kind, text, meta, citedUrls);
       if (!rec) { setErr("Fichier non reconnu pour ce type d'import."); setBusy(false); return; }
       await onSubmit(kind, rec);
       setBusy(false); onClose();
@@ -1650,7 +1659,8 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
     setCompetitors(prev => (Array.isArray(prev) ? prev : []).map(c => c.id === compId ? { ...c, tool_imports: nextImports } : c));
     try { await sbUpdateCompetitor(compId, { tool_imports: nextImports }); } catch { /* colonne non migrée → l'état local reste */ }
   };
-  const sfStats = useMemo(() => sfCompareStats(applySfPerimeter((sfData || {})[siteId] || [], sfPerimeter)), [sfData, siteId, sfPerimeter]);
+  const citedSet = useMemo(() => citedUrlSet(allResults), [allResults]);
+  const sfStats = useMemo(() => sfCompareStats(applySfPerimeter((sfData || {})[siteId] || [], sfPerimeter), citedSet), [sfData, siteId, sfPerimeter, citedSet]);
   const smStats = useMemo(() => resolveSmStats(((smOverview || {})[siteId] || [])[0], (smData || {})[siteId]), [smOverview, smData, siteId]);
 
   // Stats LLM par site, calculées localement depuis allResults (autonome vs audit)
@@ -1686,8 +1696,9 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
         if (d.brandInSources || d.citation?.position != null) st.citations++;
       });
       const avg = st.positions.length ? Math.round((st.positions.reduce((a, b) => a + b, 0) / st.positions.length) * 10) / 10 : null;
+      const u = entityUrlStats(allResults, comp.name, comp.domain);
       return { key: comp.id, label: comp.name, color: comp.color || "#64748B",
-        stats: { mentions: st.mentions, evocations: st.evocations, citations: st.citations, avgPos: avg, urlsCited: null, bestUrlHits: null } };
+        stats: { mentions: st.mentions, evocations: st.evocations, citations: st.citations, avgPos: avg, urlsCited: u.urlsCited || null, bestUrlHits: u.bestUrlHits || null } };
     });
     const brandTool = { ...(sfStats || {}), ...(smStats || {}) };
     const toolStatsByCol = {};
@@ -1866,7 +1877,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
             mode="edit"
           />
           {importTarget && (
-            <ToolImportOverlay target={importTarget} tool={importTool} onClose={() => setImportTarget(null)} onSubmit={submitImport} />
+            <ToolImportOverlay target={importTarget} tool={importTool} citedUrls={citedSet} onClose={() => setImportTarget(null)} onSubmit={submitImport} />
           )}
         </div>
       )}
@@ -1940,22 +1951,23 @@ function TagSelect({ values = [], categories, onChange, placeholder = "Tags…" 
     onChange(next);
   };
   const selected = categories.filter(c => values.includes(c.id));
+  // Pilule harmonisee avec SiteMultiSelect (Marques) et IntentSelect (Intention) :
+  // meme rayon, meme bordure, fond transparent a vide puis teinte a la selection.
+  const label = selected.length === 0 ? placeholder
+    : selected.length === 1 ? selected[0].name
+    : `${selected.length} catégories`;
+  const accent = selected[0]?.color || "#2563EB";
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
-      <div onClick={() => setOpen(o => !o)}
-        style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", minWidth: 80, padding: "3px 6px", border: "0.5px solid #1A3C2E0D", borderRadius: 7, cursor: "pointer", background: "#fff", fontSize: 11 }}>
-        {selected.length === 0
-          ? <span style={{ color: C.textLight }}>{placeholder}</span>
-          : selected.map(c => (
-            <span key={c.id} style={{ background: c.color + "22", color: c.color, border: `1px solid ${c.color}44`, borderRadius: 4, padding: "1px 5px", fontSize: 10, fontWeight: 700 }}>
-              {c.name}
-            </span>
-          ))
-        }
-        <span style={{ color: C.textLight, marginLeft: 2 }}>▾</span>
-      </div>
+      <button type="button" onClick={() => setOpen(o => !o)} title={placeholder.replace("…", "")}
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          border: `0.5px solid ${selected.length ? accent + "44" : "#1A3C2E18"}`, background: selected.length ? accent + "10" : "transparent", color: selected.length ? accent : "#94A3B8" }}>
+        {selected.length > 0 && <span style={{ display: "inline-flex", gap: 2 }}>{selected.slice(0, 3).map(c => <span key={c.id} style={{ width: 7, height: 7, borderRadius: "50%", background: c.color || accent }} />)}</span>}
+        {label}
+        <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
+      </button>
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "#fff", border: "0.5px solid #1A3C2E0D", borderRadius: 9, boxShadow: "0 4px 16px rgba(0,0,0,0.1)", padding: 6, minWidth: 160 }}>
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "#fff", border: "0.5px solid #1A3C2E22", borderRadius: 8, boxShadow: "0 4px 16px rgba(26,60,46,0.12)", padding: 4, minWidth: 160 }}>
           {categories.length === 0
             ? <div style={{ fontSize: 11, color: C.textLight, padding: "4px 8px" }}>Aucune catégorie</div>
             : categories.map(c => (
@@ -2717,7 +2729,7 @@ function HintPanelQuestion({ questionId, question, sources, brandName, brandAlia
 
 // ── ProviderRow — calendar + info + accordion + run button ────────
 
-function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null }) {
+function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false }) {
   const [open, setOpen] = useState(false);
   const p = provider;
 
@@ -2804,8 +2816,10 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
             ⚠ {errorMsg.slice(0, 60)}{errorMsg.length > 60 ? "…" : ""}
           </span>
         )}
-        {/* Bouton run */}
-        {hasKey && !isReadOnly && (
+        {/* Bouton run — masqué pour un provider externe (alimenté par le scraper local) */}
+        {external ? (
+          <span style={{ fontSize: 10, color: "#94A3B8", fontStyle: "italic" }} title="Résultats importés par le scraper AI Overview local">scraper local</span>
+        ) : hasKey && !isReadOnly && (
           <button
             className="gt-provider-run"
             onClick={onRun}
@@ -3427,7 +3441,7 @@ function SiteMultiSelect({ sites = [], value = [], onChange }) {
   );
 }
 
-function QuestionsTab({ site, projectId, apiKey, model, brand, categories, setCategories, allResults, allSites = [], readSiteIds = null, siteBrandsMap = {}, gscRows = [], aliasMap = {}, onResultSaved, activeProviders = ["openai"], providerKeys = {}, runMode = "parallel", keywordsOrder = [], refreshTrigger = 0, competitors = [], setCompetitors = null, onSaveKey = null, isReadOnly = false, webSearchSettings = {} }) {
+function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, categories, setCategories, allResults, allSites = [], readSiteIds = null, siteBrandsMap = {}, gscRows = [], aliasMap = {}, onResultSaved, activeProviders = ["openai"], providerKeys = {}, runMode = "parallel", keywordsOrder = [], refreshTrigger = 0, competitors = [], setCompetitors = null, onSaveKey = null, isReadOnly = false, webSearchSettings = {} }) {
   const [questions, setQuestions]   = useState([]);
   const [results, setResults]       = useState(allResults || []);
   const [recomputing, setRecomputing]   = useState(false);
@@ -3475,7 +3489,17 @@ function QuestionsTab({ site, projectId, apiKey, model, brand, categories, setCa
   const [filterKeyword,    setFilterKeywordRaw]    = useState(savedF.filterKeyword    || "");
   const [filterSearch,     setFilterSearchRaw]     = useState(savedF.filterSearch     || "");
   const [searchField,      setSearchField]         = useState(savedF.searchField      || "question"); // question|answer|mention|evocation|citation
-  const [filterProviders,  setFilterProvidersRaw]  = useState(savedF.filterProviders  || []);
+  // ── Providers : 3 états par provider — "used" (interrogé + visible),
+  //    "unused" (non interrogé, résultats passés toujours visibles),
+  //    "hidden" (non interrogé + lignes masquées). Persisté en localStorage.
+  const [providerModes, setProviderModesRaw] = useState(() => {
+    const m = savedF.providerModes && typeof savedF.providerModes === "object" ? { ...savedF.providerModes } : {};
+    // Rétrocompat : une ancienne sélection focus => ces providers "used", les autres "unused".
+    if (!savedF.providerModes && Array.isArray(savedF.filterProviders) && savedF.filterProviders.length) {
+      PROVIDERS.forEach(p => { m[p.id] = savedF.filterProviders.includes(p.id) ? "used" : "unused"; });
+    }
+    return m;
+  });
 
   // Wrap setters to also persist to localStorage
   const persistFilters = (patch) => {
@@ -3490,7 +3514,13 @@ function QuestionsTab({ site, projectId, apiKey, model, brand, categories, setCa
   const setFilterCat        = (v) => { setFilterCatRaw(v);        persistFilters({ filterCat: v }); };
   const setFilterKeyword    = (v) => { setFilterKeywordRaw(v);    persistFilters({ filterKeyword: v }); };
   const setFilterSearch     = (v) => { setFilterSearchRaw(v);     persistFilters({ filterSearch: v }); };
-  const setFilterProviders  = (v) => { setFilterProvidersRaw(v);  persistFilters({ filterProviders: v }); };
+  const setProviderModes = (v) => { setProviderModesRaw(v); persistFilters({ providerModes: v }); };
+  const providerMode = (id) => providerModes[id] || "used";
+  const cycleProviderMode = (id) => {
+    const next = providerMode(id) === "used" ? "unused" : providerMode(id) === "unused" ? "hidden" : "used";
+    setProviderModes({ ...providerModes, [id]: next });
+  };
+  const hiddenProviderIds = PROVIDERS.filter(p => providerMode(p.id) === "hidden").map(p => p.id);
   const [running, setRunning]       = useState({});
   const [providerErrors, setProviderErrors] = useState({}); // { "qId-pid": errorMsg }
   const [runAll, setRunAll]         = useState(false);
@@ -4098,10 +4128,6 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
       }
       if (!ok) return false;
     }
-    if (filterProviders.length > 0) {
-      const qRes = resultsByQ[q.id] || [];
-      if (!qRes.some(r => filterProviders.includes(getProviderId(r.model)))) return false;
-    }
     // Positionné ET/OU Positionné précédemment — condition OU non-exclusif si les deux sont actifs
     if (filterPositioned || filterLost) {
       const latest = latestResultByQ[q.id];
@@ -4125,16 +4151,15 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         return a.i - b.i; // stabilité : ordre de base
       })
       .map(x => x.q);
-  }, [questions, filterFav, filterCat, filterKeyword, filterSearch, searchField, filterProviders, filterPositioned, filterLost, resultsByQ, latestResultByQ, lostByQ, sortByResult, resultRankByQ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [questions, filterFav, filterCat, filterKeyword, filterSearch, searchField, providerModes, filterPositioned, filterLost, resultsByQ, latestResultByQ, lostByQ, sortByResult, resultRankByQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Returns providers that still need to be called for a question today
   const getProvidersToRun = (q, force = false) => {
     const currentKeys = providerKeysRef.current;
     const currentActive = activeProvidersRef.current;
     let configuredProviders = PROVIDERS.filter(p => currentActive.includes(p.id) && currentKeys[p.id]?.dec);
-    // Point 5 — n'interroger QUE les providers sélectionnés dans les pills (au-dessus des
-    // questions). Aucune sélection = tous les providers configurés sont interrogés.
-    if (filterProviders.length > 0) configuredProviders = configuredProviders.filter(p => filterProviders.includes(p.id));
+    // Seuls les providers en état "used" (pills au-dessus des questions) sont interrogés.
+    configuredProviders = configuredProviders.filter(p => providerMode(p.id) === "used");
     if (force) return configuredProviders; // always run all when forced (individual ▶ button)
     const today = new Date().toISOString().slice(0, 10);
     const qResults = resultsByQ[q.id] || [];
@@ -4171,10 +4196,10 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     const qIds = new Set(filtered.map(q => q.id));
     return results.filter(r => {
       if (!qIds.has(r.question_id)) return false;
-      if (filterProviders.length > 0 && !filterProviders.includes(getProviderId(r.model))) return false;
+      if (hiddenProviderIds.includes(getProviderId(r.model))) return false;
       return true;
     });
-  }, [filtered, results, filterProviders]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filtered, results, providerModes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Count questions to generate for "Lancer tout" indicator
   const toRunCount = useMemo(() => {
@@ -4255,6 +4280,19 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
   return (
     <div>
+      {/* ── Évolution chronologique : mentions / évocations / citations ── */}
+      {results.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <PresenceTrendChart
+            results={results}
+            calendarEntries={calendarEntries}
+            minDate={earliestSelectableDate(project, results, calendarEntries)}
+            title="Mentions · Évocations · Citations"
+            compact
+          />
+        </div>
+      )}
+
       {/* ── Onboarding : aucune question encore renseignée ── */}
       {questions.length === 0 && !isReadOnly && (
         <div style={{ border: "1px solid #1A3C2E22", borderRadius: 14, padding: "20px 22px", marginBottom: 22, background: "linear-gradient(180deg,#FFFFFF,#F6F8F7)" }}>
@@ -4428,9 +4466,9 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           </button>
 
           {/* Reset — apparaît seulement si filtre actif */}
-          {(filterSearch || filterCat.length || filterKeyword || filterFav || filterPositioned || filterLost || filterProviders.length > 0 || sortByResult) && (
+          {(filterSearch || filterCat.length || filterKeyword || filterFav || filterPositioned || filterLost || Object.keys(providerModes).length > 0 || sortByResult) && (
             <button
-              onClick={() => { setFilterSearch(""); setFilterCat([]); setFilterKeyword(""); setFilterFav(false); setFilterPositioned(false); setFilterLost(false); setFilterProviders([]); setSortByResult(false); }}
+              onClick={() => { setFilterSearch(""); setFilterCat([]); setFilterKeyword(""); setFilterFav(false); setFilterPositioned(false); setFilterLost(false); setProviderModes({}); setSortByResult(false); }}
               className="gt-btn-icon"
               title="Effacer tous les filtres"
               style={{ fontSize: 12, color: "#1A3C2E" }}>
@@ -4450,23 +4488,28 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           {/* Providers — pills */}
           <div className="geo-provider-pills" data-tour="provider-pills">
           {PROVIDERS.map(p => {
-            const hasKey = !!providerKeys[p.id]?.dec;
-            const selecting = filterProviders.length > 0;       // au moins un provider choisi
-            const selected = filterProviders.includes(p.id);
-            const queried = hasKey && (!selecting || selected); // sera interrogé au prochain run
+            const hasKey = p.external ? true : !!providerKeys[p.id]?.dec; // externe : pas de clé requise
+            const mode = providerMode(p.id); // "used" | "unused" | "hidden"
+            const mark = mode === "used" ? " ✓" : mode === "hidden" ? " ⦸" : "";
+            const nextLabel = mode === "used" ? "cliquer : ne plus interroger"
+                            : mode === "unused" ? "cliquer : masquer les lignes"
+                            : "cliquer : réactiver";
             return (
               <button key={p.id}
-                onClick={() => hasKey && setFilterProviders(prev => selected ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                className={`gt-filter-pill${selected && hasKey ? " gt-filter-pill--active" : ""}`}
+                onClick={() => hasKey && cycleProviderMode(p.id)}
+                className={`gt-filter-pill${mode === "used" && hasKey ? " gt-filter-pill--active" : ""}`}
                 style={{
-                  opacity: !hasKey ? 0.3 : (selecting && !selected ? 0.4 : 1),
-                  filter: (hasKey && selecting && !selected) ? "grayscale(1)" : "none",
+                  opacity: !hasKey ? 0.3 : mode === "used" ? 1 : mode === "unused" ? 0.55 : 0.4,
+                  filter: (hasKey && mode !== "used") ? "grayscale(1)" : "none",
+                  textDecoration: mode === "hidden" ? "line-through" : "none",
                   cursor: hasKey ? "pointer" : "not-allowed",
                 }}
                 title={!hasKey ? `Clé ${p.label} manquante`
-                     : queried ? `${p.label} — sera interrogé`
-                     : `${p.label} — non sélectionné, ne sera pas interrogé`}>
-                {p.label}
+                     : p.external ? `${p.label} — alimenté par le scraper local · ${mode === "hidden" ? "masqué" : "visible"} (${nextLabel})`
+                     : mode === "used" ? `${p.label} — interrogé et visible (${nextLabel})`
+                     : mode === "unused" ? `${p.label} — non interrogé, résultats visibles (${nextLabel})`
+                     : `${p.label} — non interrogé et masqué (${nextLabel})`}>
+                {p.label}{mark}
               </button>
             );
           })}
@@ -4750,6 +4793,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                 {/* One row per provider — calendar + info + accordion + run */}
                 <div style={{ marginTop: 10, display: "flex", flexDirection: "column" }}>
                   {PROVIDERS.map(p => {
+                    if (providerMode(p.id) === "hidden") return null; // provider masqué : aucune ligne
                     const pResults = qResults.filter(r => getProviderId(r.model) === p.id);
                     const hasKey = !!providerKeys[p.id]?.dec;
                     if (!hasKey && !pResults.length) return null;
@@ -4757,6 +4801,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                       <ProviderRow
                         key={p.id}
                         provider={p}
+                        external={!!p.external}
                         results={pResults}
                         allProviderResults={qResults}
                         brandName={brand_name}
@@ -5653,7 +5698,7 @@ function FanoutSetupPanel({
     <div style={{ maxWidth: 680 }}>
 
       {/* ── Projet actif ── */}
-      <SetupSection icon="📁" title="Projet actif" desc="Sélectionnez le projet et les sites suivis. Vous pouvez en créer un nouveau, en supprimer, et rattacher jusqu'à 3 sites à comparer.">
+      <SetupSection icon="📁" title="Projet actif" desc="Sélectionnez le projet et les sites suivis. Vous pouvez en créer un nouveau, en supprimer, et rattacher autant de sites que nécessaire à comparer.">
         <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
@@ -6274,7 +6319,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
             </div>
           )}
           <QuestionsTab
-            site={primarySite} projectId={projectId} apiKey={apiKeyDec} model={model}
+            site={primarySite} projectId={projectId} project={project} apiKey={apiKeyDec} model={model}
             allSites={safeSites}
             readSiteIds={effSiteIds}
             siteBrandsMap={siteBrandsMap}

@@ -107,14 +107,18 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
     score: { rate: a.presenceRate || 0, label: verdictLabel, color: verdictColor,
       withBrand: a.withBrand || 0, total: a.total || 0, questions: a.questions || 0 },
     kpis: [
-      { v: `${a.mentionCount || 0}`, l: "Mentions classées" },
-      { v: `${a.evocationCount || 0}`, l: "Évocations" },
-      { v: `${a.citationCount || 0}`, l: "Citations sources" },
+      { v: `${a.mecTotals ? a.mecTotals.mentions : (a.mentionCount || 0)}`, l: "Mentions classées" },
+      { v: `${a.mecTotals ? a.mecTotals.evocations : (a.evocationCount || 0)}`, l: "Évocations" },
+      { v: `${a.mecTotals ? a.mecTotals.citations : (a.citationCount || 0)}`, l: "Citations sources" },
       { v: (() => { const p = parseFloat(a.avgMentionPos); return Number.isFinite(p) && p > 0 ? p.toFixed(1) : "—"; })(), l: "Position moyenne" },
     ],
     providers, cats, comps, compMax, sovBrandPct, blindSpotsCount, trend,
     presenceTrend: (a.presenceTrend || []).filter(t => t.tested > 0),
     mecTrend: (a.mecTrend || []).filter(t => t.tested > 0),
+    // Série chronologique M/É/C (nombres, axe de jours continu) — source unique partagée
+    // avec l'écran ; l'intervalle est celui sélectionné dans l'audit.
+    mecSeries: Array.isArray(a.mecSeries) ? a.mecSeries : [],
+    mecRangeLabel: a.mecRangeLabel || null,
     mec30: (() => {
       const byDate = {}; (a.mecTrend || []).forEach(t => { if (t.tested > 0) byDate[t.date] = t; });
       const out = []; const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -147,6 +151,13 @@ export function buildAuditDeck(audit, brand, site, roadmapData, categories = [],
         { id: "sf_images", label: "Images", better: "high" },
         { id: "sf_h1multi", label: "Pages à H1 multiples", better: "low" },
         { id: "sf_titleLong", label: "Titles trop longs", better: "low" },
+        { id: "sf_pct_tables", label: "% pages avec tableaux", better: "high", fmt: (v) => v == null ? "—" : `${v}%` },
+        { id: "sf_pct_cited_tables", label: "% pages citées avec tableaux", better: "high", fmt: (v) => v == null ? "—" : `${v}%` },
+        { id: "sf_pct_faq", label: "% pages avec FAQ", better: "high", fmt: (v) => v == null ? "—" : `${v}%` },
+        { id: "sf_pct_cited_faq", label: "% pages citées avec FAQ", better: "high", fmt: (v) => v == null ? "—" : `${v}%` },
+        { id: "sf_schema_types", label: "Types de schema JSON-LD", better: null, fmt: (v) => v == null || v === "" ? "—" : String(v) },
+        { id: "sf_avg_numbers", label: "Chiffres moyens / page", better: "high" },
+        { id: "sf_avg_numbers_cited", label: "Chiffres moyens / page citée", better: "high" },
         { id: "sm_keywords", label: "Mots-clés organiques", better: "high" },
         { id: "sm_traffic", label: "Trafic organique", better: "high" },
         { id: "sm_pages", label: "Pages indexées", better: "high" },
@@ -276,33 +287,40 @@ export async function exportAuditPptx(audit, brand, site, roadmapData, categorie
     const s = slide();
     kicker(s, "Tendance"); title(s, "Présence dans le temps");
     s.addText("Taux de présence de la marque par jour de test (réponses avec marque / réponses analysées).", { x: 0.6, y: 1.42, w: 12, h: 0.35, fontSize: 12, color: C.inkMid });
-    s.addChart(p.ChartType.line, [{ name: "Présence %", labels: d.presenceTrend.map(t => t.date?.slice(5)), values: d.presenceTrend.map(t => t.rate) }], {
+    // Axe de jours CONTINU (identique a la chronologie) quand la serie partagee est fournie
+    const pSrc = (d.mecSeries || []).length > 1 ? d.mecSeries : d.presenceTrend;
+    const pLab = pSrc.map(t => `${t.date.slice(8)}/${t.date.slice(5, 7)}`);
+    const pVal = pSrc.map(t => (t.tested > 0 ? (t.rate != null ? t.rate : Math.round(((t.present || 0) / t.tested) * 100)) : null));
+    s.addChart(p.ChartType.line, [{ name: "Présence %", labels: pLab, values: pVal }], {
       x: 0.6, y: 1.9, w: 12.1, h: 4.6, chartColors: [C.accent], lineSize: 3, lineSmooth: false,
-      showValue: true, dataLabelColor: C.accent, dataLabelFontSize: 11,
+      displayBlanksAs: "gap",
+      lineDataSymbol: "circle", lineDataSymbolSize: 5,
       valAxisMaxVal: 100, valAxisMinVal: 0,
-      showLegend: false, catAxisLabelFontSize: 10, catAxisLabelColor: C.inkMid, valGridLine: { color: C.creamDark, style: "solid" },
+      showLegend: false, catAxisLabelFontSize: 8, catAxisLabelColor: C.inkMid, valGridLine: { color: C.creamDark, style: "solid" },
     });
     footer(s, 5);
   }
 
-  // 5 — Évolution des mentions (3 courbes lissées en %)
-  if (d.mecTrend.length > 1) {
+  // 5 — Évolution chronologique (3 courbes en nombre, axe de jours continu)
+  if ((d.mecSeries || []).length > 1) {
     const s = slide();
-    kicker(s, "Tendance"); title(s, "Évolution des mentions");
-    s.addText("Part des réponses avec mention, évocation ou citation, en % par jour de test. Un point par date d'interrogation.", { x: 0.6, y: 1.42, w: 12, h: 0.35, fontSize: 12, color: C.inkMid });
+    kicker(s, "Tendance"); title(s, "Évolution chronologique");
+    s.addText("Nombre de réponses avec mention, évocation ou citation, par jour. Les jours sans interrogation sont enjambés.", { x: 0.6, y: 1.42, w: 12, h: 0.35, fontSize: 12, color: C.inkMid });
+    const lab = d.mecSeries.map(t => `${t.date.slice(8)}/${t.date.slice(5, 7)}`);
+    const val = (k) => d.mecSeries.map(t => t.tested > 0 ? t[k] : null);
     s.addChart(p.ChartType.line, [
-      { name: "Mentions",   labels: d.mec30.map(t => t.date?.slice(8)), values: d.mec30.map(t => t.mentions) },
-      { name: "Évocations", labels: d.mec30.map(t => t.date?.slice(8)), values: d.mec30.map(t => t.evocations) },
-      { name: "Citations",  labels: d.mec30.map(t => t.date?.slice(8)), values: d.mec30.map(t => t.citations) },
+      { name: "Mentions",   labels: lab, values: val("mentions") },
+      { name: "Évocations", labels: lab, values: val("evocations") },
+      { name: "Citations",  labels: lab, values: val("citations") },
     ], {
-      x: 0.6, y: 1.9, w: 12.1, h: 4.6, chartColors: ["1A7A4A", "C97820", "1A3C2E"], lineSize: 2.5, lineSmooth: true,
-      displayBlanksAs: "span", // structure 30 jours : les jours sans interrogation sont enjambés
-      lineDataSymbol: "circle", lineDataSymbolSize: 6,
-      valAxisMaxVal: 100, valAxisMinVal: 0,
+      x: 0.6, y: 1.9, w: 12.1, h: 4.6, chartColors: ["1A7A4A", "C97820", "2563EB"], lineSize: 2.5, lineSmooth: false,
+      displayBlanksAs: "gap",
+      lineDataSymbol: "circle", lineDataSymbolSize: 5,
+      valAxisMinVal: 0,
       showLegend: true, legendPos: "b", legendFontSize: 11,
       catAxisLabelFontSize: 8, catAxisLabelColor: C.inkMid, valGridLine: { color: C.creamDark, style: "solid" },
     });
-    s.addText(`Fenêtre du ${d.mec30[0].date} au ${d.mec30[29].date} — points aux dates d'interrogation.`, { x: 0.6, y: 6.6, w: 12.1, h: 0.3, fontSize: 10, color: C.inkLight, italic: true });
+    s.addText(d.mecRangeLabel ? `Période : ${d.mecRangeLabel}` : `Période : ${d.mecSeries[0].date} → ${d.mecSeries[d.mecSeries.length - 1].date}`, { x: 0.6, y: 6.6, w: 12.1, h: 0.3, fontSize: 10, color: C.inkLight, italic: true });
     footer(s, 6);
   }
 
@@ -608,60 +626,48 @@ export async function exportAuditPdf(audit, brand, site, roadmapData, categories
   }
 
   // 5 — Évolution des mentions (3 courbes lissées en %)
-  if (d.mecTrend.length > 1) {
-    newPage(C.white); head("Tendance", "Évolution des mentions");
+  if ((d.mecSeries || []).length > 1) {
+    newPage(C.white); head("Tendance", "Évolution chronologique");
     setText(C.inkMid); doc.setFontSize(11); doc.setFont("helvetica", "normal");
-    doc.text("Part des réponses avec mention, évocation ou citation, en % par jour de test.", 16, 42);
+    doc.text("Nombre de réponses avec mention, évocation ou citation, par jour.", 16, 42);
+    const S = d.mecSeries, n = S.length;
     const gx = 28, gy = 152, gw = 288, gh = 94;
+    const maxV = Math.max(1, ...S.map(t => Math.max(t.mentions || 0, t.evocations || 0, t.citations || 0)));
+    const px = (i) => gx + (n <= 1 ? gw / 2 : (i / (n - 1)) * gw);
+    const py = (v) => gy - (Math.max(0, v) / maxV) * gh;
     setDraw(C.creamDark); doc.setLineWidth(0.3);
-    [0, 25, 50, 75, 100].forEach(v => { const yy = gy - (v / 100) * gh; doc.line(gx, yy, gx + gw, yy); setText(C.inkLight); doc.setFontSize(7.5); doc.text(`${v}%`, gx - 3, yy + 2, { align: "right" }); });
-    // Structure fixe 30 jours : un slot par jour, points uniquement aux dates d'interrogation
-    const dayIdx = {}; d.mec30.forEach((t, i) => { dayIdx[t.date] = i; });
-    const pts0 = d.mecTrend.filter(t => dayIdx[t.date] != null);
-    const px = (i) => gx + (i / 29) * gw;
-    const py = (v) => gy - (Math.max(0, Math.min(100, v)) / 100) * gh;
-    // Ticks + dates des 30 jours (jour du mois ; interrogés en foncé)
-    d.mec30.forEach((t, i) => {
-      const tested = t.tested > 0;
-      setDraw(tested ? "D8D2C2" : "EFEAE0"); doc.setLineWidth(0.25); doc.line(px(i), gy - gh, px(i), gy + 1.5);
-      setText(tested ? C.ink : C.inkLight); doc.setFont("helvetica", tested ? "bold" : "normal"); doc.setFontSize(6);
-      doc.text(t.date.slice(8), px(i), gy + 6, { align: "center" });
+    [0, 0.5, 1].forEach(fr => {
+      const v = Math.round(maxV * fr), yy = py(v);
+      doc.line(gx, yy, gx + gw, yy);
+      setText(C.inkLight); doc.setFontSize(7.5); doc.text(String(v), gx - 3, yy + 2, { align: "right" });
     });
-    setText(C.inkMid); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
-    doc.text(d.mec30[0].date, gx, gy + 11);
-    doc.text(d.mec30[29].date, gx + gw, gy + 11, { align: "right" });
-    // Lissage Catmull-Rom échantillonné en petits segments
-    const smooth = (key) => {
-      const P = pts0.map((t) => [px(dayIdx[t.date]), py(t[key] || 0)]);
-      if (P.length < 2) return [];
-      const out = [P[0]];
-      for (let i = 0; i < P.length - 1; i++) {
-        const p0 = P[i - 1] || P[i], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2] || p2;
-        for (let st = 1; st <= 10; st++) {
-          const u = st / 10, u2 = u * u, u3 = u2 * u;
-          out.push([
-            0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * u + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * u3),
-            0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * u + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * u3),
-          ]);
-        }
-      }
-      return out;
-    };
-    const SER = [["mentions", "1A7A4A", "Mentions"], ["evocations", "C97820", "Évocations"], ["citations", "1A3C2E", "Citations"]];
-    SER.forEach(([key, col]) => {
-      const sm = smooth(key);
+    const every = Math.max(1, Math.ceil(n / 8));
+    S.forEach((t, i) => {
+      if (i % every !== 0 && i !== n - 1) return;
+      setText(C.inkLight); doc.setFont("helvetica", "normal"); doc.setFontSize(6);
+      doc.text(`${t.date.slice(8)}/${t.date.slice(5, 7)}`, px(i), gy + 6, { align: "center" });
+    });
+    // Courbes : le trait est INTERROMPU sur les jours sans interrogation (0 mesure != 0 mention)
+    const mecSeriesDefs = [["mentions", "1A7A4A", "Mentions"], ["evocations", "C97820", "Évocations"], ["citations", "2563EB", "Citations"]];
+    mecSeriesDefs.forEach(([key, col]) => {
       setDraw(col); doc.setLineWidth(1.1);
-      for (let i = 1; i < sm.length; i++) doc.line(sm[i - 1][0], sm[i - 1][1], sm[i][0], sm[i][1]);
-      setFill(col);
-      pts0.forEach((t) => doc.circle(px(dayIdx[t.date]), py(t[key] || 0), 1.3, "F"));
+      let prev = null;
+      S.forEach((t, i) => {
+        if (t.tested > 0) {
+          const cur = [px(i), py(t[key] || 0)];
+          if (prev) doc.line(prev[0], prev[1], cur[0], cur[1]);
+          setFill(col); doc.circle(cur[0], cur[1], 0.9, "F");
+          prev = cur;
+        } else { prev = null; }
+      });
     });
-    // Légende + dates
     let lx = gx;
-    SER.forEach(([, col, label]) => {
+    mecSeriesDefs.forEach(([, col, label]) => {
       setFill(col); doc.rect(lx, gy + 15, 6, 2.2, "F");
       setText(C.inkMid); doc.setFontSize(9); doc.text(label, lx + 8, gy + 17.5);
       lx += 12 + doc.getTextWidth(label) + 10;
     });
+    if (d.mecRangeLabel) { setText(C.inkLight); doc.setFontSize(8); doc.text(`Période : ${d.mecRangeLabel}`, gx, gy + 24); }
     foot();
   }
 

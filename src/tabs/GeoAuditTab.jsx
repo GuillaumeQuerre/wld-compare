@@ -13,7 +13,7 @@ import {
   buildCSV, downloadCSV, CSV_COLUMNS,
 } from "../lib/auditTools";
 import UploadCard from "../components/UploadCard";
-import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, applySfPerimeter, getSitePerimeter, entityToolStats } from "../lib/compareEngine";
+import { CompareTable, buildLlmComparison, COMPARE_ROWS, sfCompareStats, resolveSmStats, applySfPerimeter, getSitePerimeter, entityToolStats, entityUrlStats, citedUrlSet } from "../lib/compareEngine";
 import PageTypeClassifier from "../components/PageTypeClassifier";
 import { newProject } from "../lib/helpers";
 import { C, SITE_PALETTE } from "../lib/constants";
@@ -21,6 +21,7 @@ import { buildGeoPagesCsv, downloadCsv } from "../lib/exportOptimisations";
 import { generateRoadmap, RoadmapView, generateSentiment, SentimentView } from "../lib/roadmapShared";
 import { exportAuditPptx, exportAuditPdf } from "../lib/auditExport";
 import { detectBrand } from "../lib/geoEngine";
+import { PresenceTrendChart, earliestSelectableDate, buildPresenceSeries, mecTotalsOf, classifyResult } from "../lib/presenceTrend";
 
 // Catégories concurrents — miroir de GeoTab
 
@@ -221,9 +222,9 @@ function AuditSetupPanel({
                 )}
               </div>
             ))}
-            {safeSites.length < 3 && (
+            {(
               <button onClick={() => {
-                const palette = SITE_PALETTE[safeSites.length] || SITE_PALETTE[0];
+                const palette = SITE_PALETTE[safeSites.length % SITE_PALETTE.length] || SITE_PALETTE[0];
                 const newId = `site-${Date.now()}`;
                 setSites(prev => [...(Array.isArray(prev) ? prev : []), { id: newId, label: `Site ${safeSites.length + 1}`, ...palette }]);
                 [setSfData, setGscData, setGaData, setBingData].forEach(fn => fn?.(p => ({...p, [newId]: []})));
@@ -842,9 +843,9 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {[
-              { sym: "◎", label: "Mention",   val: audit.withRanked||0,      color: "#1A7A4A" },
-              { sym: "⟶", label: "Évocation", val: audit.withMentionOnly||0, color: "#C97820" },
-              { sym: "↗",  label: "Citation",  val: audit.withSourceOnly||0,  color: "#1A3C2E" },
+              { sym: "◎", label: "Mention",        val: audit.withRanked||0,      color: "#1A7A4A" },
+              { sym: "⟶", label: "Évocation",      val: audit.withMentionOnly||0, color: "#C97820" },
+              { sym: "↗",  label: "Citation seule", val: audit.withSourceOnly||0,  color: "#1A3C2E" },
             ].map(k => (
               <div key={k.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 12, color: "#1A3C2E" }}><span style={{ color: k.color }}>{k.sym}</span> {k.label}</span>
@@ -1022,11 +1023,15 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   const citationCount   = citationPositions.length;
 
   // ── Breakdown 3 types de présence (mutuellement exclusifs) ───────
+  // Répartition EXCLUSIVE (pour la barre empilée) — mais fondée sur la MÊME
+  // classification canonique que les compteurs et la chronologie, pour qu'une
+  // réponse classée ne bascule jamais dans « citation seule ».
   const getPresType = (r) => {
     if (!r) return null;
-    if (r.brand_position && (r.brand_mentioned === true || r.brand_mentioned === 1)) return "ranked";
-    if (r.brand_in_sources) return "source";
-    if (r.brand_mentioned === true || r.brand_mentioned === 1) return "mention";
+    const c = classifyResult(r);
+    if (c.mention) return "ranked";
+    if (c.citation) return "source";
+    if (c.evocation) return "mention";
     return null;
   };
   const withRanked      = results.filter(r => getPresType(r) === "ranked").length;
@@ -1269,20 +1274,18 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   // Les deux séries temporelles sont construites sur calByDate : la FUSION du
   // calendrier (une entrée par interrogation, toutes dates) et des résultats en
   // mémoire — un point par date de test réelle.
-  const _activeDays = Object.entries(calByDate)
-    .filter(([, v]) => v.tested > 0)
-    .sort((x, y) => x[0].localeCompare(y[0]));
-  const presenceTrend = _activeDays
-    .map(([date, v]) => ({ date, tested: v.tested, present: v.present, rate: Math.round((v.present / v.tested) * 100) }));
-
-  // ── Évolution des mentions : % de Mentions / Évocations / Citations par jour de test ──
-  const mecTrend = _activeDays
-    .map(([date, v]) => ({
-      date, tested: v.tested,
-      mentions:   Math.round((v.mentions   / v.tested) * 100),
-      evocations: Math.round((v.evocations / v.tested) * 100),
-      citations:  Math.round((v.citations  / v.tested) * 100),
-    }));
+  // ── Séries temporelles : produites par le MODULE PARTAGÉ (même définition que le
+  // graphique à l'écran et que les exports), puis restreintes aux jours interrogés.
+  const _allDates = [
+    ...results.map(r => (r.created_at || "").slice(0, 10)),
+    ...(calendarEntries || []).map(e => e.test_date || (e.created_at || "").slice(0, 10)),
+  ].filter(Boolean).sort();
+  const _sharedSeries = _allDates.length
+    ? buildPresenceSeries({ results, calendarEntries, from: _allDates[0], to: dayKey(new Date()) })
+    : [];
+  const _activeSeries = _sharedSeries.filter(d => d.tested > 0);
+  const presenceTrend = _activeSeries.map(d => ({ date: d.date, tested: d.tested, present: d.present, rate: d.rate }));
+  const mecTrend = _activeSeries.map(d => ({ date: d.date, tested: d.tested, mentions: d.mentions, evocations: d.evocations, citations: d.citations }));
 
   const compStats = {};
   // 1. Depuis competitors_mentioned (résultats récents)
@@ -1575,96 +1578,22 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
         if (d.brandInSources || d.citation?.position != null) st.citations++;
       });
       const avg = st.positions.length ? (st.positions.reduce((a, b) => a + b, 0) / st.positions.length) : null;
+      const u = entityUrlStats(results, c.name, c.domain);
       return {
         key: c.id, label: c.name, color: c.color || "#64748B",
         stats: {
           mentions: st.mentions, evocations: st.evocations, citations: st.citations,
           avgPos: avg != null ? Math.round(avg * 10) / 10 : null,
-          urlsCited: null, bestUrlHits: null, // renseignés au Lot B2 (imports)
+          urlsCited: u.urlsCited || null, bestUrlHits: u.bestUrlHits || null,
         },
       };
     });
 
-  return { total, withBrand, withSources, withRanked, withSourceOnly, withMentionOnly, avgPos, avgMentionPos, avgEvocationPos, avgCitationPos, mentionCount, evocationCount, citationCount, presenceRate, trendDays, sortedUrls, brandUrls, brandOwnUrls, brandExternalUrls, urlDetails, competitorUrls, referenceUrls, topDomains, intentCount, typeCount, intentStatsList, pageTypeStatsList, questionIntentList, qIntentTagged, mentionTrend, compStats, top5Competitors, competitorsRanked, byQuestionCategory, urlsToOptimize, urlsToRework, urlsToInspire, leads, questions: questions.length, providerStats, missingBrandQs, presentBrandQs, hasFavFilter, favCount, shareOfVoice, coMatrix, visibilityFunnel, blindSpots, presenceTrend, mecTrend, distinctRuns, questionStatus, compareBrandStats, compareCompEntries, _rawResults: results };
+  return { total, withBrand, withSources, withRanked, withSourceOnly, withMentionOnly, avgPos, avgMentionPos, avgEvocationPos, avgCitationPos, mentionCount, evocationCount, citationCount, presenceRate, trendDays, sortedUrls, brandUrls, brandOwnUrls, brandExternalUrls, urlDetails, competitorUrls, referenceUrls, topDomains, intentCount, typeCount, intentStatsList, pageTypeStatsList, questionIntentList, qIntentTagged, mentionTrend, compStats, top5Competitors, competitorsRanked, byQuestionCategory, urlsToOptimize, urlsToRework, urlsToInspire, leads, questions: questions.length, providerStats, missingBrandQs, presentBrandQs, hasFavFilter, favCount, shareOfVoice, coMatrix, visibilityFunnel, blindSpots, presenceTrend, mecTrend, mecTotals: mecTotalsOf(results), distinctRuns, questionStatus, compareBrandStats, compareCompEntries, _rawResults: results };
 }
 
 
 // ── Évolution des mentions : axe fixe de 30 jours, points aux dates d'interrogation ──
-function TrendChart({ points }) {
-  const all = Array.isArray(points) ? points : [];
-  // Fenêtre fixe : 30 derniers jours (structure du graphe), un slot par jour.
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const days = [];
-  for (let i = 29; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); }
-  const dayIdx = {}; days.forEach((d, i) => { dayIdx[d] = i; });
-  const data = all.filter(p => dayIdx[p.date] != null); // points interrogés dans la fenêtre
-  if (!data.length) return (
-    <div style={{ fontSize: 11, color: "#1A3C2E", fontStyle: "italic", padding: "20px 0" }}>
-      Aucun résultat enregistré ces 30 derniers jours.
-    </div>
-  );
-  const W = 1060, H = 230, PADL = 38, PADR = 12, PADT = 14, PADB = 34;
-  const plotW = W - PADL - PADR, plotH = H - PADT - PADB;
-  const toX = (di) => PADL + (di / 29) * plotW;
-  const toY = (v) => PADT + (1 - Math.max(0, Math.min(100, v)) / 100) * plotH;
-  // Lissage Catmull-Rom → Bézier sur les seuls points interrogés (positionnés sur l'axe temps)
-  const smoothPath = (key) => {
-    const pts = data.map(p => [toX(dayIdx[p.date]), toY(p[key] || 0)]);
-    if (pts.length < 2) return "";
-    let path = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
-      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
-      const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
-      path += ` C ${c1[0].toFixed(1)} ${c1[1].toFixed(1)}, ${c2[0].toFixed(1)} ${c2[1].toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
-    }
-    return path;
-  };
-  const SERIES = [
-    { key: "mentions",   label: "Mentions",   color: "#1A7A4A" },
-    { key: "evocations", label: "Évocations", color: "#C97820" },
-    { key: "citations",  label: "Citations",  color: "#1A3C2E" },
-  ];
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 14, marginBottom: 6 }}>
-        {SERIES.map(s => (
-          <span key={s.key} style={{ fontSize: 10.5, color: "#1A3C2E", display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 14, height: 3, background: s.color, borderRadius: 2, display: "inline-block" }} />{s.label}
-          </span>
-        ))}
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }}>
-        {/* Grille horizontale % */}
-        {[0, 25, 50, 75, 100].map(v => (
-          <g key={v}>
-            <line x1={PADL} x2={W - PADR} y1={toY(v)} y2={toY(v)} stroke="#1A3C2E0A" strokeWidth={1} />
-            <text x={PADL - 6} y={toY(v) + 3} fontSize={8.5} fill="#1A3C2E55" textAnchor="end">{v}%</text>
-          </g>
-        ))}
-        {/* Structure 30 jours : un tick + une date par jour */}
-        {days.map((d, i) => (
-          <g key={d}>
-            <line x1={toX(i)} x2={toX(i)} y1={toY(100)} y2={toY(0) + 3} stroke={dayIdx[d] != null && data.some(p => p.date === d) ? "#1A3C2E14" : "#1A3C2E05"} strokeWidth={1} />
-            <text x={toX(i)} y={H - 18} fontSize={7.5} fill={data.some(p => p.date === d) ? "#1A3C2E" : "#1A3C2E3D"} textAnchor="middle" fontWeight={data.some(p => p.date === d) ? 600 : 400}>{d.slice(8)}</text>
-          </g>
-        ))}
-        {/* Mois sous l'axe (premier jour + changements de mois) */}
-        {days.map((d, i) => (i === 0 || d.slice(8) === "01") ? (
-          <text key={`m-${d}`} x={toX(i)} y={H - 6} fontSize={8} fill="#1A3C2E66" textAnchor="start">{d.slice(0, 7)}</text>
-        ) : null)}
-        {/* Courbes lissées (points interrogés uniquement) */}
-        {SERIES.map(s => { const d = smoothPath(s.key); return d ? <path key={s.key} d={d} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" /> : null; })}
-        {/* Points aux dates d'interrogation */}
-        {SERIES.map(s => data.map(p => (
-          <circle key={`${s.key}-${p.date}`} cx={toX(dayIdx[p.date])} cy={toY(p[s.key] || 0)} r={3} fill={s.color}>
-            <title>{`${p.date} — ${s.label} : ${p[s.key] || 0}% (${p.tested} réponses analysées)`}</title>
-          </circle>
-        )))}
-      </svg>
-    </div>
-  );
-}
 
 function RoadmapAuditPanel({ roadmapData, setRoadmapData, questions, results, brand, categories, claudeKey, projectId, siteId, onTextReady }) {
   const [status, setStatus] = useState("idle");
@@ -2857,6 +2786,9 @@ export default function GeoAuditTab({
   const favResults    = useMemo(() => siteResults.filter(r => favQIds.has(r.question_id)), [siteResults, favQIds]);
   const auditFav      = useMemo(() => favQuestions.length ? computeAudit(favQuestions, favResults, siteUrls, brand, site, calendarEntries, keywords, competitors) : null, [favQuestions, favResults, siteUrls, brand, site, calendarEntries, keywords, competitors]); // eslint-disable-line react-hooks/exhaustive-deps
   // Périmètre SF : filtre global appliqué à toute analyse SF de l'audit.
+  // Intervalle courant de la chronologie M/E/C : remonte par le graphique, sert aux exports.
+  const [mecRange, setMecRange] = useState(null);
+  const mecFloor = useMemo(() => earliestSelectableDate(project, effResults, calendarEntries), [project, effResults, calendarEntries]);
   const sfPerimeter   = useMemo(() => getSitePerimeter(site), [site]);
   const sfRowsScoped  = useMemo(() => applySfPerimeter((sfData || {})[site?.id] || [], sfPerimeter), [sfData, site, sfPerimeter]);
   // Stats outils par concurrent (pour les exports) : { compId: {sf_*, sm_*} }
@@ -3043,13 +2975,13 @@ export default function GeoAuditTab({
               )}
             </div>
             <span data-tour="audit-export" style={{ display: "inline-flex", gap: 8 }}>
-              <button onClick={async () => { setExporting(true); try { await exportAuditPptx({ ...audit, compareRows, compareBrandTool: { ...(sfCompareStats(sfRowsScoped) || {}), ...(resolveSmStats(((smOverview || {})[site?.id] || [])[0], (smData || {})[site?.id]) || {}) }, compareCompTool }, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
+              <button onClick={async () => { setExporting(true); try { await exportAuditPptx({ ...audit, compareRows, compareBrandTool: { ...(sfCompareStats(sfRowsScoped, citedUrlSet(effResults)) || {}), ...(resolveSmStats(((smOverview || {})[site?.id] || [])[0], (smData || {})[site?.id]) || {}) }, compareCompTool, mecSeries: mecRange?.series || [], mecRangeLabel: mecRange ? `${mecRange.from} → ${mecRange.to}` : null }, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
                 disabled={noData || exporting}
                 title="PowerPoint éditable (.pptx) : score, visibilité, concurrence, sources, plan d'action"
                 style={{ padding: "4px 12px", background: noData ? "transparent" : "#1A3C2E", color: noData ? "#1A3C2E" : "#F0EBE0", border: "0.5px solid #1A3C2E22", borderRadius: 5, fontSize: 11, fontWeight: 500, cursor: noData ? "not-allowed" : "pointer" }}>
                 {exporting ? "…" : "⬇ PowerPoint"}
               </button>
-              <button onClick={async () => { setExporting(true); try { await exportAuditPdf({ ...audit, compareRows, compareBrandTool: { ...(sfCompareStats(sfRowsScoped) || {}), ...(resolveSmStats(((smOverview || {})[site?.id] || [])[0], (smData || {})[site?.id]) || {}) }, compareCompTool }, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
+              <button onClick={async () => { setExporting(true); try { await exportAuditPdf({ ...audit, compareRows, compareBrandTool: { ...(sfCompareStats(sfRowsScoped, citedUrlSet(effResults)) || {}), ...(resolveSmStats(((smOverview || {})[site?.id] || [])[0], (smData || {})[site?.id]) || {}) }, compareCompTool, mecSeries: mecRange?.series || [], mecRangeLabel: mecRange ? `${mecRange.from} → ${mecRange.to}` : null }, brand, site, roadmapData, categories, sentimentData); } catch(e) { console.error(e); } finally { setExporting(false); } }}
                 disabled={noData || exporting}
                 title="PDF prêt à présenter — même contenu que le PowerPoint"
                 style={{ padding: "4px 12px", background: "transparent", color: "#1A3C2E", border: "0.5px solid #1A3C2E22", borderRadius: 5, fontSize: 11, fontWeight: 500, cursor: noData ? "not-allowed" : "pointer" }}>
@@ -3144,7 +3076,7 @@ export default function GeoAuditTab({
                       <div style={{ fontSize: 23, fontWeight: 800, color: m.pos ? m.color : "#1A3C2E", lineHeight: 1, letterSpacing: "-0.01em" }}>
                         {m.pos ? <>#{m.pos}<span style={{ fontSize: 11, fontWeight: 500, color: "#1A3C2E99" }}> moy.</span></> : "—"}
                       </div>
-                      <div style={{ fontSize: 11, color: "#1A3C2E99", marginTop: 4 }}>{m.count} occurrence{m.count > 1 ? "s" : ""}</div>
+                      <div style={{ fontSize: 11, color: "#1A3C2E99", marginTop: 4 }}>moyenne sur {m.count} position{m.count > 1 ? "s" : ""} relevée{m.count > 1 ? "s" : ""}</div>
                     </div>
                   ))}
                 </div>
@@ -3177,11 +3109,16 @@ export default function GeoAuditTab({
                 </div>
               )}
 
-              {/* Tendance 30 jours — mentions / évocations / citations (depuis les résultats) */}
+              {/* Évolution chronologique — 3 courbes M/É/C sur un axe de jours continu */}
               <div className="audit-trend-wrap" style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 4 }}>Évolution des mentions</div>
-                <div style={{ fontSize: 10.5, color: "#94A3B8", marginBottom: 8 }}>Part des réponses avec mention, évocation ou citation, en % par jour de test. Un point par date d'interrogation.</div>
-                <TrendChart points={audit.mecTrend} />
+                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 8 }}>Évolution chronologique</div>
+                <PresenceTrendChart
+                  results={effResults}
+                  calendarEntries={calendarEntries}
+                  minDate={mecFloor}
+                  title="Mentions · Évocations · Citations"
+                  onRangeChange={setMecRange}
+                />
               </div>
 
               {/* ── LOT A : Analyse par intention manuelle de la question ── */}
@@ -3390,7 +3327,7 @@ export default function GeoAuditTab({
 
               {/* ── Lot B1 : Comparaison approfondie (concurrents cochés dans l'onglet Concurrents) ── */}
               {Array.isArray(audit.compareCompEntries) && audit.compareCompEntries.length > 0 && (() => {
-                const sfStats = sfCompareStats(sfRowsScoped);
+                const sfStats = sfCompareStats(sfRowsScoped, citedUrlSet(effResults));
                 const smStats = resolveSmStats(((smOverview || {})[site?.id] || [])[0], (smData || {})[site?.id]);
                 const brandTool = { ...(sfStats || {}), ...(smStats || {}) };
                 const toolStatsByCol = Object.keys(brandTool).length ? { __brand__: brandTool } : {};
@@ -3418,7 +3355,7 @@ export default function GeoAuditTab({
                 const ranked = audit.competitorsRanked?.length ? audit.competitorsRanked : (audit.top5Competitors || []);
                 const shown = showAllComp ? ranked : ranked.slice(0, 8);
                 const allRows = [
-                  { name: brandName, stats: { mentions: audit.withRanked||0, evocations: audit.withMentionOnly||0, citations: audit.withSourceOnly||0, positions: audit.avgMentionPos ? [parseFloat(audit.avgMentionPos)] : [] }, isRef: true },
+                  { name: brandName, stats: { mentions: audit.mecTotals?.mentions||0, evocations: audit.mecTotals?.evocations||0, citations: audit.mecTotals?.citations||0, positions: audit.avgMentionPos ? [parseFloat(audit.avgMentionPos)] : [] }, isRef: true },
                   ...shown.map(([name, s]) => ({ name, stats: s, isRef: false })),
                 ];
                 return (

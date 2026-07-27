@@ -1,16 +1,5 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# production
-/build
-
 # misc
 .DS_Store
 .claude/
@@ -22,3 +11,50 @@ claude.md
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# ── Dépendances ──────────────────────────────────────────────
+/node_modules
+/.pnp
+.pnp.js
+
+# ── Build / cache ────────────────────────────────────────────
+/build
+/dist
+/.cache
+/coverage
+
+# ── Secrets & environnement (NE JAMAIS COMMITER) ─────────────
+# Le scraper AI Overview lit SUPABASE_KEY / PROJECT_ID / etc. depuis .env
+.env
+/scripts/.env
+.env.*
+!.env.example
+*.local
+
+# Fichiers de secrets divers
+*.pem
+secrets.json
+service-role*.json
+
+# ── Scraper AI Overview (Playwright) ─────────────────────────
+# Binaires navigateurs (si installés dans le repo plutôt que ~/.cache)
+/.playwright
+/ms-playwright
+# Rapports & artefacts de run
+/playwright-report
+/test-results
+/aio-output
+*.har
+
+# ── Logs ─────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# ── OS / éditeurs ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json

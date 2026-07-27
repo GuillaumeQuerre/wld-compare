@@ -58,6 +58,7 @@ export function getProviderId(model) {
   if (m.includes("gemini")) return "gemini";
   if (m.includes("perplexity") || m.includes("sonar")) return "perplexity";
   if (m.includes("claude")) return "claude";
+  if (m.includes("ai overview") || m.includes("aioverview") || m.includes("apercu ia") || m.includes("aperçu ia")) return "aio";
   return "other";
 }
 
@@ -309,6 +310,13 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
   // Normalisation casse + accents : « ÉLÉAS » et « Eleas » doivent matcher.
   const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
+  // Noms connus (marque + alias + concurrents configures) : un en-tete qui correspond
+  // a une entite mesuree ne doit JAMAIS etre ecarte par le filtre "titre de section"
+  // (ex. une societe nommee "Comment ca marche SARL" perdrait sinon son classement).
+  const knownEntityTerms = [brandName, ...(brandAliases || []),
+    ...(competitors || []).filter(Boolean).map(c => (typeof c === "string" ? c : c && c.name))]
+    .filter(Boolean).map(norm).filter(t => t.length >= 3);
+
   const lines = (answer || "").split("\n");
   // Pattern d'item de top : "1. Titre", "2) Titre", "• 3. Titre"
   const topItemRe = /^\s*(?:[•\-*]\s*)?(\d+)[.)]\s*(.+)/;
@@ -329,6 +337,11 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     m = s.match(headingPlainRe);   if (m) return { title: m[1].replace(/[[\]]|\(.*\)/g, "").replace(/\*/g, "").trim(), level: lvl };
     return null;
   };
+  // Un titre de SECTION n'est pas une marque classée : l'inclure décalait le rang
+  // (ex. "Comment choisir" + "Les criteres" avant les marques => 3e affiche #5).
+  const sectionTitleRe = /^(comment|pourquoi|quel|quelle|quels|quelles|quand|combien|conclusion|en resume|en bref|faq|foire aux questions|sommaire|introduction|methodologie|notre methode|criteres|les criteres|a retenir|pour aller plus loin|sources|references|avant de choisir|notre selection|notre avis)\b/;
+  const isKnownEntity = (title) => { const t = norm(title); return knownEntityTerms.some(k => t.includes(k)); };
+  const isSectionTitle = (title) => { const t = norm(title); return (t.endsWith("?") || sectionTitleRe.test(t)) && !isKnownEntity(title); };
   const isDetailLine = (s) => {
     const t = s.trim();
     if (!t) return true;
@@ -340,17 +353,24 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
   };
   const sequences = [];
   let current = null, prevNum = null, seqType = null, prevLevel = null; // seqType: "num" | "head" | null
+  let lastNumSeq = null, lastNumVal = null; // survivent à la prose, pour reprendre une liste coupée
   for (const raw of lines) {
     const m = raw.match(topItemRe);
     if (m) {
       const num = parseInt(m[1], 10);
-      const continues = current && seqType === "num" && prevNum != null && (num === prevNum + 1 || num === prevNum);
+      let continues = current && seqType === "num" && prevNum != null && (num === prevNum + 1 || num === prevNum);
+      // Reprise : "3." après un paragraphe de prose prolonge la liste 1..2 au lieu
+      // d'ouvrir une nouvelle séquence (qui remettait la position à 1).
+      if (!continues && lastNumSeq && lastNumVal != null && num === lastNumVal + 1) {
+        current = lastNumSeq; seqType = "num"; continues = true;
+      }
       if (!continues) { current = []; sequences.push(current); seqType = "num"; }
       current.push({ num, text: m[2], ordinal: current.length + 1 });
-      prevNum = num;
+      prevNum = num; lastNumSeq = current; lastNumVal = num;
       continue;
     }
     const head = matchHeading(raw);
+    if (head && isSectionTitle(head.title)) continue; // titre de section : ignore, ne casse pas la sequence
     if (head) {
       // Segmentation par NIVEAU : les H2 (titres de section) ne se mélangent pas avec
       // les H3 (souvent les marques classées). Un changement de niveau ouvre une nouvelle
@@ -370,7 +390,10 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     current = null; prevNum = null; seqType = null; prevLevel = null;
   }
   // La (les) vraie(s) liste(s) classée(s) = séquences d'au moins 2 items, plus longue d'abord.
-  const ranked = sequences.filter(s => s.length >= 2).sort((a, b) => b.length - a.length);
+  // ORDRE DU DOCUMENT (et non "la plus longue d'abord") : la position affichée doit
+  // refléter le PREMIER classement de la réponse où l'entité apparaît — c'est ce que lit
+  // l'utilisateur. Trier par longueur faisait primer une liste secondaire plus longue.
+  const ranked = sequences.filter(s => s.length >= 2);
   // On cherche d'abord dans les listes classées (positions fiables), puis en repli dans
   // les items isolés (ex. une marque seule sous une catégorie) pour ne rien manquer.
   const searchSeqs = ranked.length ? [...ranked, ...sequences.filter(s => s.length < 2)] : sequences;

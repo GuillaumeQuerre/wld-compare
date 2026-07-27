@@ -152,6 +152,27 @@ export function entityToolStats(toolImports) {
   return Object.keys(out).length ? out : null;
 }
 
+// URLs citées d'une entité dans les sources des réponses LLM.
+// Match par domaine si fourni, sinon par nom normalisé présent dans l'hôte.
+// Renvoie { urlsCited (distinctes), bestUrlHits (citations de la meilleure URL) }.
+export function entityUrlStats(results, name, domain) {
+  const compDomain = (domain || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].trim();
+  const nameKey = (name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const hits = {};
+  (results || []).forEach(r => (r.sources || []).forEach(u => {
+    const raw = String(u || "");
+    if (!raw) return;
+    let host = "";
+    try { host = new URL(raw).hostname; } catch { host = raw.toLowerCase().replace(/^https?:\/\//, "").split("/")[0]; }
+    host = host.toLowerCase().replace(/^www\./, "");
+    const hostKey = host.replace(/[^a-z0-9]/g, "");
+    const match = compDomain ? host.includes(compDomain) : (nameKey.length >= 4 && hostKey.includes(nameKey));
+    if (match) hits[raw] = (hits[raw] || 0) + 1;
+  }));
+  const vals = Object.values(hits);
+  return { urlsCited: Object.keys(hits).length, bestUrlHits: vals.length ? Math.max(...vals) : 0 };
+}
+
 // ── Agrégats Screaming Frog pour la comparaison (à partir des lignes brutes) ──
 // rows : sfData[site.id] (lignes CSV brutes de l'export « internal_all »).
 // Renvoie { sf_pages200, sf_images, sf_h1multi, sf_titleLong } ou null si vide.
