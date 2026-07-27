@@ -20,6 +20,13 @@ export const COMPARE_ROWS = [
   { id: "sf_images",    group: "sf", label: "Images",                better: "high", needs: "sf" },
   { id: "sf_h1multi",   group: "sf", label: "Pages à H1 multiples",  better: "low",  needs: "sf" },
   { id: "sf_titleLong", group: "sf", label: "Titles trop longs",     better: "low",  needs: "sf" },
+  { id: "sf_pct_tables",        group: "sf", label: "% pages avec tableaux",        better: "high", needs: "sf", fmt: (v) => v == null ? "—" : `${v}%` },
+  { id: "sf_pct_cited_tables",  group: "sf", label: "% pages citées avec tableaux",  better: "high", needs: "sf", fmt: (v) => v == null ? "—" : `${v}%` },
+  { id: "sf_pct_faq",           group: "sf", label: "% pages avec FAQ",              better: "high", needs: "sf", fmt: (v) => v == null ? "—" : `${v}%` },
+  { id: "sf_pct_cited_faq",     group: "sf", label: "% pages citées avec FAQ",       better: "high", needs: "sf", fmt: (v) => v == null ? "—" : `${v}%` },
+  { id: "sf_schema_types",      group: "sf", label: "Types de schema JSON-LD",       better: null,   needs: "sf", fmt: (v) => v == null || v === "" ? "—" : String(v) },
+  { id: "sf_avg_numbers",       group: "sf", label: "Chiffres moyens / page",        better: "high", needs: "sf" },
+  { id: "sf_avg_numbers_cited", group: "sf", label: "Chiffres moyens / page citée",  better: "high", needs: "sf" },
   // Partie 3 — Semrush (Lot B2)
   { id: "sm_keywords",  group: "semrush", label: "Mots-clés organiques", better: "high", needs: "semrush" },
   { id: "sm_traffic",   group: "semrush", label: "Trafic organique",     better: "high", needs: "semrush" },
@@ -119,10 +126,10 @@ export function parseCsvRows(text) {
 // kind : "sf" | "sm_pages" | "sm_overview"
 // meta : { crawl_date?, period_start?, period_end?, analysis_date?, filename? }
 // Renvoie { stats, ...meta, import_date } ou null si le fichier n'est pas exploitable.
-export function computeToolImport(kind, csvText, meta = {}) {
+export function computeToolImport(kind, csvText, meta = {}, citedUrls = null) {
   const import_date = new Date().toISOString().slice(0, 10);
   if (kind === "sf") {
-    const stats = sfCompareStats(parseCsvRows(csvText));
+    const stats = sfCompareStats(parseCsvRows(csvText), citedUrls);
     if (!stats) return null;
     return { stats, crawl_date: meta.crawl_date || null, import_date, filename: meta.filename || null };
   }
@@ -176,7 +183,20 @@ export function entityUrlStats(results, name, domain) {
 // ── Agrégats Screaming Frog pour la comparaison (à partir des lignes brutes) ──
 // rows : sfData[site.id] (lignes CSV brutes de l'export « internal_all »).
 // Renvoie { sf_pages200, sf_images, sf_h1multi, sf_titleLong } ou null si vide.
-export function sfCompareStats(rows) {
+// Clé d'URL normalisée (hôte sans www + chemin sans slash final), pour le croisement pages citées.
+export function urlKey(u) {
+  try { const x = new URL(u); return (x.hostname.replace(/^www\./, "") + x.pathname).toLowerCase().replace(/\/+$/, ""); }
+  catch { return String(u || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[?#]/)[0].replace(/\/+$/, ""); }
+}
+
+// Ensemble des URLs citées (sources) dans les réponses LLM → pour "pages citées".
+export function citedUrlSet(results) {
+  const set = new Set();
+  (results || []).forEach(r => (r.sources || []).forEach(u => { const k = urlKey(u); if (k) set.add(k); }));
+  return set;
+}
+
+export function sfCompareStats(rows, citedUrls = null) {
   if (!Array.isArray(rows) || !rows.length) return null;
   const norm = (s) => (s || "").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   const F = (row, ...keys) => {
@@ -185,21 +205,63 @@ export function sfCompareStats(rows) {
     return undefined;
   };
   const toInt = (v) => { const n = parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10); return Number.isFinite(n) ? n : null; };
+  // Valeur "custom" présente/vraie : non vide et (non numérique OU nombre > 0)
+  const present = (v) => { if (v == null) return false; const s = String(v).trim(); if (!s) return false; const n = toInt(s); return n == null || n > 0; };
+  const citedSet = citedUrls instanceof Set ? citedUrls : (Array.isArray(citedUrls) ? new Set(citedUrls) : null);
+
   let sf_pages200 = 0, sf_images = 0, sf_h1multi = 0, sf_titleLong = 0;
+  let htmlPages = 0, htmlCited = 0;
+  let tables = 0, tablesCited = 0, faq = 0, faqCited = 0;
+  let numSum = 0, numPages = 0, numCitedSum = 0, numCitedPages = 0;
+  const schemaTypes = new Set();
+  let hasTableCol = false, hasFaqCol = false, hasNumCol = false, hasSchemaCol = false;
+
   rows.forEach(row => {
     const ct = String(F(row, "Type de contenu", "Content Type") || "").toLowerCase();
     const code = toInt(F(row, "Code HTTP", "Status Code", "statuscode"));
     const isImage = ct.includes("image");
     if (isImage) { sf_images++; return; }
-    const isHtml = ct.includes("html") || ct === ""; // type inconnu → traité comme page
+    const isHtml = ct.includes("html") || ct === "";
     if (!isHtml) return;
     if (code === 200) sf_pages200++;
     const h12 = String(F(row, "H1-2") || "").trim();
     if (h12) sf_h1multi++;
     const tl = toInt(F(row, "Longueur du Title 1", "Title 1 Length"));
     if (tl != null && tl > 60) sf_titleLong++;
+
+    // ── Métriques de contenu (extractions custom SF) ──
+    htmlPages++;
+    const isCited = citedSet ? citedSet.has(urlKey(F(row, "Adresse", "Address", "URL", "Page") || "")) : false;
+    if (isCited) htmlCited++;
+
+    const tblVal = F(row, "Tableaux", "Tables");
+    if (tblVal !== undefined) hasTableCol = true;
+    if (present(tblVal)) { tables++; if (isCited) tablesCited++; }
+
+    const faqVal = F(row, "FAQ", "FAQPage");
+    if (faqVal !== undefined) hasFaqCol = true;
+    if (present(faqVal)) { faq++; if (isCited) faqCited++; }
+
+    const numVal = F(row, "Chiffres", "Nombres", "Numbers");
+    if (numVal !== undefined) { hasNumCol = true; const n = toInt(numVal); if (n != null) { numSum += n; numPages++; if (isCited) { numCitedSum += n; numCitedPages++; } } }
+
+    // Types de schema JSON-LD : colonnes "Schema Types", "Schema Types 1", … (extraction multi-valeurs)
+    Object.keys(row).forEach(k => {
+      if (/^schema[ _-]?types?( ?\d+)?$/.test(norm(k))) { hasSchemaCol = true; String(row[k] || "").split(/[;,|]/).forEach(t => { const v = t.trim(); if (v) schemaTypes.add(v); }); }
+    });
   });
-  return { sf_pages200, sf_images, sf_h1multi, sf_titleLong };
+
+  const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : null;
+  return {
+    sf_pages200, sf_images, sf_h1multi, sf_titleLong,
+    sf_pct_tables:       hasTableCol ? pct(tables, htmlPages) : null,
+    sf_pct_cited_tables: hasTableCol && htmlCited ? pct(tablesCited, htmlCited) : null,
+    sf_pct_faq:          hasFaqCol ? pct(faq, htmlPages) : null,
+    sf_pct_cited_faq:    hasFaqCol && htmlCited ? pct(faqCited, htmlCited) : null,
+    sf_schema_types:     hasSchemaCol ? ([...schemaTypes].sort().join(", ") || null) : null,
+    sf_avg_numbers:       hasNumCol && numPages ? Math.round(numSum / numPages) : null,
+    sf_avg_numbers_cited: hasNumCol && numCitedPages ? Math.round(numCitedSum / numCitedPages) : null,
+  };
 }
 
 // ── Agrégats Semrush pour la comparaison (export « Organic Pages ») ──────────
