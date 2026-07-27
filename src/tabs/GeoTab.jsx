@@ -4796,7 +4796,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                     if (providerMode(p.id) === "hidden") return null; // provider masqué : aucune ligne
                     const pResults = qResults.filter(r => getProviderId(r.model) === p.id);
                     const hasKey = !!providerKeys[p.id]?.dec;
-                    if (!hasKey && !pResults.length) return null;
+                    // Provider externe (AI Overview) : toujours affiché (alimenté par le scraper).
+                    if (!hasKey && !p.external && !pResults.length) return null;
                     return (
                       <ProviderRow
                         key={p.id}
