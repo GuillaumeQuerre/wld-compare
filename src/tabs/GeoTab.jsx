@@ -3936,6 +3936,15 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         allSaved.push(...(saved || []));
       }
 
+      // Persiste les marques via le MÊME chemin que l'éditeur manuel (PATCH fiable),
+      // car associated_sites n'est pas repris de façon fiable par l'insert initial.
+      const assocByQuestion = {};
+      toAdd.forEach(r => { if (Array.isArray(r.associated_sites)) assocByQuestion[r.question.trim().toLowerCase()] = r.associated_sites; });
+      for (const sv of allSaved) {
+        const assoc = assocByQuestion[(sv.question || "").trim().toLowerCase()];
+        if (assoc) { try { await sbSetQuestionSites(sv.id, assoc); sv.associated_sites = assoc; } catch { /* colonne non migrée : ignoré */ } }
+      }
+
       setQuestions(prev => [...allSaved, ...prev]);
       alert(`✓ ${allSaved.length} question${allSaved.length > 1 ? "s" : ""} importée${allSaved.length > 1 ? "s" : ""} sur ${toAdd.length} détectée${toAdd.length > 1 ? "s" : ""}.`);
     } catch(e) {
@@ -4548,7 +4557,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                   ["2", "Favori", "vrai/true/oui/1/⭐ → marquée favorite ; sinon non", "#C97820"],
                   ["3", "Catégorie", "nom de catégorie ; vide = ignorée ; créée si inconnue", "#2563EB"],
                   ["4", "Intention", "transactionnelle / informationnelle / notoriété ; vide = ignorée", "#7C3AED"],
-                  ["5", "Marques", "marques concernées séparées par des virgules ; vide = toutes ; inconnue = ignorée", "#0891B2"],
+                  ["5", "Marques concernées", "noms séparés par des virgules ; vide = toutes les marques du projet ; marque inconnue = ignorée", "#0891B2"],
                 ].map(([n, title, desc, color]) => (
                   <div key={n} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
                     <span style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 6, background: color + "18", color, fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{n}</span>
