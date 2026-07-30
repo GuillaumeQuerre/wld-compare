@@ -17,6 +17,49 @@ import React, { useState, useMemo, useEffect } from "react";
 export const MEC_COLORS = { mentions: "#1A7A4A", evocations: "#C97820", citations: "#2563EB" };
 export const MEC_LABELS = { mentions: "Mentions", evocations: "Évocations", citations: "Citations" };
 
+// Courbe lissée passant par TOUS les points, sans dépassement (interpolation
+// cubique monotone de Fritsch-Carlson) : idéal pour des comptes en dents de scie
+// — la courbe ne descend jamais sous 0 ni ne dépasse un pic entre deux points.
+// coords : [[x,y], …] déjà à l'échelle écran. Retourne l'attribut `d` d'un <path>.
+function smoothPathD(coords) {
+  const p = coords.filter(c => Number.isFinite(c[0]) && Number.isFinite(c[1]));
+  const nP = p.length;
+  if (nP === 0) return "";
+  if (nP === 1) return `M ${p[0][0]} ${p[0][1]}`;
+  if (nP === 2) return `M ${p[0][0]} ${p[0][1]} L ${p[1][0]} ${p[1][1]}`;
+
+  // Pentes des sécantes (x régulièrement espacés, mais on reste général)
+  const dx = [], dy = [], m = [];
+  for (let i = 0; i < nP - 1; i++) { dx[i] = p[i + 1][0] - p[i][0]; dy[i] = p[i + 1][1] - p[i][1]; m[i] = dx[i] !== 0 ? dy[i] / dx[i] : 0; }
+
+  // Tangentes aux points
+  const t = new Array(nP);
+  t[0] = m[0]; t[nP - 1] = m[nP - 2];
+  for (let i = 1; i < nP - 1; i++) {
+    // À un extremum local (les sécantes changent de signe, ou l'une est nulle),
+    // la tangente est forcée à 0 : c'est ce qui empêche la courbe de dépasser.
+    t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+  }
+
+  // Correction monotone : empêche les oscillations / dépassements
+  for (let i = 0; i < nP - 1; i++) {
+    if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+    const a = t[i] / m[i], b = t[i + 1] / m[i];
+    const s = a * a + b * b;
+    if (s > 9) { const tau = 3 / Math.sqrt(s); t[i] = tau * a * m[i]; t[i + 1] = tau * b * m[i]; }
+  }
+
+  // Segments cubiques Hermite → Bézier
+  let d = `M ${p[0][0]} ${p[0][1]}`;
+  for (let i = 0; i < nP - 1; i++) {
+    const h = dx[i];
+    const c1x = p[i][0] + h / 3,     c1y = p[i][1] + (t[i] * h) / 3;
+    const c2x = p[i + 1][0] - h / 3, c2y = p[i + 1][1] - (t[i + 1] * h) / 3;
+    d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${p[i + 1][0]} ${p[i + 1][1]}`;
+  }
+  return d;
+}
+
 export function dayKeyOf(d) {
   const x = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(x.getTime())) return null;
@@ -230,17 +273,17 @@ function Curves({ series, width = 900, height = 240 }) {
       {pts.map((d, i) => (i % labelEvery === 0 || i === n - 1) && (
         <text key={d.date} x={x(i)} y={h - 8} textAnchor="middle" fontSize="9" fill="#94A3B8">{d.date.slice(8, 10)}/{d.date.slice(5, 7)}</text>
       ))}
-      {/* C) Une polyline par set reliant TOUS les points (courbe continue), points par-dessus. */}
+      {/* C) Une courbe LISSÉE fine par set reliant tous les points, points par-dessus. */}
       {["citations", "evocations", "mentions"].map(key => (
         <g key={key}>
           {n > 1 && (
-            <polyline
-              points={pts.map((d, i) => `${x(i)},${y(val(d, key))}`).join(" ")}
-              fill="none" stroke={MEC_COLORS[key]} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
+            <path
+              d={smoothPathD(pts.map((d, i) => [x(i), y(val(d, key))]))}
+              fill="none" stroke={MEC_COLORS[key]} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round"
             />
           )}
           {pts.map((d, i) => (
-            <circle key={d.date} cx={x(i)} cy={y(val(d, key))} r={n === 1 ? 3 : 2.2} fill={MEC_COLORS[key]}>
+            <circle key={d.date} cx={x(i)} cy={y(val(d, key))} r={n === 1 ? 2.6 : 1.8} fill={MEC_COLORS[key]}>
               <title>{`${d.date} — ${MEC_LABELS[key]} : ${val(d, key)} (sur ${d.tested} réponses)`}</title>
             </circle>
           ))}
