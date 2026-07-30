@@ -3826,8 +3826,33 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     setCsvImporting(true);
     try {
       const text = await file.text();
-      // Parse robuste (gère les guillemets) → tableau de lignes de colonnes.
-      let rows = parseCSV(text).filter(r => Array.isArray(r) && (r[0] || "").trim());
+
+      // Parseur robuste : détecte le séparateur (, ; ou tabulation) sur la 1re
+      // ligne, hors guillemets, et respecte les champs entre guillemets.
+      const parseDelimited = (raw) => {
+        const firstLine = (raw.split(/\r?\n/).find(l => l.trim()) || "");
+        const counts = { ",": 0, ";": 0, "\t": 0 }; let inQ0 = false;
+        for (const ch of firstLine) { if (ch === '"') inQ0 = !inQ0; else if (!inQ0 && counts[ch] !== undefined) counts[ch]++; }
+        const sep = (counts[";"] >= counts[","] && counts[";"] >= counts["\t"]) ? ";" : (counts["\t"] > counts[","] ? "\t" : ",");
+        const out = []; let row = [], field = "", inQ = false;
+        const endField = () => { row.push(field); field = ""; };
+        const endRow = () => { endField(); if (row.some(c => c.trim() !== "")) out.push(row); row = []; };
+        for (let i = 0; i < raw.length; i++) {
+          const c = raw[i];
+          if (inQ) {
+            if (c === '"') { if (raw[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+            else field += c;
+          } else if (c === '"') inQ = true;
+          else if (c === sep) endField();
+          else if (c === "\n") endRow();
+          else if (c === "\r") { /* ignore */ }
+          else field += c;
+        }
+        if (field.length || row.length) endRow();
+        return out;
+      };
+
+      let rows = parseDelimited(text).filter(r => Array.isArray(r) && (r[0] || "").trim());
 
       // Sauter une éventuelle ligne d'en-tête (1re cellule = mot d'en-tête connu).
       const h0 = (rows[0]?.[0] || "").trim().toLowerCase();
