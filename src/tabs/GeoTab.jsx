@@ -3909,12 +3909,16 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         const intentRaw = (cols[3] || "").replace(/^["']|["']$/g, "").trim().toLowerCase(); // col 4 : intention (vide → ignorer)
         if (intentRaw && intentLookup[intentRaw]) row.intent = intentLookup[intentRaw];
 
-        // col 5 : marques concernées, séparées par des virgules. Vide → toutes
-        // (associated_sites non renseigné). Marques non reconnues → ignorées.
+        // col 5 : marques concernées, séparées par des virgules.
+        // Vide → TOUTES les marques du projet (associated_sites = tous les sites),
+        // pour que « toutes concernées » soit explicite et lu de façon cohérente
+        // partout. Marques non reconnues → ignorées.
         const brandsRaw = (cols[4] || "").replace(/^["']|["']$/g, "").trim();
         if (brandsRaw) {
           const ids = brandsRaw.split(",").map(x => brandToSite[x.trim().toLowerCase()]).filter(Boolean);
           if (ids.length) row.associated_sites = [...new Set(ids)];
+        } else {
+          row.associated_sites = (allSites || []).map(s => s.id);
         }
 
         toAdd.push(row);
