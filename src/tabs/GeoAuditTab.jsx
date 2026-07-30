@@ -3118,6 +3118,8 @@ export default function GeoAuditTab({
                   minDate={mecFloor}
                   title="Mentions · Évocations · Citations"
                   onRangeChange={setMecRange}
+                  compact
+                  chartHeight={130}
                 />
               </div>
 

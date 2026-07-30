@@ -1097,8 +1097,23 @@ function TopBarChart({ title, glyph, data, accent = "#1A3C2E", onBarClick = null
     </div>
   );
 }
-function StatsHeader({ questions, results, brandName, qualifiedCompetitors = [], aliasMap = {}, onTopClick = null }) {
-  const total = results.length;
+function StatsHeader({ questions, results: allResults, brandName, qualifiedCompetitors = [], aliasMap = {}, onTopClick = null, mode = "response" }) {
+  // A.2 — les chiffres portent sur la DERNIÈRE DATE D'INTERROGATION.
+  const lastDate = (allResults || []).reduce((mx, r) => {
+    const d = (r.created_at || "").slice(0, 10);
+    return d && d > mx ? d : mx;
+  }, "");
+  const results = lastDate ? (allResults || []).filter(r => (r.created_at || "").slice(0, 10) === lastDate) : (allResults || []);
+
+  // A.1/A.3 — compteur selon le mode : "response" = chaque réponse ; "question"
+  // = questions distinctes (une question compte si ≥1 de ses réponses l'est).
+  const countBy = (matched) => {
+    if (mode !== "question") return matched.length;
+    return new Set(matched.map(r => r.question_id).filter(v => v != null)).size;
+  };
+  const total = mode === "question"
+    ? new Set(results.map(r => r.question_id).filter(v => v != null)).size
+    : results.length;
 
   // ── Métriques par type de présence (nouveaux champs + rétrocompat) ──
 
@@ -1111,7 +1126,7 @@ function StatsHeader({ questions, results, brandName, qualifiedCompetitors = [],
   const mentionPositions = mentionResults
     .map(r => r.brand_mention_position || r.brand_position)
     .filter(Boolean);
-  const mentionCount    = mentionResults.length;
+  const mentionCount    = countBy(mentionResults);
   const mentionAvgPos   = mentionPositions.length
     ? (mentionPositions.reduce((a, b) => a + b, 0) / mentionPositions.length).toFixed(1)
     : null;
@@ -1128,7 +1143,7 @@ function StatsHeader({ questions, results, brandName, qualifiedCompetitors = [],
   const evocationPositions = evocationResults
     .map(r => r.brand_evocation_position)
     .filter(Boolean);
-  const evocationCount   = evocationResults.length;
+  const evocationCount   = countBy(evocationResults);
   const evocationAvgPos  = evocationPositions.length
     ? (evocationPositions.reduce((a, b) => a + b, 0) / evocationPositions.length).toFixed(1)
     : null;
@@ -1140,7 +1155,7 @@ function StatsHeader({ questions, results, brandName, qualifiedCompetitors = [],
   const citationPositions = citationResults
     .map(r => r.brand_citation_position)
     .filter(Boolean);
-  const citationCount   = citationResults.length;
+  const citationCount   = countBy(citationResults);
   const citationAvgPos  = citationPositions.length
     ? (citationPositions.reduce((a, b) => a + b, 0) / citationPositions.length).toFixed(1)
     : null;
@@ -3452,6 +3467,7 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   // ── Agrégats quotidiens M/É/C (geo_presence_daily) : source des courbes ──
   const [dailyRows, setDailyRows] = useState([]);
   // File d'attente AI Overview (question_ids en attente/en cours pour ce site)
+  const [mecMode, setMecMode] = useState("question"); // switch réponse/question, partagé courbe+chiffres
   const [aioQueue, setAioQueue] = useState(new Set());
   const refreshAioQueue = useCallback(() => {
     if (!projectId || !site?.id) return;
@@ -4337,6 +4353,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
             minDate={earliestSelectableDate(project, results, calendarEntries)}
             title="Mentions · Évocations · Citations"
             compact
+            mode={mecMode}
+            onModeChange={setMecMode}
           />
         </div>
       )}
@@ -4406,7 +4424,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           {recomputing ? "Recalcul…" : "↻ Recalculer la détection"}
         </button>
       </div>
-      <div data-tour="stats-header"><StatsHeader questions={filtered} results={filteredResults} brandName={brand_name} qualifiedCompetitors={competitors.filter(c => c.enabled !== false)} aliasMap={aliasMap}
+      <div data-tour="stats-header"><StatsHeader questions={filtered} results={filteredResults} brandName={brand_name} qualifiedCompetitors={competitors.filter(c => c.enabled !== false)} aliasMap={aliasMap} mode={mecMode}
             onTopClick={(field, name) => { setSearchField(field); setFilterSearch(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")); }} /></div>
 
       {/* ══════════════════════════════════════════════════════

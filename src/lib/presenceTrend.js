@@ -110,63 +110,65 @@ export function classifyResult(r) {
  * Chaque entrée porte les 3 comptes du jour : { date, mentions, evocations, citations, tested }.
  * (Les jours sans détection ne sont PAS des points — l'axe est fait des dates de détection.)
  */
-export function buildPresenceSeries({ results = [], calendarEntries = [], dailyRows = null, mode = "response", from, to }) {
-  // Source PRIORITAIRE : la table d'agrégats quotidiens (geo_presence_daily),
-  // si fournie. Elle porte les deux modes et couvre tout l'historique (au-delà
-  // de la fenêtre des résultats récents). Le mode choisit le triplet à tracer.
-  if (Array.isArray(dailyRows) && dailyRows.length) {
-    const suf = mode === "question" ? "_q" : "_resp";
-    return dailyRows
-      .filter(r => r.date && (!from || r.date >= from) && (!to || r.date <= to))
-      .slice()
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(r => {
-        const tested = mode === "question" ? (r.questions_count || 0) : (r.responses_count || 0);
-        const mentions = r["mentions" + suf] || 0, evocations = r["evocations" + suf] || 0, citations = r["citations" + suf] || 0;
-        const present = mentions + evocations; // exclusifs
-        return { date: r.date, tested, mentions, evocations, citations,
-          present, rate: tested > 0 ? Math.round((present / tested) * 100) : null, source: "daily" };
-      });
+// Agrège des entrées calendrier (geo_calendar_dates) dans la même forme que
+// computeMecDaily — sert de repli pour les dates d'interrogation pas encore
+// matérialisées dans geo_presence_daily.
+function calMecDaily(calendarEntries = []) {
+  const byDay = {};
+  for (const e of (calendarEntries || [])) {
+    const date = e.test_date || (e.created_at || "").slice(0, 10);
+    if (!date) continue;
+    if (!byDay[date]) byDay[date] = { date, responses: 0, questions: new Set(), mentions_resp: 0, evocations_resp: 0, citations_resp: 0, q: {} };
+    const d = byDay[date];
+    const mention = e.brand_mention === 1 || e.brand_mention === true || e.mention_position != null;
+    const citation = e.brand_citation === 1 || e.brand_citation === true;
+    const evocation = !mention && (e.brand_evocation === 1 || e.brand_evocation === true || e.brand_present === 1 || e.brand_present === true);
+    d.responses++;
+    const qid = e.question_id != null ? e.question_id : `_${d.responses}`;
+    d.questions.add(qid);
+    if (mention) d.mentions_resp++;
+    if (evocation) d.evocations_resp++;
+    if (citation) d.citations_resp++;
+    if (!d.q[qid]) d.q[qid] = { mention: false, evocation: false, citation: false };
+    if (mention) d.q[qid].mention = true;
+    if (evocation) d.q[qid].evocation = true;
+    if (citation) d.q[qid].citation = true;
   }
-
-  const byDayResults = {};
-  (results || []).forEach(r => {
-    const d = (r.created_at || "").slice(0, 10);
-    if (!d) return;
-    if (!byDayResults[d]) byDayResults[d] = { tested: 0, present: 0, mentions: 0, evocations: 0, citations: 0 };
-    const c = classifyResult(r);
-    byDayResults[d].tested++;
-    if (c.mention) byDayResults[d].mentions++;
-    if (c.evocation) byDayResults[d].evocations++;
-    if (c.citation) byDayResults[d].citations++;
-    if (c.mention || c.evocation || c.citation) byDayResults[d].present++;
+  return Object.values(byDay).map(d => {
+    let mq = 0, eq = 0, cq = 0;
+    for (const v of Object.values(d.q)) { if (v.mention) mq++; else if (v.evocation) eq++; if (v.citation) cq++; }
+    return { date: d.date, questions_count: d.questions.size, responses_count: d.responses,
+      mentions_resp: d.mentions_resp, evocations_resp: d.evocations_resp, citations_resp: d.citations_resp,
+      mentions_q: mq, evocations_q: eq, citations_q: cq };
   });
+}
 
-  const byDayCal = {};
-  (calendarEntries || []).forEach(e => {
-    const d = e.test_date || (e.created_at || "").slice(0, 10);
-    if (!d) return;
-    if (!byDayCal[d]) byDayCal[d] = { tested: 0, present: 0, mentions: 0, evocations: 0, citations: 0 };
-    byDayCal[d].tested++;
-    const isMention = e.brand_mention === 1 || e.brand_mention === true || e.mention_position != null;
-    const isCitation = e.brand_citation === 1 || e.brand_citation === true;
-    const isEvocation = e.brand_evocation === 1 || e.brand_evocation === true;
-    if (isMention) byDayCal[d].mentions++;
-    else if (isEvocation || (!isCitation && (e.brand_present === true || e.brand_present === 1))) byDayCal[d].evocations++;
-    if (isCitation) byDayCal[d].citations++;
-    if (e.brand_present === true || e.brand_present === 1 || isMention || isCitation || isEvocation) byDayCal[d].present++;
-  });
+/**
+ * Construit la série pour les 3 courbes. UN POINT PAR DATE D'INTERROGATION.
+ * Fusionne les sources par date, avec priorité : table quotidienne (geo_presence_daily)
+ * > résultats (geo_results) > calendrier (geo_calendar_dates). Ainsi aucune date
+ * d'interrogation ne disparaît, même si la table quotidienne ne l'a pas encore.
+ * mode : "response" | "question".
+ */
+export function buildPresenceSeries({ results = [], calendarEntries = [], dailyRows = null, mode = "response", from, to }) {
+  const toMap = (arr) => { const m = {}; (arr || []).forEach(r => { if (r && r.date) m[r.date] = r; }); return m; };
+  const fromTable   = toMap(dailyRows);
+  const fromResults = toMap(computeMecDaily(results));
+  const fromCal     = toMap(calMecDaily(calendarEntries));
 
-  // Union des dates de détection (résultats prioritaires), filtrées sur [from, to], triées.
-  const dates = [...new Set([...Object.keys(byDayResults), ...Object.keys(byDayCal)])]
+  const allDates = [...new Set([...Object.keys(fromTable), ...Object.keys(fromResults), ...Object.keys(fromCal)])]
     .filter(d => (!from || d >= from) && (!to || d <= to))
     .sort();
 
-  return dates.map(date => {
-    const src = byDayResults[date] ? "results" : "calendar";
-    const v = byDayResults[date] || byDayCal[date];
-    return { date, tested: v.tested, present: v.present || 0, mentions: v.mentions, evocations: v.evocations, citations: v.citations,
-      rate: v.tested > 0 ? Math.round(((v.present || 0) / v.tested) * 100) : null, source: src };
+  const suf = mode === "question" ? "_q" : "_resp";
+  return allDates.map(date => {
+    const r = fromTable[date] || fromResults[date] || fromCal[date];
+    const tested = mode === "question" ? (r.questions_count || 0) : (r.responses_count || 0);
+    const mentions = r["mentions" + suf] || 0, evocations = r["evocations" + suf] || 0, citations = r["citations" + suf] || 0;
+    const present = mentions + evocations;
+    const source = fromTable[date] ? "daily" : (fromResults[date] ? "results" : "calendar");
+    return { date, tested, mentions, evocations, citations, present,
+      rate: tested > 0 ? Math.round((present / tested) * 100) : null, source };
   });
 }
 
@@ -299,14 +301,17 @@ function Curves({ series, width = 900, height = 240 }) {
  */
 export function PresenceTrendChart({
   results = [], calendarEntries = [], dailyRows = null, minDate, title = "Chronologie de la présence",
-  defaultDays = 30, compact = false, onRangeChange = null, defaultMode = "response",
+  defaultDays = 30, compact = false, onRangeChange = null, defaultMode = "response", chartHeight = null,
+  mode: modeProp = null, onModeChange = null,
 }) {
   const today = dayKeyOf(new Date());
   const floor = minDate || addDays(today, -365);
   const defaultFrom = (() => { const f = addDays(today, -(defaultDays - 1)); return f < floor ? floor : f; })();
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(today);
-  const [mode, setMode] = useState(defaultMode); // "response" | "question"
+  const [modeInner, setModeInner] = useState(defaultMode); // repli si non contrôlé
+  const mode = modeProp || modeInner;
+  const setMode = (m) => { if (onModeChange) onModeChange(m); else setModeInner(m); };
 
   const series = useMemo(() => {
     const f = from < floor ? floor : from;
@@ -364,7 +369,7 @@ export function PresenceTrendChart({
         </div>
       </div>
 
-      <Curves series={series} height={compact ? 190 : 240} />
+      <Curves series={series} height={chartHeight || (compact ? 190 : 240)} />
 
       <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
         {["mentions", "evocations", "citations"].map(k => (
