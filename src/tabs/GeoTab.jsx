@@ -3527,6 +3527,7 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   }, [questions, keywordsOrder]); // eslint-disable-line react-hooks/exhaustive-deps
   const [manualQ, setManualQ]       = useState("");
   const [csvImporting, setCsvImporting] = useState(false);
+  const [csvOverlay, setCsvOverlay] = useState(false);
   const csvInputRef = useRef(null);
   // Génération de questions depuis une URL (crawl léger + IA)
   const [urlGenOpen, setUrlGenOpen]   = useState(false);
@@ -3825,44 +3826,66 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     setCsvImporting(true);
     try {
       const text = await file.text();
-      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      // Parse robuste (gère les guillemets) → tableau de lignes de colonnes.
+      let rows = parseCSV(text).filter(r => Array.isArray(r) && (r[0] || "").trim());
 
-      // Détecter si CSV avec header ou liste brute (une question par ligne)
-      let parsedQs = [];
-      const firstLine = lines[0] || "";
-      const sep = firstLine.includes(";") ? ";" : ",";
-      const headers = firstLine.split(sep).map(h => h.replace(/^["']|["']$/g, "").trim().toLowerCase());
-      const qColIdx = headers.findIndex(h => h === "question" || h === "questions" || h === "query" || h === "requête");
+      // Sauter une éventuelle ligne d'en-tête (1re cellule = mot d'en-tête connu).
+      const h0 = (rows[0]?.[0] || "").trim().toLowerCase();
+      if (["question", "questions", "query", "requête", "keyword", "mot-clé"].includes(h0)) rows = rows.slice(1);
 
-      if (qColIdx >= 0) {
-        // CSV avec header — on prend la colonne question
-        parsedQs = lines.slice(1)
-          .map(l => { const col = l.split(sep)[qColIdx]; return col ? col.replace(/^["']|["']$/g, "").trim() : ""; })
-          .filter(Boolean);
-      } else {
-        // Pas de header détecté — une question par ligne
-        parsedQs = lines.map(l => l.replace(/^["']|["']$/g, "").trim()).filter(Boolean);
+      // Mapping favori (col 2) et intention (col 4)
+      const TRUTHY = new Set(["true", "1", "oui", "yes", "vrai", "x", "⭐", "favori", "favorite", "y"]);
+      const intentLookup = {};
+      QUESTION_INTENTS.forEach(i => { intentLookup[i.id] = i.id; intentLookup[i.label.toLowerCase()] = i.id; intentLookup[i.short.toLowerCase()] = i.id; });
+
+      // Résolution des catégories (col 3) : réutilise l'existant, crée le manquant.
+      const catByName = {};
+      (categories || []).forEach(c => { catByName[(c.name || "").trim().toLowerCase()] = c.id; });
+      const ensureCategory = async (name) => {
+        const key = name.trim().toLowerCase();
+        if (!key) return null;
+        if (catByName[key]) return catByName[key];
+        try {
+          const cat = await sbSaveCategory({ project_id: projectId, name: name.trim(), color: "#1A3C2E" });
+          catByName[key] = cat.id;
+          setCategories(prev => prev.some(c => c.id === cat.id) ? prev : [...prev, cat]);
+          return cat.id;
+        } catch { return null; }
+      };
+
+      const existingInBase = new Set(questions.map(q => (q.question || "").trim().toLowerCase()));
+      const seen = new Set();
+      const toAdd = [];
+      for (const cols of rows) {
+        const question = (cols[0] || "").replace(/^["']|["']$/g, "").trim();
+        if (!question || question.length <= 5) continue;
+        const key = question.toLowerCase();
+        if (existingInBase.has(key) || seen.has(key)) continue;
+        seen.add(key);
+
+        const favRaw = (cols[1] || "").replace(/^["']|["']$/g, "").trim().toLowerCase();
+        const is_favorite = TRUTHY.has(favRaw);
+
+        const row = { project_id: projectId, site_id: site.id, question, is_manual: true, is_favorite };
+
+        const catName = (cols[2] || "").replace(/^["']|["']$/g, "").trim(); // col 3 : catégorie (vide → ignorer)
+        if (catName) { const cid = await ensureCategory(catName); if (cid) row.category_id = cid; }
+
+        const intentRaw = (cols[3] || "").replace(/^["']|["']$/g, "").trim().toLowerCase(); // col 4 : intention (vide → ignorer)
+        if (intentRaw && intentLookup[intentRaw]) row.intent = intentLookup[intentRaw];
+
+        toAdd.push(row);
       }
-
-      // Dédoublonner avec les questions déjà en base
-      const existingInBase = new Set(
-        questions.map(q => (q.question || "").trim().toLowerCase())
-      );
-      const toAdd = [...new Set(parsedQs)]
-        .filter(q => q && q.length > 5 && !existingInBase.has(q.toLowerCase()))
-        .map(q => ({ project_id: projectId, site_id: site.id, question: q, is_manual: true }));
 
       if (toAdd.length === 0) {
         alert("Aucune nouvelle question à importer (doublons ou fichier vide).");
         return;
       }
 
-      // Sauvegarder par batch de 50
       const batchSize = 50;
       const allSaved = [];
       for (let i = 0; i < toAdd.length; i += batchSize) {
-        const batch = toAdd.slice(i, i + batchSize);
-        const saved = await sbSaveQuestions(batch);
+        const saved = await sbSaveQuestions(toAdd.slice(i, i + batchSize));
         allSaved.push(...(saved || []));
       }
 
@@ -4457,14 +4480,44 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           <div style={{ width: "0.5px", height: 20, background: "#1A3C2E18", flexShrink: 0 }} />
 
           {/* Import CSV */}
-          <input ref={csvInputRef} type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => importCsvQuestions(e.target.files?.[0])} />
+          <input ref={csvInputRef} type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; setCsvOverlay(false); importCsvQuestions(f); e.target.value = ""; }} />
           <button
-            onClick={() => csvInputRef.current?.click()}
+            onClick={() => setCsvOverlay(true)}
             disabled={csvImporting}
             className="gt-btn gt-btn--ghost"
             style={{ opacity: csvImporting ? 0.4 : 1 }}>
             {csvImporting ? "Import…" : "↑ CSV"}
           </button>
+
+          {csvOverlay && (
+            <div onClick={() => setCsvOverlay(false)}
+              style={{ position: "fixed", inset: 0, background: "rgba(26,60,46,0.28)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+              <div onClick={e => e.stopPropagation()}
+                style={{ background: "#fff", borderRadius: 14, padding: 22, width: 420, maxWidth: "100%", boxShadow: "0 12px 40px rgba(26,60,46,0.18)" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1A3C2E", marginBottom: 4 }}>Importer des questions (CSV)</div>
+                <div style={{ fontSize: 11.5, color: "#94A3B8", marginBottom: 14 }}>Le fichier est lu par position de colonne. Les colonnes au-delà de la 4ᵉ sont ignorées.</div>
+                {[
+                  ["1", "Question", "le texte de la question (obligatoire)", "#1A7A4A"],
+                  ["2", "Favori", "vrai/true/oui/1/⭐ → marquée favorite ; sinon non", "#C97820"],
+                  ["3", "Catégorie", "nom de catégorie ; vide = ignorée ; créée si inconnue", "#2563EB"],
+                  ["4", "Intention", "transactionnelle / informationnelle / notoriété ; vide = ignorée", "#7C3AED"],
+                ].map(([n, title, desc, color]) => (
+                  <div key={n} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
+                    <span style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 6, background: color + "18", color, fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{n}</span>
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "#1A3C2E" }}>Colonne {n} — {title}</div>
+                      <div style={{ fontSize: 11, color: "#64748B" }}>{desc}</div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+                  <button onClick={() => setCsvOverlay(false)} className="gt-btn gt-btn--ghost">Annuler</button>
+                  <button onClick={() => csvInputRef.current?.click()} className="gt-btn"
+                    style={{ background: "#1A7A4A", color: "#fff", border: "none" }}>Choisir un fichier…</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Séparateur vertical */}
           <div style={{ width: "0.5px", height: 20, background: "#1A3C2E18", flexShrink: 0 }} />
