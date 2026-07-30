@@ -328,6 +328,10 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
   // Item de top "en-tête" SANS numéro : lien markdown (option. gras) ou titre gras / heading.
   // Couvre le format type "[Nom](url)", "**[Nom](url)**", "**Nom**", "### Nom".
   const headingLinkRe = /^\s*(?:[•\-*]\s*)?\*{0,2}\[([^\]]{2,90})\]\([^)]*\)\*{0,2}\s*(?:[—:-].*)?$/;
+  // Amorce en GRAS (format fréquent de Gemini/Perplexity) : "* **Marque** : …",
+  // "- **Marque** — …", "**2. Marque** : …" ou "**Marque**" seul. Le numéro éventuel
+  // à l'intérieur du gras est capturé pour repli, mais la position vient de l'ordre.
+  const boldLeadRe = /^\s*(?:[•\-*]\s+)?\*\*\s*(?:(\d+)[.)]\s*)?([^*\n]{2,60}?)\s*\*\*\s*(?:[:：—-].*)?$/;
   const headingBoldRe = /^\s*(?:#{1,4}\s*)?\*\*([^*\n]{2,90})\*\*\s*:?\s*$/;
   const headingPlainRe = /^\s*#{1,4}\s*([^\n]{2,90})$/;
   const matchHeading = (s) => {
@@ -369,6 +373,16 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
       prevNum = num; lastNumSeq = current; lastNumVal = num;
       continue;
     }
+    // Puce/ligne à amorce en gras = item classé (Gemini/Perplexity).
+    const bl = raw.match(boldLeadRe);
+    if (bl) {
+      const name = bl[2].trim();
+      if (isSectionTitle(name)) continue; // "**Notre sélection**" etc. : pas une marque
+      const continuesBold = current && seqType === "bold";
+      if (!continuesBold) { current = []; sequences.push(current); seqType = "bold"; prevNum = null; prevLevel = null; }
+      current.push({ num: bl[1] ? parseInt(bl[1], 10) : null, text: name, ordinal: current.length + 1 });
+      continue;
+    }
     const head = matchHeading(raw);
     if (head && isSectionTitle(head.title)) continue; // titre de section : ignore, ne casse pas la sequence
     if (head) {
@@ -385,7 +399,7 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     if (isDetailLine(raw)) continue;
     // En mode "en-têtes", la prose entre items (localisation, description) ne casse PAS
     // la séquence : seuls les en-têtes ajoutent des items, le reste est ignoré.
-    if (seqType === "head") continue;
+    if (seqType === "head" || seqType === "bold") continue;
     // Sinon (liste numérotée ou hors séquence), une ligne de prose termine la séquence.
     current = null; prevNum = null; seqType = null; prevLevel = null;
   }

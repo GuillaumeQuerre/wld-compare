@@ -363,6 +363,41 @@ export async function sbGetBrand(project_id, site_id) {
   return rows[0] || null;
 }
 
+// ── Agrégats quotidiens M/É/C par marque (geo_presence_daily) ────────────
+// Un item max par (project_id, site_id, date). Upsert idempotent (merge).
+export async function sbUpsertPresenceDaily(project_id, site_id, rows) {
+  if (!Array.isArray(rows) || !rows.length) return;
+  const body = rows.map(r => ({
+    project_id, site_id, date: r.date,
+    questions_count: r.questions_count || 0, responses_count: r.responses_count || 0,
+    mentions_resp: r.mentions_resp || 0, evocations_resp: r.evocations_resp || 0, citations_resp: r.citations_resp || 0,
+    mentions_q: r.mentions_q || 0, evocations_q: r.evocations_q || 0, citations_q: r.citations_q || 0,
+    updated_at: new Date().toISOString(),
+  }));
+  try {
+    await fetch(`${PROXY}/rest/v1/geo_presence_daily?on_conflict=project_id,site_id,date`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(body),
+    });
+  } catch { /* table non migrée : silencieux, les courbes retombent sur les résultats */ }
+}
+
+export async function sbGetPresenceDaily(project_id, site_ids = [], from = null, to = null) {
+  const sites = (Array.isArray(site_ids) ? site_ids : [site_ids]).filter(Boolean);
+  let q = `${PROXY}/rest/v1/geo_presence_daily?project_id=eq.${encodeURIComponent(project_id)}`;
+  if (sites.length === 1) q += `&site_id=eq.${encodeURIComponent(sites[0])}`;
+  else if (sites.length > 1) q += `&site_id=in.(${sites.map(s => encodeURIComponent(s)).join(",")})`;
+  if (from) q += `&date=gte.${from}`;
+  if (to)   q += `&date=lte.${to}`;
+  q += "&order=date.asc";
+  try {
+    const res = await fetch(q, { headers: authHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch { return []; }
+}
+
 // ── GEO — OPENAI KEY (encrypted) on project ──────────────────────
 
 export async function sbSaveGeoAxes(project_id, axes) {

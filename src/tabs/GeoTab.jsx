@@ -11,6 +11,7 @@ import {
   sbSaveKeywords, sbGetKeywords, sbUpdateKeywordStatus, sbDeleteKeyword, sbUpdateKeywordVolume,
   sbSaveQuestions, sbGetQuestions, sbUpdateQuestion, sbDeleteQuestion,
   sbSaveGeoResult, sbGetGeoResults, sbSaveHint, sbGetHints, sbSetKeywordTags,
+  sbUpsertPresenceDaily, sbGetPresenceDaily,
   sbGetSchedule, sbSaveSchedule, sbUpdateSchedule, sbTriggerScheduler,
   sbSaveProjectSettings,
   sbGetCategories, sbSaveCategory, sbDeleteCategory,
@@ -34,7 +35,7 @@ import UploadCard from "../components/UploadCard";
 import { newProject, parseCSV, parseSemrushCSV } from "../lib/helpers";
 import { parseSemrush } from "../lib/parsers";
 import { C, SITE_PALETTE } from "../lib/constants";
-import { PresenceTrendChart, earliestSelectableDate } from "../lib/presenceTrend";
+import { PresenceTrendChart, earliestSelectableDate, computeMecDaily } from "../lib/presenceTrend";
 import { matchGscForQuestion } from "../lib/auditTools";
 // Note: sbSaveGeoAxes is called via onSaveAxes prop from App.jsx
 
@@ -3444,6 +3445,36 @@ function SiteMultiSelect({ sites = [], value = [], onChange }) {
 function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, categories, setCategories, allResults, allSites = [], readSiteIds = null, siteBrandsMap = {}, gscRows = [], aliasMap = {}, onResultSaved, activeProviders = ["openai"], providerKeys = {}, runMode = "parallel", keywordsOrder = [], refreshTrigger = 0, competitors = [], setCompetitors = null, onSaveKey = null, isReadOnly = false, webSearchSettings = {} }) {
   const [questions, setQuestions]   = useState([]);
   const [results, setResults]       = useState(allResults || []);
+  // ── Agrégats quotidiens M/É/C (geo_presence_daily) : source des courbes ──
+  const [dailyRows, setDailyRows] = useState([]);
+  // Lecture de l'historique complet de la marque (au-delà des résultats récents).
+  useEffect(() => {
+    if (!projectId || !site?.id) return;
+    sbGetPresenceDaily(projectId, [site.id]).then(rows => setDailyRows(rows || [])).catch(() => {});
+  }, [projectId, site?.id]);
+  // Matérialisation : recalcule les jours présents dans les résultats et upsert,
+  // puis fusionne dans l'état (les jours recalculés priment sur l'historique).
+  // GARDE-FOU : on n'upsert PAS un jour dont le recalcul compte MOINS de réponses
+  // que la ligne déjà stockée — sinon la fenêtre des 2000 résultats récents
+  // écraserait un vieux jour complet par un sous-comptage.
+  useEffect(() => {
+    if (!projectId || !site?.id || !results.length) return;
+    const fresh = computeMecDaily(results);
+    if (!fresh.length) return;
+    const storedByDate = {};
+    (dailyRows || []).forEach(r => { storedByDate[r.date] = r; });
+    const toUpsert = fresh.filter(r => {
+      const prev = storedByDate[r.date];
+      return !prev || (r.responses_count || 0) >= (prev.responses_count || 0);
+    });
+    if (toUpsert.length) sbUpsertPresenceDaily(projectId, site.id, toUpsert).catch(() => {});
+    setDailyRows(prev => {
+      const byDate = {};
+      (prev || []).forEach(r => { byDate[r.date] = r; });
+      toUpsert.forEach(r => { byDate[r.date] = { ...byDate[r.date], ...r }; });
+      return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+    });
+  }, [projectId, site?.id, results]); // eslint-disable-line react-hooks/exhaustive-deps
   const [recomputing, setRecomputing]   = useState(false);
   const [recomputeMsg, setRecomputeMsg] = useState("");
   // Sort: favorites first, then by keyword order, then by creation date
@@ -4286,6 +4317,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           <PresenceTrendChart
             results={results}
             calendarEntries={calendarEntries}
+            dailyRows={dailyRows}
             minDate={earliestSelectableDate(project, results, calendarEntries)}
             title="Mentions · Évocations · Citations"
             compact
