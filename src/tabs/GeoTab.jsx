@@ -6492,7 +6492,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
               <SiteMultiSelect sites={safeSites} value={selectedSiteIds} onChange={setSelectedSiteIds} />
               {isMultiSite && (
                 <span style={{ fontSize: 11, color: "#C97820", fontWeight: 600, background: "#FEF3E2", padding: "3px 10px", borderRadius: 12 }}>
-                  Vue agrégée ({activeSites.length} sites) — édition désactivée. Cliquez une seule marque pour la gérer ; le lancement interroge chaque marque du projet.
+                  Vue agrégée ({activeSites.length} sites)
                 </span>
               )}
             </div>
@@ -6511,7 +6511,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
             runMode={runMode} keywordsOrder={keywords.map(k => k.id)}
             refreshTrigger={questionsKey}
             competitors={competitorsView} setCompetitors={setCompetitors}
-            isReadOnly={isReadOnly || isMultiSite}
+            isReadOnly={isReadOnly}
             webSearchSettings={project?.provider_web_search || {}}
             onSaveKey={(keyPatch) => {
               setProviderKeys(prev => {
