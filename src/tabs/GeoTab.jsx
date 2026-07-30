@@ -11,7 +11,7 @@ import {
   sbSaveKeywords, sbGetKeywords, sbUpdateKeywordStatus, sbDeleteKeyword, sbUpdateKeywordVolume,
   sbSaveQuestions, sbGetQuestions, sbUpdateQuestion, sbDeleteQuestion,
   sbSaveGeoResult, sbGetGeoResults, sbSaveHint, sbGetHints, sbSetKeywordTags,
-  sbUpsertPresenceDaily, sbGetPresenceDaily,
+  sbUpsertPresenceDaily, sbGetPresenceDaily, sbEnqueueAioScrape, sbGetAioQueue,
   sbGetSchedule, sbSaveSchedule, sbUpdateSchedule, sbTriggerScheduler,
   sbSaveProjectSettings,
   sbGetCategories, sbSaveCategory, sbDeleteCategory,
@@ -2730,7 +2730,7 @@ function HintPanelQuestion({ questionId, question, sources, brandName, brandAlia
 
 // ── ProviderRow — calendar + info + accordion + run button ────────
 
-function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false }) {
+function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false }) {
   const [open, setOpen] = useState(false);
   const p = provider;
 
@@ -2817,9 +2817,13 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
             ⚠ {errorMsg.slice(0, 60)}{errorMsg.length > 60 ? "…" : ""}
           </span>
         )}
-        {/* Bouton run — masqué pour un provider externe (alimenté par le scraper local) */}
+        {/* Provider externe (AI Overview) : ▶ met la question en file pour le scraper local */}
         {external ? (
-          <span style={{ fontSize: 10, color: "#94A3B8", fontStyle: "italic" }} title="Résultats importés par le scraper AI Overview local">scraper local</span>
+          isReadOnly ? null : queued ? (
+            <span style={{ fontSize: 10, color: "#C97820", fontStyle: "italic" }} title="En attente du scraper local (lancez-le en mode veille)">en attente…</span>
+          ) : (
+            <button className="gt-provider-run" onClick={onEnqueue} title={`Lancer ${p.label} (via le scraper local)`}>▶</button>
+          )
         ) : hasKey && !isReadOnly && (
           <button
             className="gt-provider-run"
@@ -3447,6 +3451,18 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   const [results, setResults]       = useState(allResults || []);
   // ── Agrégats quotidiens M/É/C (geo_presence_daily) : source des courbes ──
   const [dailyRows, setDailyRows] = useState([]);
+  // File d'attente AI Overview (question_ids en attente/en cours pour ce site)
+  const [aioQueue, setAioQueue] = useState(new Set());
+  const refreshAioQueue = useCallback(() => {
+    if (!projectId || !site?.id) return;
+    sbGetAioQueue(projectId, site.id).then(rows => setAioQueue(new Set((rows || []).map(r => r.question_id)))).catch(() => {});
+  }, [projectId, site?.id]);
+  useEffect(() => { refreshAioQueue(); }, [refreshAioQueue]);
+  const enqueueAio = (questionId) => {
+    if (!projectId || !site?.id || !questionId) return;
+    setAioQueue(prev => new Set(prev).add(questionId)); // feedback immédiat
+    sbEnqueueAioScrape(projectId, site.id, [questionId]).catch(() => {}).finally(refreshAioQueue);
+  };
   // Lecture de l'historique complet de la marque (au-delà des résultats récents).
   useEffect(() => {
     if (!projectId || !site?.id) return;
@@ -4835,6 +4851,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                         key={p.id}
                         provider={p}
                         external={!!p.external}
+                        onEnqueue={() => enqueueAio(q.id)}
+                        queued={aioQueue.has(q.id)}
                         results={pResults}
                         allProviderResults={qResults}
                         brandName={brand_name}

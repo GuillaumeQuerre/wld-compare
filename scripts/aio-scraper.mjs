@@ -28,8 +28,13 @@
  *    MIN_DELAY_MS   = 6000                        (pause mini entre 2 recherches)
  *    MAX_DELAY_MS   = 12000                       (pause maxi — jitter anti-pattern)
  *
- *  ── Lancement ───────────────────────────────────────────────────────────
+ *  ── Lancement (traitement unique de toutes les questions) ───────────────
  *    SUPABASE_URL=... SUPABASE_KEY=... PROJECT_ID=... node aio-scraper.mjs
+ *
+ *  ── Mode VEILLE (lancement depuis l'app via le bouton ▶) ────────────────
+ *    WATCH=true node aio-scraper.mjs
+ *    Le scraper reste ouvert et traite les demandes mises en file par l'app
+ *    (table geo_scrape_queue). POLL_MS règle l'intervalle d'interrogation.
  *
  *  NOTE : Google modifie régulièrement le HTML de l'AI Overview. Les repères
  *  d'extraction sont regroupés dans AIO_CONFIG ci-dessous — c'est le seul
@@ -74,6 +79,8 @@ const CFG = {
   maxQuestions: parseInt(process.env.MAX_QUESTIONS || "0", 10),
   minDelay:     parseInt(process.env.MIN_DELAY_MS || "6000", 10),
   maxDelay:     parseInt(process.env.MAX_DELAY_MS || "12000", 10),
+  watch:        process.env.WATCH === "true",
+  pollMs:       parseInt(process.env.POLL_MS || "5000", 10),
 };
 
 // ── Repères d'extraction de l'AI Overview (à ajuster si Google change) ────
@@ -214,6 +221,17 @@ async function extractAIO(page) {
   return data;
 }
 
+async function launchBrowser() {
+  const browser = await chromium.launch({ headless: CFG.headless, slowMo: CFG.headless ? 0 : 60 });
+  const ctx = await browser.newContext({
+    locale: CFG.hl === "fr" ? "fr-FR" : CFG.hl,
+    viewport: { width: 1280, height: 900 },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  });
+  const page = await ctx.newPage();
+  return { browser, page };
+}
+
 async function handleConsent(page) {
   // Bandeau cookies Google (une fois). On refuse le non-essentiel.
   const labels = [/tout refuser/i, /reject all/i, /refuser/i, /j.accepte/i, /tout accepter/i, /accept all/i];
@@ -223,68 +241,73 @@ async function handleConsent(page) {
   }
 }
 
+// Scrape UNE question et écrit le résultat. Renvoie { found } ou lève une erreur.
+// Renvoie null si un CAPTCHA est détecté (l'appelant doit s'arrêter).
+async function scrapeOne(page, q, ctx) {
+  const { siteId, brandName, brandAliases, competitors } = ctx;
+  const url = `https://www.${CFG.googleDomain}/search?q=${enc(q.question)}&hl=${CFG.hl}&gl=${CFG.hl}`;
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  // Détection CAPTCHA → on s'arrête proprement (solution C = surveillé à la main)
+  if (/sorry\/index|recaptcha|unusual traffic/i.test(page.url()) || await page.locator("form#captcha-form").count().catch(() => 0)) {
+    return { captcha: true };
+  }
+  await sleep(AIO_CONFIG.waitMs > 4000 ? 3000 : AIO_CONFIG.waitMs);
+  const { found, text, sources } = await extractAIO(page);
+
+  const answer = found && text ? text : "(Aucun AI Overview affiché pour cette requête)";
+  const d = detectBrand(answer, sources, brandName, brandAliases, competitors);
+  const model = `AI Overview (${CFG.googleDomain})`;
+  const now = new Date().toISOString();
+
+  const record = {
+    question_id: q.id, project_id: CFG.projectId, site_id: siteId, model,
+    answer, answer_type: found ? "aio" : "no_aio", intent_type: null,
+    sources, source_types: [],
+    brand_mentioned: d.brandMentioned, brand_position: d.brandPosition, brand_in_sources: d.brandInSources,
+    competitors_mentioned: d.competitorsMentioned, unknown_entities: d.unknownEntities || [],
+    brand_mention_position:   d.mention?.position   || null,
+    brand_evocation_position: d.evocation?.position || null,
+    brand_citation_position:  d.citation?.position  || null,
+    created_at: now,
+  };
+  await saveResult(record);
+
+  // Calendrier (petits carrés) — même moteur partagé que l'app
+  const { presType, mentionPos } = calendarPresence(d);
+  await sb("geo_calendar_dates", { method: "POST", body: {
+    question_id: q.id, provider_id: getProviderId(model),
+    brand_present: d.brandMentioned === true,
+    brand_mention:   presType === "mention"   ? 1 : 0,
+    brand_citation:  presType === "citation"  ? 1 : 0,
+    brand_evocation: presType === "evocation" ? 1 : 0,
+    mention_position: presType === "mention" && mentionPos != null ? mentionPos : null,
+    test_date: now.slice(0, 10),
+  }}).catch(() => {});
+
+  return { found, position: d.mention?.position, mentioned: d.brandMentioned };
+}
+
 async function run() {
-  const { questions, siteId, siteName, brandName, brandAliases, competitors, multiSite } = await loadContext();
+  const ctx0 = await loadContext();
+  const { questions, siteId, siteName, brandName, competitors, multiSite } = ctx0;
   const list = CFG.maxQuestions > 0 ? questions.slice(0, CFG.maxQuestions) : questions;
+
+  if (CFG.watch) { await watchLoop(ctx0); return; }
+
   console.log(`▶ Projet ${CFG.projectId} · site « ${siteName} »${multiSite ? " (projet multi-sites : site principal ou SITE_ID/SITE_LABEL)" : ""}`);
   console.log(`  ${list.length} question(s) · marque="${brandName}" · ${competitors.length} concurrent(s)`);
 
-  const browser = await chromium.launch({ headless: CFG.headless, slowMo: CFG.headless ? 0 : 60 });
-  const ctx = await browser.newContext({
-    locale: CFG.hl === "fr" ? "fr-FR" : CFG.hl,
-    viewport: { width: 1280, height: 900 },
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-  });
-  const page = await ctx.newPage();
-
-  let ok = 0, aio = 0, skipped = 0;
+  const { browser, page } = await launchBrowser();
   await page.goto(`https://www.${CFG.googleDomain}/`, { waitUntil: "domcontentloaded" });
   await handleConsent(page);
 
+  let ok = 0, aio = 0, skipped = 0;
   for (const q of list) {
     try {
-      const url = `https://www.${CFG.googleDomain}/search?q=${enc(q.question)}&hl=${CFG.hl}&gl=${CFG.hl}`;
-      await page.goto(url, { waitUntil: "domcontentloaded" });
-      // Détection CAPTCHA → on s'arrête proprement (solution C = surveillé à la main)
-      if (/sorry\/index|recaptcha|unusual traffic/i.test(page.url()) || await page.locator("form#captcha-form").count().catch(() => 0)) {
-        console.error("⛔ CAPTCHA détecté — arrêt. Relance plus tard (ralentis MIN_DELAY_MS).");
-        break;
-      }
-      await sleep(AIO_CONFIG.waitMs > 4000 ? 3000 : AIO_CONFIG.waitMs);
-      const { found, text, sources } = await extractAIO(page);
-
-      const answer = found && text ? text : "(Aucun AI Overview affiché pour cette requête)";
-      const d = detectBrand(answer, sources, brandName, brandAliases, competitors);
-      const model = `AI Overview (${CFG.googleDomain})`;
-      const now = new Date().toISOString();
-
-      const record = {
-        question_id: q.id, project_id: CFG.projectId, site_id: siteId, model,
-        answer, answer_type: found ? "aio" : "no_aio", intent_type: null,
-        sources, source_types: [],
-        brand_mentioned: d.brandMentioned, brand_position: d.brandPosition, brand_in_sources: d.brandInSources,
-        competitors_mentioned: d.competitorsMentioned, unknown_entities: d.unknownEntities || [],
-        brand_mention_position:   d.mention?.position   || null,
-        brand_evocation_position: d.evocation?.position || null,
-        brand_citation_position:  d.citation?.position  || null,
-        created_at: now,
-      };
-      await saveResult(record);
-
-      // Calendrier (petits carrés) — même moteur partagé que l'app
-      const { presType, mentionPos } = calendarPresence(d);
-      await sb("geo_calendar_dates", { method: "POST", body: {
-        question_id: q.id, provider_id: getProviderId(model),
-        brand_present: d.brandMentioned === true,
-        brand_mention:   presType === "mention"   ? 1 : 0,
-        brand_citation:  presType === "citation"  ? 1 : 0,
-        brand_evocation: presType === "evocation" ? 1 : 0,
-        mention_position: presType === "mention" && mentionPos != null ? mentionPos : null,
-        test_date: now.slice(0, 10),
-      }}).catch(() => {});
-
-      ok++; if (found) aio++;
-      console.log(`  ${found ? "✅" : "○ "} ${found ? (d.mention?.position ? "top #" + d.mention.position : d.brandMentioned ? "présent" : "absent") : "pas d'AIO"} — ${q.question.slice(0, 60)}`);
+      const r = await scrapeOne(page, q, ctx0);
+      if (r?.captcha) { console.error("⛔ CAPTCHA détecté — arrêt. Relance plus tard (ralentis MIN_DELAY_MS)."); break; }
+      ok++; if (r.found) aio++;
+      console.log(`  ${r.found ? "✅" : "○ "} ${r.found ? (r.position ? "top #" + r.position : r.mentioned ? "présent" : "absent") : "pas d'AIO"} — ${q.question.slice(0, 60)}`);
     } catch (e) {
       skipped++; console.warn(`  ⚠️  ${q.question.slice(0, 60)} — ${e.message.slice(0, 80)}`);
     }
@@ -293,6 +316,53 @@ async function run() {
 
   await browser.close();
   console.log(`\n✔ Terminé : ${ok} enregistrées (${aio} avec AIO), ${skipped} en erreur.`);
+}
+
+// Boucle de VEILLE : interroge la file geo_scrape_queue et traite les demandes
+// lancées depuis l'app (bouton ▶). Reste ouvert jusqu'à Ctrl-C.
+async function watchLoop(ctx0) {
+  console.log(`👁  Mode veille — projet ${CFG.projectId}, site « ${ctx0.siteName} ». En attente de demandes (Ctrl-C pour arrêter)…`);
+  const { browser, page } = await launchBrowser();
+  await page.goto(`https://www.${CFG.googleDomain}/`, { waitUntil: "domcontentloaded" });
+  await handleConsent(page);
+  const qById = {}; (ctx0.questions || []).forEach(q => { qById[q.id] = q; });
+
+  let stop = false;
+  process.on("SIGINT", () => { stop = true; console.log("\n⏹  Arrêt demandé…"); });
+
+  while (!stop) {
+    let pending = [];
+    try {
+      pending = await sb(`geo_scrape_queue?project_id=eq.${enc(CFG.projectId)}&site_id=eq.${enc(ctx0.siteId)}&status=eq.pending&order=requested_at.asc&limit=5`);
+    } catch { pending = []; }
+
+    if (!pending || !pending.length) { await sleep(CFG.pollMs); continue; }
+
+    for (const item of pending) {
+      if (stop) break;
+      const q = qById[item.question_id] || { id: item.question_id, question: item.question_text };
+      if (!q.question) { // repli : relire le libellé de la question
+        try { const qq = await sb(`geo_questions?id=eq.${enc(item.question_id)}&select=id,question`); if (qq?.[0]) q.question = qq[0].question; } catch { /* ignore */ }
+      }
+      await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "running" } }).catch(() => {});
+      try {
+        const r = await scrapeOne(page, q, ctx0);
+        if (r?.captcha) {
+          console.error("⛔ CAPTCHA — remise en attente et pause 60s.");
+          await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "pending" } }).catch(() => {});
+          await sleep(60000); continue;
+        }
+        await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "done", done_at: new Date().toISOString() } }).catch(() => {});
+        console.log(`  ✅ ${q.question?.slice(0, 60)} — ${r.found ? (r.position ? "top #" + r.position : r.mentioned ? "présent" : "absent") : "pas d'AIO"}`);
+      } catch (e) {
+        await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "error", error: e.message.slice(0, 200), done_at: new Date().toISOString() } }).catch(() => {});
+        console.warn(`  ⚠️  ${q.question?.slice(0, 60)} — ${e.message.slice(0, 80)}`);
+      }
+      await sleep(jitter());
+    }
+  }
+  await browser.close();
+  console.log("✔ Veille terminée.");
 }
 
 async function saveResult(record) {

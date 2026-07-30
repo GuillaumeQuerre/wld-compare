@@ -398,6 +398,32 @@ export async function sbGetPresenceDaily(project_id, site_ids = [], from = null,
   } catch { return []; }
 }
 
+// ── File d'attente AI Overview (lancement depuis l'app) ──────────────────
+// Insère des demandes « pending ». L'index unique ignore les doublons déjà
+// en cours (on_conflict=do nothing) → recliquer ne crée pas de doublon.
+export async function sbEnqueueAioScrape(project_id, site_id, question_ids = []) {
+  const ids = (Array.isArray(question_ids) ? question_ids : [question_ids]).filter(Boolean);
+  if (!ids.length) return { queued: 0 };
+  const body = ids.map(question_id => ({ project_id, site_id, question_id, status: "pending", requested_at: new Date().toISOString() }));
+  try {
+    const res = await fetch(`${PROXY}/rest/v1/geo_scrape_queue?on_conflict=project_id,site_id,question_id`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json", "Prefer": "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify(body),
+    });
+    return { queued: res.ok ? ids.length : 0 };
+  } catch { return { queued: 0 }; }
+}
+
+// État des demandes en attente/en cours pour un site (pour l'affichage).
+export async function sbGetAioQueue(project_id, site_id) {
+  try {
+    const res = await fetch(`${PROXY}/rest/v1/geo_scrape_queue?project_id=eq.${encodeURIComponent(project_id)}&site_id=eq.${encodeURIComponent(site_id)}&status=in.(pending,running)&select=question_id,status`, { headers: authHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch { return []; }
+}
+
 // ── GEO — OPENAI KEY (encrypted) on project ──────────────────────
 
 export async function sbSaveGeoAxes(project_id, axes) {
