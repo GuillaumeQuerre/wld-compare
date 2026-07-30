@@ -404,14 +404,17 @@ export async function sbGetPresenceDaily(project_id, site_ids = [], from = null,
 export async function sbEnqueueAioScrape(project_id, site_id, question_ids = []) {
   const ids = (Array.isArray(question_ids) ? question_ids : [question_ids]).filter(Boolean);
   if (!ids.length) return { queued: 0 };
+  // Insert simple (pas d'on_conflict : l'index unique est PARTIEL, PostgREST le
+  // refuserait). L'index empêche déjà un doublon pending/running côté base ;
+  // un 409 signifie « déjà en file » et n'est pas une erreur.
   const body = ids.map(question_id => ({ project_id, site_id, question_id, status: "pending", requested_at: new Date().toISOString() }));
   try {
-    const res = await fetch(`${PROXY}/rest/v1/geo_scrape_queue?on_conflict=project_id,site_id,question_id`, {
+    const res = await fetch(`${PROXY}/rest/v1/geo_scrape_queue`, {
       method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json", "Prefer": "resolution=ignore-duplicates,return=minimal" },
+      headers: { ...authHeaders(), "Content-Type": "application/json", "Prefer": "return=minimal" },
       body: JSON.stringify(body),
     });
-    return { queued: res.ok ? ids.length : 0 };
+    return { queued: (res.ok || res.status === 409) ? ids.length : 0 };
   } catch { return { queued: 0 }; }
 }
 
