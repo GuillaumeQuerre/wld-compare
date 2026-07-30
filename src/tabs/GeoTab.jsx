@@ -3432,6 +3432,10 @@ function SiteMultiSelect({ sites = [], value = [], onChange }) {
   const sel = Array.isArray(value) && value.length ? value : list.map(s => s.id);
   const allOn = sel.length === list.length;
   const toggle = (id) => {
+    // Point 2 : depuis « Tous » (toutes sélectionnées), un clic ISOLE la marque
+    // (sélectionne celle-ci et désélectionne les autres). Sinon, comportement
+    // habituel : ajout/retrait multi-sélection.
+    if (allOn) { onChange([id]); return; }
     const next = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id];
     if (next.length === 0) return; // au moins un site
     onChange(next);
@@ -3879,6 +3883,12 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
       };
 
       const existingInBase = new Set(questions.map(q => (q.question || "").trim().toLowerCase()));
+
+      // Mapping nom de marque / libellé de site → id de site (col 5).
+      const brandToSite = {};
+      (allSites || []).forEach(s => { if (s.label) brandToSite[s.label.trim().toLowerCase()] = s.id; });
+      Object.entries(siteBrandsMap || {}).forEach(([sid, b]) => { if (b && b.brand_name) brandToSite[b.brand_name.trim().toLowerCase()] = sid; });
+
       const seen = new Set();
       const toAdd = [];
       for (const cols of rows) {
@@ -3898,6 +3908,14 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
         const intentRaw = (cols[3] || "").replace(/^["']|["']$/g, "").trim().toLowerCase(); // col 4 : intention (vide → ignorer)
         if (intentRaw && intentLookup[intentRaw]) row.intent = intentLookup[intentRaw];
+
+        // col 5 : marques concernées, séparées par des virgules. Vide → toutes
+        // (associated_sites non renseigné). Marques non reconnues → ignorées.
+        const brandsRaw = (cols[4] || "").replace(/^["']|["']$/g, "").trim();
+        if (brandsRaw) {
+          const ids = brandsRaw.split(",").map(x => brandToSite[x.trim().toLowerCase()]).filter(Boolean);
+          if (ids.length) row.associated_sites = [...new Set(ids)];
+        }
 
         toAdd.push(row);
       }
@@ -4526,6 +4544,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                   ["2", "Favori", "vrai/true/oui/1/⭐ → marquée favorite ; sinon non", "#C97820"],
                   ["3", "Catégorie", "nom de catégorie ; vide = ignorée ; créée si inconnue", "#2563EB"],
                   ["4", "Intention", "transactionnelle / informationnelle / notoriété ; vide = ignorée", "#7C3AED"],
+                  ["5", "Marques", "marques concernées séparées par des virgules ; vide = toutes ; inconnue = ignorée", "#0891B2"],
                 ].map(([n, title, desc, color]) => (
                   <div key={n} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
                     <span style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 6, background: color + "18", color, fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{n}</span>
@@ -6460,7 +6479,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
               <SiteMultiSelect sites={safeSites} value={selectedSiteIds} onChange={setSelectedSiteIds} />
               {isMultiSite && (
                 <span style={{ fontSize: 11, color: "#C97820", fontWeight: 600, background: "#FEF3E2", padding: "3px 10px", borderRadius: 12 }}>
-                  Vue agrégée ({activeSites.length} sites) — lecture seule. Sélectionnez un seul site pour gérer et lancer les questions.
+                  Vue agrégée ({activeSites.length} sites) — édition désactivée. Cliquez une seule marque pour la gérer ; le lancement interroge chaque marque du projet.
                 </span>
               )}
             </div>
