@@ -537,6 +537,14 @@ export async function sbGetQuestions(project_id, site_id) {
   return res.json();
 }
 
+// Toutes les questions du projet (tous sites confondus). Le filtrage par marque
+// se fait ensuite côté client via associated_sites (vide = toutes les marques).
+export async function sbGetAllQuestions(project_id) {
+  const res = await fetch(`${PROXY}/rest/v1/geo_questions?project_id=eq.${encodeURIComponent(project_id)}&order=created_at.asc&select=*`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 // ── GEO Analyses (Fan-out & Roadmap "Et maintenant ?") ───────────
 // Table geo_analyses : { id, project_id, site_id, kind, content (jsonb), created_at }
 // kind = "fanout" (bouton Analyser) | "roadmap" (bouton Et maintenant ?)
@@ -934,9 +942,10 @@ export async function sbGetPresenceHistoryBatch(project_id, site_id) {
 // Table : geo_calendar_dates
 // Columns: id, question_id, provider_id, brand_present, test_date, created_at
 
-export async function sbAddCalendarEntry(question_id, provider_id, brand_present, presType, mentionPos = null) {
+export async function sbAddCalendarEntry(question_id, provider_id, brand_present, presType, mentionPos = null, site_id = null) {
   // presType: "mention" | "citation" | "evocation" | null
   // mentionPos: position numérique si presType === "mention"
+  // site_id: marque concernée (null = marque principale, rétrocompat)
   const test_date = new Date().toISOString().slice(0, 10);
   const present = brand_present === true || brand_present === 1;
 
@@ -945,6 +954,7 @@ export async function sbAddCalendarEntry(question_id, provider_id, brand_present
   const fullBody = {
     question_id,
     provider_id,
+    ...(site_id ? { site_id } : {}),
     brand_present: present,
     brand_mention:   presType === "mention"   ? 1 : 0,
     brand_citation:  presType === "citation"  ? 1 : 0,
@@ -952,7 +962,7 @@ export async function sbAddCalendarEntry(question_id, provider_id, brand_present
     mention_position: presType === "mention" && mentionPos != null ? mentionPos : null,
     test_date,
   };
-  const baseBody = { question_id, provider_id, brand_present: present, test_date };
+  const baseBody = { question_id, provider_id, ...(site_id ? { site_id } : {}), brand_present: present, test_date };
 
   const post = async (body) => fetchSupabase(`${PROXY}/rest/v1/geo_calendar_dates`, {
     method: "POST",

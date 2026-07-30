@@ -18,6 +18,7 @@ import {
   sbSetQuestionCategory,
   sbSetQuestionIntent,
   sbSetQuestionSites,
+  sbGetAllQuestions,
   sbBulkSetKeywordCategory, sbBulkSetQuestionCategory,
   sbGetUrlIndex, sbUpdateUrlMeta, sbIncrementUrlCounts,
   sbAddCalendarEntry, sbUpsertCalendarEntry, sbGetCalendarEntriesBatch,
@@ -2745,7 +2746,7 @@ function HintPanelQuestion({ questionId, question, sources, brandName, brandAlia
 
 // ── ProviderRow — calendar + info + accordion + run button ────────
 
-function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false }) {
+function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false, brandSites = [] }) {
   const [open, setOpen] = useState(false);
   const p = provider;
 
@@ -2764,7 +2765,19 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
         <span className="gt-provider-name">{p.label}</span>
 
         {/* Calendrier de présence 30j */}
-        <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} />
+        {/* Calendrier de présence — une ligne par marque concernée (sinon une seule) */}
+        {brandSites && brandSites.length > 1 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {brandSites.map(bs => (
+              <div key={bs.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 66, flexShrink: 0, fontSize: 9, fontWeight: 600, color: bs.color || "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={bs.label}>{bs.label}</span>
+                <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={(brandSites && brandSites[0]?.id) || siteId} />
+        )}
 
         {/* Présence — 3 types calculés depuis les champs DB ─────── */}
         {(() => {
@@ -3608,6 +3621,14 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   // Load all data on mount and when project/site/refreshTrigger changes
   const _readIds = (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site?.id]).filter(Boolean);
   const _readKey = _readIds.join(",");
+  // Marques concernées par une question, pour l'affichage (libellé + couleur).
+  // associated_sites vide = toutes les marques du projet.
+  const brandSitesFor = (q) => {
+    const assoc = Array.isArray(q.associated_sites) && q.associated_sites.length
+      ? q.associated_sites : (allSites || []).map(s => s.id);
+    return (allSites || []).filter(s => assoc.includes(s.id))
+      .map(s => ({ id: s.id, label: s.label, color: s.color }));
+  };
   useEffect(() => {
     if (!projectId || !site?.id) return;
     const ids = (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site.id]).filter(Boolean);
@@ -3615,7 +3636,7 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
     // Hints / keywords / calendrier : gardés sur le site primaire (config/aux).
     Promise.all([
       Promise.all(ids.map(sid => sbGetGeoResults(projectId, sid).catch(() => []))).then(a => a.flat()),
-      Promise.all(ids.map(sid => sbGetQuestions(projectId, sid).catch(() => []))).then(a => a.flat()),
+      sbGetAllQuestions(projectId).catch(() => []),
       sbGetHints(projectId, site.id),
       sbGetKeywords(projectId, site.id),
       sbGetCalendarEntriesBatch(projectId, site.id),
@@ -4060,8 +4081,9 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
       // ── Temps 2 : présence par marque associée (détectée dans la MÊME réponse) ──
       // Aucun appel LLM supplémentaire : on ré-applique detectBrand localement pour
-      // chaque marque associée à la question. Rempli uniquement si la question est taguée.
-      const _assoc = Array.isArray(q.associated_sites) ? q.associated_sites : [];
+      // chaque marque concernée. associated_sites vide = TOUTES les marques du projet.
+      const _assocRaw = Array.isArray(q.associated_sites) ? q.associated_sites : [];
+      const _assoc = _assocRaw.length ? _assocRaw : (allSites || []).map(s => s.id);
       const brand_presences = {};
       if (_assoc.length) {
         const _toPres = (d) => ({
@@ -4130,9 +4152,20 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
       // Déterminer le type de présence + position pour le calendrier (moteur partagé)
       const { presType: presTypeForCal, mentionPos: mentionPosForCal } = calendarPresence(detectedBrand);
       // Add to calendar (optimistic + persist) — avec type + position
-      setNewCalEntries(prev => ({ ...prev, [`${q.id}|${provider.id}`]: { provider_id: provider.id, brand_present: brandMentioned, presType: presTypeForCal, mentionPos: mentionPosForCal } }));
-      // Persist to DB (best effort)
-      sbAddCalendarEntry(q.id, provider.id, brandMentioned, presTypeForCal, mentionPosForCal).catch(() => {});
+      setNewCalEntries(prev => ({ ...prev, [`${q.id}|${provider.id}`]: { provider_id: provider.id, site_id: site.id, brand_present: brandMentioned, presType: presTypeForCal, mentionPos: mentionPosForCal } }));
+      // Persiste UNE entrée calendrier PAR MARQUE (site_id) à partir de brand_presences.
+      // Si aucune marque associée n'est calculée, on garde l'entrée de la marque du site courant.
+      const _calPres = Object.keys(brand_presences).length ? brand_presences : { [site.id]: {
+        mentioned: brandMentioned,
+        mention_position: detectedBrand.mention?.position ?? null,
+        evocation_position: detectedBrand.evocation?.position ?? null,
+        citation_position: detectedBrand.citation?.position ?? null,
+        in_sources: brandInSources,
+      } };
+      Object.entries(_calPres).forEach(([sid, pres]) => {
+        const pType = pres.mention_position != null ? "mention" : pres.evocation_position != null ? "evocation" : (pres.in_sources ? "citation" : null);
+        sbAddCalendarEntry(q.id, provider.id, pres.mentioned || pType === "citation", pType, pres.mention_position ?? null, sid).catch(() => {});
+      });
 
       // Update cached answers on question
       const cachePatch = { has_result: true, last_answer: parsed.answer, last_model: record.model, last_date: now };
@@ -4235,6 +4268,10 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
   const filtered = useMemo(() => { const bn = brand?.brand_name || ""; const base = sortedQuestions.filter(q => {
     // Filtres cumulatifs (ET)
+    // Marque : une question est visible si elle ne cible AUCUNE marque
+    // (associated_sites vide = toutes) OU si ses marques intersectent la sélection.
+    const assoc = Array.isArray(q.associated_sites) ? q.associated_sites : [];
+    if (assoc.length && !assoc.some(sid => _readIds.includes(sid))) return false;
     if (filterFav && !q.is_favorite) return false;
     if (filterCat.length && !filterCat.includes(q.category_id)) return false;
     if (filterKeyword && q.keyword_id !== filterKeyword) return false;
@@ -4293,7 +4330,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         return a.i - b.i; // stabilité : ordre de base
       })
       .map(x => x.q);
-  }, [questions, filterFav, filterCat, filterKeyword, filterSearch, searchField, providerModes, filterPositioned, filterLost, resultsByQ, latestResultByQ, lostByQ, sortByResult, resultRankByQ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [questions, _readKey, filterFav, filterCat, filterKeyword, filterSearch, searchField, providerModes, filterPositioned, filterLost, resultsByQ, latestResultByQ, lostByQ, sortByResult, resultRankByQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Returns providers that still need to be called for a question today
   const getProvidersToRun = (q, force = false) => {
@@ -4981,6 +5018,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                         external={!!p.external}
                         onEnqueue={() => enqueueAio(q.id)}
                         queued={aioQueue.has(q.id)}
+                        brandSites={brandSitesFor(q)}
                         results={pResults}
                         allProviderResults={qResults}
                         brandName={brand_name}

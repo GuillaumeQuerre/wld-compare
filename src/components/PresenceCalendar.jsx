@@ -133,7 +133,7 @@ function CalendarGrid({ entries, providers, errorMsg = null }) {
 
 // ── PresenceCalendar — data + rendering ──────────────────────────
 
-export default function PresenceCalendar({ questionId, providers = [], newEntry = null, errorMsg = null }) {
+export default function PresenceCalendar({ questionId, providers = [], newEntry = null, errorMsg = null, siteId = null }) {
   const [entries, setEntries] = useState([]);
 
   // Load from DB on mount / question change
@@ -142,11 +142,16 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
     sbGetCalendarEntries(questionId).then(rows => setEntries(rows || [])).catch(() => {});
   }, [questionId]);
 
+  // Filtre par marque : ne garder que les entrées de ce site_id. Les entrées
+  // héritées (site_id null) ne s'affichent qu'en l'absence de siteId (rétrocompat).
+  const shownEntries = siteId ? entries.filter(e => e.site_id === siteId) : entries;
+
   // Add entry when a new result arrives (from parent)
   useEffect(() => {
     if (!newEntry) return;
-    const { provider_id, brand_present, presType = null, mentionPos = null } = newEntry;
+    const { provider_id, brand_present, presType = null, mentionPos = null, site_id = null } = newEntry;
     if (!provider_id) return;
+    if (siteId && site_id && site_id !== siteId) return; // entrée d'une autre marque
 
     const today = localDateKey(new Date());
     const flags = {
@@ -155,13 +160,13 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
       brand_citation:  presType === "citation"  ? 1 : 0,
       mention_position: presType === "mention" ? mentionPos : null,
     };
-    const optimistic = { provider_id, test_date: today, brand_present: !!brand_present, ...flags };
+    const optimistic = { provider_id, test_date: today, brand_present: !!brand_present, site_id, ...flags };
 
     // Optimistic — add immediately
     setEntries(prev => [...prev, optimistic]);
 
     // Persist (avec type + position)
-    sbAddCalendarEntry(questionId, provider_id, brand_present, presType, mentionPos)
+    sbAddCalendarEntry(questionId, provider_id, brand_present, presType, mentionPos, site_id)
       .then(saved => {
         if (saved?.id) {
           setEntries(prev => prev.map(e =>
@@ -175,5 +180,5 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
       .catch(() => {});
   }, [newEntry]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <CalendarGrid entries={entries} providers={providers} errorMsg={errorMsg} />;
+  return <CalendarGrid entries={shownEntries} providers={providers} errorMsg={errorMsg} />;
 }
