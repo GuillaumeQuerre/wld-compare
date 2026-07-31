@@ -972,11 +972,17 @@ export async function sbAddCalendarEntry(question_id, provider_id, brand_present
 
   try {
     let res = await post(fullBody);
-    // Colonnes manquantes ou contrainte → retomber sur le payload minimal
+    // Colonnes manquantes ou contrainte → retomber sur le payload minimal (avec site_id)
     if (!res.ok && (res.status === 400 || res.status === 404 || res.status === 422)) {
       const errText = await res.text().catch(() => "");
       console.warn("[sbAddCalendarEntry] full payload rejected (" + res.status + "), retry base columns:", errText.slice(0, 160));
       res = await post(baseBody);
+    }
+    // Colonne site_id absente (migration non passée) → retomber SANS site_id
+    if (!res.ok && (res.status === 400 || res.status === 404 || res.status === 422) && site_id) {
+      const errText = await res.text().catch(() => "");
+      console.warn("[sbAddCalendarEntry] site_id rejected (" + res.status + "), retry sans site_id:", errText.slice(0, 120));
+      res = await post({ question_id, provider_id, brand_present: present, test_date });
     }
     if (!res.ok) {
       const errText = await res.text().catch(() => "");

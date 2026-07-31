@@ -2764,18 +2764,8 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
         {/* Nom */}
         <span className="gt-provider-name">{p.label}</span>
 
-        {/* Calendrier de présence 30j */}
-        {/* Calendrier de présence — une ligne par marque concernée (sinon une seule) */}
-        {brandSites && brandSites.length > 1 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-            {brandSites.map(bs => (
-              <div key={bs.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 66, flexShrink: 0, fontSize: 9, fontWeight: 600, color: bs.color || "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={bs.label}>{bs.label}</span>
-                <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} />
-              </div>
-            ))}
-          </div>
-        ) : (
+        {/* Calendrier de présence — inline si une seule marque ; sinon rendu SOUS la ligne */}
+        {(!brandSites || brandSites.length <= 1) && (
           <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={(brandSites && brandSites[0]?.id) || siteId} />
         )}
 
@@ -2863,6 +2853,18 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
           </button>
         )}
       </div>
+
+      {/* Marques concernées (multi) : une ligne de suivi par marque, SOUS le provider */}
+      {brandSites && brandSites.length > 1 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingLeft: 12, marginTop: 1, marginBottom: 4 }}>
+          {brandSites.map(bs => (
+            <div key={bs.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 74, flexShrink: 0, fontSize: 9.5, fontWeight: 600, color: bs.color || "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={bs.label}>{bs.label}</span>
+              <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Accordéon réponse ── */}
       {open && result && (
@@ -4325,6 +4327,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     return base
       .map((q, i) => ({ q, i, rank: resultRankByQ[q.id] || { tier: 3, pos: 0 } }))
       .sort((a, b) => {
+        // Favoris toujours en tête, même en tri par résultat (stabilité de position)
+        if (!!a.q.is_favorite !== !!b.q.is_favorite) return a.q.is_favorite ? -1 : 1;
         if (a.rank.tier !== b.rank.tier) return a.rank.tier - b.rank.tier;
         if (a.rank.pos !== b.rank.pos)   return a.rank.pos - b.rank.pos; // position croissante (Top1 avant Top2)
         return a.i - b.i; // stabilité : ordre de base
