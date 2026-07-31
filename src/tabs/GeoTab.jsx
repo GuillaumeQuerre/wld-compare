@@ -2746,7 +2746,7 @@ function HintPanelQuestion({ questionId, question, sources, brandName, brandAlia
 
 // ── ProviderRow — calendar + info + accordion + run button ────────
 
-function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false, brandSites = [] }) {
+function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false, brandSites = [], singleSiteProject = false }) {
   const [open, setOpen] = useState(false);
   const p = provider;
 
@@ -2764,9 +2764,11 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
         {/* Nom */}
         <span className="gt-provider-name">{p.label}</span>
 
-        {/* Calendrier de présence — inline si une seule marque ; sinon rendu SOUS la ligne */}
-        {(!brandSites || brandSites.length <= 1) && (
-          <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={(brandSites && brandSites[0]?.id) || siteId} />
+        {/* Calendrier inline : projet mono-site (legacy, sans filtre) OU une seule
+            marque sélectionnée (filtrée). Multi-marques → rendu SOUS la ligne. */}
+        {(singleSiteProject || brandSites.length <= 1) && (
+          <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg}
+            siteId={singleSiteProject ? null : (brandSites[0]?.id || null)} />
         )}
 
         {/* Présence — 3 types calculés depuis les champs DB ─────── */}
@@ -2854,8 +2856,9 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
         )}
       </div>
 
-      {/* Marques concernées (multi) : une ligne de suivi par marque, SOUS le provider */}
-      {brandSites && brandSites.length > 1 && (
+      {/* Marques concernées (multi) : une ligne de suivi par marque SÉLECTIONNÉE,
+          SOUS le provider. Jamais pour un projet mono-site (#4). */}
+      {!singleSiteProject && brandSites.length > 1 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingLeft: 12, marginTop: 1, marginBottom: 4 }}>
           {brandSites.map(bs => (
             <div key={bs.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -3623,14 +3626,17 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   // Load all data on mount and when project/site/refreshTrigger changes
   const _readIds = (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site?.id]).filter(Boolean);
   const _readKey = _readIds.join(",");
-  // Marques concernées par une question, pour l'affichage (libellé + couleur).
-  // associated_sites vide = toutes les marques du projet.
+  // Marques d'une question à AFFICHER : ses marques (associated_sites, ou toutes
+  // si vide) INTERSECTÉES avec la sélection du haut de page (_readIds). #3
   const brandSitesFor = (q) => {
     const assoc = Array.isArray(q.associated_sites) && q.associated_sites.length
       ? q.associated_sites : (allSites || []).map(s => s.id);
-    return (allSites || []).filter(s => assoc.includes(s.id))
+    return (allSites || [])
+      .filter(s => assoc.includes(s.id) && _readIds.includes(s.id))
       .map(s => ({ id: s.id, label: s.label, color: s.color }));
   };
+  // Projet mono-site : on garde l'usage historique (pas de label marque, juste les carrés). #4
+  const singleSiteProject = (allSites || []).length <= 1;
   useEffect(() => {
     if (!projectId || !site?.id) return;
     const ids = (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site.id]).filter(Boolean);
@@ -5023,6 +5029,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                         onEnqueue={() => enqueueAio(q.id)}
                         queued={aioQueue.has(q.id)}
                         brandSites={brandSitesFor(q)}
+                        singleSiteProject={singleSiteProject}
                         results={pResults}
                         allProviderResults={qResults}
                         brandName={brand_name}

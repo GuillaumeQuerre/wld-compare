@@ -330,10 +330,26 @@ async function watchLoop(ctx0) {
   let stop = false;
   process.on("SIGINT", () => { stop = true; console.log("\n⏹  Arrêt demandé…"); });
 
+  const brandCache = { [ctx0.siteId]: { brandName: ctx0.brandName, brandAliases: ctx0.brandAliases, competitors: ctx0.competitors } };
+  const resolveCtxForSite = async (sid) => {
+    if (!sid || sid === ctx0.siteId) return ctx0;
+    if (!brandCache[sid]) {
+      try {
+        const b = await sb(`site_brand?project_id=eq.${enc(CFG.projectId)}&site_id=eq.${enc(sid)}&limit=1`);
+        const row = b?.[0];
+        brandCache[sid] = row && row.brand_name
+          ? { brandName: row.brand_name, brandAliases: Array.isArray(row.brand_aliases) ? row.brand_aliases : [], competitors: ctx0.competitors }
+          : { brandName: ctx0.brandName, brandAliases: ctx0.brandAliases, competitors: ctx0.competitors };
+      } catch { brandCache[sid] = { brandName: ctx0.brandName, brandAliases: ctx0.brandAliases, competitors: ctx0.competitors }; }
+    }
+    return { ...ctx0, siteId: sid, ...brandCache[sid] };
+  };
+
   while (!stop) {
     let pending = [];
     try {
-      pending = await sb(`geo_scrape_queue?project_id=eq.${enc(CFG.projectId)}&site_id=eq.${enc(ctx0.siteId)}&status=eq.pending&order=requested_at.asc&limit=5`);
+      // Toutes les marques du projet (pas de filtre site_id) → plus de mismatch.
+      pending = await sb(`geo_scrape_queue?project_id=eq.${enc(CFG.projectId)}&status=eq.pending&order=requested_at.asc&limit=5`);
     } catch { pending = []; }
 
     if (!pending || !pending.length) { await sleep(CFG.pollMs); continue; }
@@ -346,7 +362,8 @@ async function watchLoop(ctx0) {
       }
       await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "running" } }).catch(() => {});
       try {
-        const r = await scrapeOne(page, q, ctx0);
+        const itemCtx = await resolveCtxForSite(item.site_id);
+        const r = await scrapeOne(page, q, itemCtx);
         if (r?.captcha) {
           console.error("⛔ CAPTCHA — remise en attente et pause 60s.");
           await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "pending" } }).catch(() => {});
