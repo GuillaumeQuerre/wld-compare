@@ -2863,7 +2863,7 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
           {brandSites.map(bs => (
             <div key={bs.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ width: 74, flexShrink: 0, fontSize: 9.5, fontWeight: 600, color: bs.color || "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={bs.label}>{bs.label}</span>
-              <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} />
+              <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} alwaysShow />
             </div>
           ))}
         </div>

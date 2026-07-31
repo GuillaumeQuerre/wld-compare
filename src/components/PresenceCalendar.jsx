@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { sbGetCalendarEntries, sbAddCalendarEntry } from "../lib/supabase";
+import { groupCalByProvider, cellColor, cellGlyph, filterCalBySite } from "../lib/calendarDisplay";
 
 // PROVIDERS is passed as prop to avoid circular import
 const DAYS = 30;
@@ -13,59 +14,21 @@ function localDateKey(d) {
 
 // ── CalendarGrid — pure rendering ────────────────────────────────
 
-function CalendarGrid({ entries, providers, errorMsg = null }) {
+function CalendarGrid({ entries, providers, errorMsg = null, alwaysShow = false }) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const ERR_COLOR = "#B45309"; // ambre — distinct du rouge "absent"
 
-  // Group entries by provider → date → { présence + type M/É/C + position }
-  // Type prioritaire : mention > évocation > citation. La présence reste binaire.
-  const byProvider = {};
-  entries.forEach(e => {
-    const pid = e.provider_id;
-    const key = String(e.test_date).slice(0, 10);
-    if (!byProvider[pid]) byProvider[pid] = {};
-    const present = e.brand_present === true || e.brand_present === 1;
-    const isMention   = e.brand_mention === 1 || e.brand_mention === true;
-    const isEvocation = e.brand_evocation === 1 || e.brand_evocation === true;
-    const isCitation  = e.brand_citation === 1 || e.brand_citation === true;
-    // type le plus fort de la journée
-    let type = null, pos = null;
-    if (isMention)        { type = "m"; pos = e.mention_position != null ? e.mention_position : null; }
-    else if (isEvocation) { type = "e"; }
-    else if (isCitation)  { type = "c"; }
-    const cur = byProvider[pid][key];
-    const cand = { present, type, pos };
-    if (cur === undefined) {
-      byProvider[pid][key] = cand;
-    } else {
-      // fusion : présent l'emporte ; type le plus fort l'emporte (m > e > c)
-      const rank = { m: 3, e: 2, c: 1, null: 0 };
-      const merged = { present: cur.present || present };
-      if ((rank[cand.type] || 0) >= (rank[cur.type] || 0)) { merged.type = cand.type; merged.pos = cand.pos; }
-      else { merged.type = cur.type; merged.pos = cur.pos; }
-      byProvider[pid][key] = merged;
-    }
-  });
+  // Group entries by provider → date → cellule (helpers purs, testés unitairement)
+  const byProvider = groupCalByProvider(entries);
 
-  const activeProviders = providers.filter(p => byProvider[p.id] || errorMsg);
+  // alwaysShow : afficher la grille même sans aucune entrée (carrés gris « non testé »),
+  // pour que chaque ligne de marque montre sa timeline dès l'affichage.
+  const activeProviders = alwaysShow ? providers : providers.filter(p => byProvider[p.id] || errorMsg);
   if (!activeProviders.length) return null;
 
-  // Glyphe affiché dans le carré : position si mention, sinon e / c
-  const glyphOf = (cell) => {
-    if (!cell || !cell.present) return "";
-    if (cell.type === "m") return cell.pos != null ? String(cell.pos) : "m";
-    if (cell.type === "e") return "e";
-    if (cell.type === "c") return "c";
-    return "✓"; // présent mais type non ventilé (ancien enregistrement)
-  };
-  const colorOf = (cell) => {
-    if (cell === undefined) return "#E5E7EB";       // non testé
-    if (!cell.present) return "#DC2626";             // absent
-    if (cell.type === "m") return "#059669";         // mention — vert
-    if (cell.type === "e") return "#D97706";         // évocation — orange
-    if (cell.type === "c") return "#1A3C2E";         // citation — vert profond
-    return "#059669";
-  };
+  // Glyphe et couleur : helpers purs exportés (testés). Label reste local.
+  const glyphOf = cellGlyph;
+  const colorOf = cellColor;
   const labelOf = (cell) => {
     if (cell === undefined) return "non testé";
     if (!cell.present) return "✗ Absent";
@@ -133,7 +96,7 @@ function CalendarGrid({ entries, providers, errorMsg = null }) {
 
 // ── PresenceCalendar — data + rendering ──────────────────────────
 
-export default function PresenceCalendar({ questionId, providers = [], newEntry = null, errorMsg = null, siteId = null }) {
+export default function PresenceCalendar({ questionId, providers = [], newEntry = null, errorMsg = null, siteId = null, alwaysShow = false }) {
   const [entries, setEntries] = useState([]);
 
   // Load from DB on mount / question change
@@ -142,9 +105,8 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
     sbGetCalendarEntries(questionId).then(rows => setEntries(rows || [])).catch(() => {});
   }, [questionId]);
 
-  // Filtre par marque : ne garder que les entrées de ce site_id. Les entrées
-  // héritées (site_id null) ne s'affichent qu'en l'absence de siteId (rétrocompat).
-  const shownEntries = siteId ? entries.filter(e => e.site_id === siteId) : entries;
+  // Filtre par marque (helper pur testé) : ne garder que les entrées de ce site_id.
+  const shownEntries = filterCalBySite(entries, siteId);
 
   // Add entry when a new result arrives (from parent)
   useEffect(() => {
@@ -190,5 +152,5 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
     return () => clearTimeout(reloadT);
   }, [newEntry]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <CalendarGrid entries={shownEntries} providers={providers} errorMsg={errorMsg} />;
+  return <CalendarGrid entries={shownEntries} providers={providers} errorMsg={errorMsg} alwaysShow={alwaysShow} />;
 }
