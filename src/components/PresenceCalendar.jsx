@@ -151,7 +151,16 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
     if (!newEntry) return;
     const { provider_id, brand_present, presType = null, mentionPos = null, site_id = null } = newEntry;
     if (!provider_id) return;
-    if (siteId && site_id && site_id !== siteId) return; // entrée d'une autre marque
+
+    // Rechargement depuis la base après un court délai : les entrées écrites PAR
+    // MARQUE au run (site_id) apparaissent alors pour CHAQUE ligne de marque, pas
+    // seulement la principale. S'exécute pour toutes les marques (avant le filtre).
+    const reloadT = setTimeout(() => {
+      sbGetCalendarEntries(questionId).then(rows => setEntries(rows || [])).catch(() => {});
+    }, 2500);
+
+    // Carré optimiste immédiat : uniquement pour la marque de cette entrée.
+    if (siteId && site_id && site_id !== siteId) return () => clearTimeout(reloadT);
 
     const today = localDateKey(new Date());
     const flags = {
@@ -172,12 +181,13 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
           setEntries(prev => prev.map(e =>
             e === optimistic
               ? { provider_id: saved.provider_id, test_date: String(saved.test_date).slice(0, 10), brand_present: saved.brand_present,
-                  brand_mention: saved.brand_mention, brand_evocation: saved.brand_evocation, brand_citation: saved.brand_citation, mention_position: saved.mention_position }
+                  brand_mention: saved.brand_mention, brand_evocation: saved.brand_evocation, brand_citation: saved.brand_citation, mention_position: saved.mention_position, site_id: saved.site_id }
               : e
           ));
         }
       })
       .catch(() => {});
+    return () => clearTimeout(reloadT);
   }, [newEntry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <CalendarGrid entries={shownEntries} providers={providers} errorMsg={errorMsg} />;

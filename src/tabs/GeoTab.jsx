@@ -3496,6 +3496,17 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
     sbGetAioQueue(projectId, site.id).then(rows => setAioQueue(new Set((rows || []).map(r => r.question_id)))).catch(() => {});
   }, [projectId, site?.id]);
   useEffect(() => { refreshAioQueue(); }, [refreshAioQueue]);
+  // Tant qu'il y a des demandes en attente, ré-interroge la file toutes les 8 s :
+  // c'est ce qui lève l'« en attente… » dès que le scraper local a traité la demande,
+  // et recharge les résultats pour afficher l'AI Overview qui vient d'arriver.
+  useEffect(() => {
+    if (aioQueue.size === 0) return;
+    const iv = setInterval(() => {
+      refreshAioQueue();
+      onResultSaved?.(); // recharge les résultats côté parent
+    }, 8000);
+    return () => clearInterval(iv);
+  }, [aioQueue.size, refreshAioQueue, onResultSaved]);
   const enqueueAio = (questionId) => {
     if (!projectId || !site?.id || !questionId) return;
     setAioQueue(prev => new Set(prev).add(questionId)); // feedback immédiat
