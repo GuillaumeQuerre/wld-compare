@@ -3,7 +3,7 @@ import "./geo-tab.css";
 import "./geo-responsive.css";
 import TourGuide from "./TourGuide";
 import PresenceCalendar from "../components/PresenceCalendar";
-import { callProvider, detectBrand, extractDomain, getProviderId, buildPrompt, calendarPresence, webSearchEnabled } from "../lib/geoEngine";
+import { callProvider, detectBrand, extractDomain, getProviderId, buildPrompt, webSearchEnabled } from "../lib/geoEngine";
 import { buildKeywordClustersCsv } from "../lib/exportOptimisations";
 import { generateRoadmap, RoadmapView } from "../lib/roadmapShared";
 import {
@@ -37,6 +37,7 @@ import { newProject, parseCSV, parseSemrushCSV } from "../lib/helpers";
 import { parseSemrush } from "../lib/parsers";
 import { C, SITE_PALETTE } from "../lib/constants";
 import { PresenceTrendChart, earliestSelectableDate, computeMecDaily } from "../lib/presenceTrend";
+import { presenceType } from "../lib/calendarDisplay";
 import { matchGscForQuestion } from "../lib/auditTools";
 // Note: sbSaveGeoAxes is called via onSaveAxes prop from App.jsx
 
@@ -2863,7 +2864,7 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
           {brandSites.map(bs => (
             <div key={bs.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ width: 74, flexShrink: 0, fontSize: 9.5, fontWeight: 600, color: bs.color || "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={bs.label}>{bs.label}</span>
-              <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} alwaysShow />
+              <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} alwaysShow hideProviderLabel />
             </div>
           ))}
         </div>
@@ -4168,12 +4169,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         }
       }).catch(e => console.error("sbSaveGeoResult error:", e));
 
-      // Déterminer le type de présence + position pour le calendrier (moteur partagé)
-      const { presType: presTypeForCal, mentionPos: mentionPosForCal } = calendarPresence(detectedBrand);
-      // Add to calendar (optimistic + persist) — avec type + position
-      setNewCalEntries(prev => ({ ...prev, [`${q.id}|${provider.id}`]: { provider_id: provider.id, site_id: site.id, brand_present: brandMentioned, presType: presTypeForCal, mentionPos: mentionPosForCal } }));
-      // Persiste UNE entrée calendrier PAR MARQUE (site_id) à partir de brand_presences.
-      // Si aucune marque associée n'est calculée, on garde l'entrée de la marque du site courant.
+      // Optimiste : porte TOUTES les marques détectées, pas seulement la principale,
+      // pour que chaque ligne de marque affiche son carré immédiatement.
       const _calPres = Object.keys(brand_presences).length ? brand_presences : { [site.id]: {
         mentioned: brandMentioned,
         mention_position: detectedBrand.mention?.position ?? null,
@@ -4181,9 +4178,12 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         citation_position: detectedBrand.citation?.position ?? null,
         in_sources: brandInSources,
       } };
+      setNewCalEntries(prev => ({ ...prev, [`${q.id}|${provider.id}`]: { provider_id: provider.id, presences: _calPres, at: Date.now() } }));
+      // Persiste UNE entrée calendrier PAR MARQUE (site_id). Même dérivation que
+      // l'affichage optimiste (presenceType) → run et affichage sont garantis identiques.
       Object.entries(_calPres).forEach(([sid, pres]) => {
-        const pType = pres.mention_position != null ? "mention" : pres.evocation_position != null ? "evocation" : (pres.in_sources ? "citation" : null);
-        sbAddCalendarEntry(q.id, provider.id, pres.mentioned || pType === "citation", pType, pres.mention_position ?? null, sid).catch(() => {});
+        const pType = presenceType(pres);
+        sbAddCalendarEntry(q.id, provider.id, (pres.mentioned || pType === "citation"), pType, pres.mention_position ?? null, sid).catch(() => {});
       });
 
       // Update cached answers on question

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { sbGetCalendarEntries, sbAddCalendarEntry } from "../lib/supabase";
-import { groupCalByProvider, cellColor, cellGlyph, filterCalBySite } from "../lib/calendarDisplay";
+import { sbGetCalendarEntries } from "../lib/supabase";
+import { groupCalByProvider, cellColor, cellGlyph, filterCalBySite, presenceToCalEntry } from "../lib/calendarDisplay";
 
 // PROVIDERS is passed as prop to avoid circular import
 const DAYS = 30;
@@ -14,7 +14,7 @@ function localDateKey(d) {
 
 // ── CalendarGrid — pure rendering ────────────────────────────────
 
-function CalendarGrid({ entries, providers, errorMsg = null, alwaysShow = false }) {
+function CalendarGrid({ entries, providers, errorMsg = null, alwaysShow = false, hideProviderLabel = false }) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const ERR_COLOR = "#B45309"; // ambre — distinct du rouge "absent"
 
@@ -62,9 +62,11 @@ function CalendarGrid({ entries, providers, errorMsg = null, alwaysShow = false 
 
         return (
           <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: p.color, minWidth: 68, flexShrink: 0 }}>
-              {p.icon} {p.label}
-            </span>
+            {!hideProviderLabel && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: p.color, minWidth: 68, flexShrink: 0 }}>
+                {p.icon} {p.label}
+              </span>
+            )}
             <div style={{ display: "flex", gap: 2, flex: 1, overflow: "hidden", flexWrap: "nowrap" }}>
               {slots.map(s => (
                 <div key={s.key} title={s.title}
@@ -96,7 +98,7 @@ function CalendarGrid({ entries, providers, errorMsg = null, alwaysShow = false 
 
 // ── PresenceCalendar — data + rendering ──────────────────────────
 
-export default function PresenceCalendar({ questionId, providers = [], newEntry = null, errorMsg = null, siteId = null, alwaysShow = false }) {
+export default function PresenceCalendar({ questionId, providers = [], newEntry = null, errorMsg = null, siteId = null, alwaysShow = false, hideProviderLabel = false }) {
   const [entries, setEntries] = useState([]);
 
   // Load from DB on mount / question change
@@ -111,46 +113,33 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
   // Add entry when a new result arrives (from parent)
   useEffect(() => {
     if (!newEntry) return;
-    const { provider_id, brand_present, presType = null, mentionPos = null, site_id = null } = newEntry;
+    const { provider_id, presences = null } = newEntry;
     if (!provider_id) return;
 
-    // Rechargement depuis la base après un court délai : les entrées écrites PAR
-    // MARQUE au run (site_id) apparaissent alors pour CHAQUE ligne de marque, pas
-    // seulement la principale. S'exécute pour toutes les marques (avant le filtre).
-    const reloadT = setTimeout(() => {
-      sbGetCalendarEntries(questionId).then(rows => setEntries(rows || [])).catch(() => {});
-    }, 2500);
+    // Rechargements MULTIPLES avec fusion : plusieurs tentatives espacées, car les
+    // écritures par marque du run n'atterrissent pas toutes en même temps. On
+    // FUSIONNE (on n'écrase pas l'optimiste tant que la base n'a pas confirmé).
+    const timers = [1500, 4000, 8000].map(delay => setTimeout(() => {
+      sbGetCalendarEntries(questionId).then(rows => {
+        const fresh = filterCalBySite(rows || [], siteId);
+        if (fresh.length) setEntries(rows || []); // la base a des entrées pour cette marque → source de vérité
+      }).catch(() => {});
+    }, delay));
 
-    // Carré optimiste immédiat : uniquement pour la marque de cette entrée.
-    if (siteId && site_id && site_id !== siteId) return () => clearTimeout(reloadT);
-
-    const today = localDateKey(new Date());
-    const flags = {
-      brand_mention:   presType === "mention"   ? 1 : 0,
-      brand_evocation: presType === "evocation" ? 1 : 0,
-      brand_citation:  presType === "citation"  ? 1 : 0,
-      mention_position: presType === "mention" ? mentionPos : null,
-    };
-    const optimistic = { provider_id, test_date: today, brand_present: !!brand_present, site_id, ...flags };
-
-    // Optimistic — add immediately
-    setEntries(prev => [...prev, optimistic]);
-
-    // Persist (avec type + position)
-    sbAddCalendarEntry(questionId, provider_id, brand_present, presType, mentionPos, site_id)
-      .then(saved => {
-        if (saved?.id) {
-          setEntries(prev => prev.map(e =>
-            e === optimistic
-              ? { provider_id: saved.provider_id, test_date: String(saved.test_date).slice(0, 10), brand_present: saved.brand_present,
-                  brand_mention: saved.brand_mention, brand_evocation: saved.brand_evocation, brand_citation: saved.brand_citation, mention_position: saved.mention_position, site_id: saved.site_id }
-              : e
-          ));
-        }
-      })
-      .catch(() => {});
-    return () => clearTimeout(reloadT);
+    // Carré optimiste immédiat pour CETTE marque, tiré de presences[siteId].
+    const mySite = siteId || null;
+    const pres = presences && mySite ? presences[mySite] : (presences && !mySite ? Object.values(presences)[0] : null);
+    if (pres) {
+      const today = localDateKey(new Date());
+      const optimistic = presenceToCalEntry(provider_id, mySite, pres, today);
+      setEntries(prev => {
+        // remplace une éventuelle entrée optimiste du même jour/marque, sinon ajoute
+        const others = prev.filter(e => !(String(e.test_date).slice(0, 10) === today && (e.site_id ?? null) === mySite && e.provider_id === provider_id));
+        return [...others, optimistic];
+      });
+    }
+    return () => timers.forEach(clearTimeout);
   }, [newEntry]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <CalendarGrid entries={shownEntries} providers={providers} errorMsg={errorMsg} alwaysShow={alwaysShow} />;
+  return <CalendarGrid entries={shownEntries} providers={providers} errorMsg={errorMsg} alwaysShow={alwaysShow} hideProviderLabel={hideProviderLabel} />;
 }

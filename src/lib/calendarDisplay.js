@@ -60,3 +60,28 @@ export function cellGlyph(cell) {
 export function filterCalBySite(entries, siteId) {
   return siteId ? (entries || []).filter(e => e.site_id === siteId) : (entries || []);
 }
+
+// Type de présence d'une marque (une valeur de brand_presences) :
+// mention (classée) > évocation (citée sans rang) > citation (dans les sources) > null.
+export function presenceType(pres) {
+  if (!pres) return null;
+  if (pres.mention_position != null) return "mention";
+  if (pres.evocation_position != null) return "evocation";
+  if (pres.in_sources) return "citation";
+  return null;
+}
+
+// Construit une entrée calendrier à partir de la présence d'une marque.
+// Utilisé À LA FOIS pour l'optimiste (affichage immédiat) et pour l'écriture au run,
+// afin que les deux produisent exactement la même chose.
+export function presenceToCalEntry(provider_id, site_id, pres, test_date) {
+  const type = presenceType(pres);
+  return {
+    provider_id, site_id, test_date,
+    brand_present: !!((pres && pres.mentioned) || type === "citation"),
+    brand_mention:   type === "mention"   ? 1 : 0,
+    brand_evocation: type === "evocation" ? 1 : 0,
+    brand_citation:  type === "citation"  ? 1 : 0,
+    mention_position: type === "mention" ? (pres && pres.mention_position != null ? pres.mention_position : null) : null,
+  };
+}
