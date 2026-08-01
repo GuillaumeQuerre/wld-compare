@@ -72,7 +72,7 @@ export function presenceType(pres) {
 }
 
 // Construit une entrée calendrier à partir de la présence d'une marque.
-// Utilisé À LA FOIS pour l'optimiste (affichage immédiat) et pour l'écriture au run,
+// Utilisé pour l'optimiste (affichage immédiat) ET pour l'écriture au run,
 // afin que les deux produisent exactement la même chose.
 export function presenceToCalEntry(provider_id, site_id, pres, test_date) {
   const type = presenceType(pres);
@@ -84,4 +84,31 @@ export function presenceToCalEntry(provider_id, site_id, pres, test_date) {
     brand_citation:  type === "citation"  ? 1 : 0,
     mention_position: type === "mention" ? (pres && pres.mention_position != null ? pres.mention_position : null) : null,
   };
+}
+
+// Construit des entrées calendrier à partir des RÉSULTATS d'interrogation
+// (geo_results), qui portent brand_presences par marque et persistent toujours.
+export function resultsToCalEntries(results, getProviderId) {
+  const out = [];
+  (results || []).forEach(r => {
+    const test_date = (r.created_at || "").slice(0, 10);
+    if (!test_date) return;
+    const provider_id = typeof getProviderId === "function" ? getProviderId(r.model) : (r.provider_id || r.model);
+    const bp = r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences : null;
+    if (bp && Object.keys(bp).length) {
+      Object.entries(bp).forEach(([sid, pres]) => out.push(presenceToCalEntry(provider_id, sid, pres, test_date)));
+    } else {
+      // Pas de ventilation par marque : entrée « marque principale » (site_id null),
+      // reconstruite depuis les champs de position du résultat.
+      const pres = {
+        mentioned: !!r.brand_mentioned,
+        mention_position:   r.brand_mention_position   ?? null,
+        evocation_position: r.brand_evocation_position ?? null,
+        citation_position:  r.brand_citation_position  ?? null,
+        in_sources: !!r.brand_in_sources,
+      };
+      out.push(presenceToCalEntry(provider_id, null, pres, test_date));
+    }
+  });
+  return out;
 }

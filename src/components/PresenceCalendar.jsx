@@ -98,7 +98,7 @@ function CalendarGrid({ entries, providers, errorMsg = null, alwaysShow = false,
 
 // ── PresenceCalendar — data + rendering ──────────────────────────
 
-export default function PresenceCalendar({ questionId, providers = [], newEntry = null, errorMsg = null, siteId = null, alwaysShow = false, hideProviderLabel = false }) {
+export default function PresenceCalendar({ questionId, providers = [], newEntry = null, errorMsg = null, siteId = null, alwaysShow = false, hideProviderLabel = false, seedEntries = [] }) {
   const [entries, setEntries] = useState([]);
 
   // Load from DB on mount / question change
@@ -107,8 +107,10 @@ export default function PresenceCalendar({ questionId, providers = [], newEntry 
     sbGetCalendarEntries(questionId).then(rows => setEntries(rows || [])).catch(() => {});
   }, [questionId]);
 
-  // Filtre par marque (helper pur testé) : ne garder que les entrées de ce site_id.
-  const shownEntries = filterCalBySite(entries, siteId);
+  // Source fiable : entrées reconstruites depuis les RÉSULTATS (persistants) +
+  // entrées de la base. Ainsi les carrés survivent au rechargement même si une
+  // écriture calendrier a échoué. On filtre ensuite par marque.
+  const shownEntries = filterCalBySite([...(seedEntries || []), ...entries], siteId);
 
   // Add entry when a new result arrives (from parent)
   useEffect(() => {

@@ -421,10 +421,21 @@ export async function sbEnqueueAioScrape(project_id, site_id, question_ids = [])
 // État des demandes en attente/en cours pour un site (pour l'affichage).
 export async function sbGetAioQueue(project_id, site_id) {
   try {
-    const res = await fetch(`${PROXY}/rest/v1/geo_scrape_queue?project_id=eq.${encodeURIComponent(project_id)}&site_id=eq.${encodeURIComponent(site_id)}&status=in.(pending,running)&select=question_id,status`, { headers: authHeaders() });
+    const res = await fetch(`${PROXY}/rest/v1/geo_scrape_queue?project_id=eq.${encodeURIComponent(project_id)}&site_id=eq.${encodeURIComponent(site_id)}&status=in.(pending,running)&select=question_id,status,requested_at`, { headers: authHeaders() });
     if (!res.ok) return [];
     return await res.json();
   } catch { return []; }
+}
+
+// Annule une demande en attente/en cours (retire la ligne). Utilisé par la croix
+// « annuler » et par l'auto-retour après 1 min.
+export async function sbCancelAioScrape(project_id, site_id, question_id) {
+  try {
+    await fetch(`${PROXY}/rest/v1/geo_scrape_queue?project_id=eq.${encodeURIComponent(project_id)}&site_id=eq.${encodeURIComponent(site_id)}&question_id=eq.${encodeURIComponent(question_id)}&status=in.(pending,running)`, {
+      method: "DELETE",
+      headers: { ...authHeaders(), "Prefer": "return=minimal" },
+    });
+  } catch { /* silencieux */ }
 }
 
 // ── GEO — OPENAI KEY (encrypted) on project ──────────────────────

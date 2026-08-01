@@ -11,7 +11,7 @@ import {
   sbSaveKeywords, sbGetKeywords, sbUpdateKeywordStatus, sbDeleteKeyword, sbUpdateKeywordVolume,
   sbSaveQuestions, sbGetQuestions, sbUpdateQuestion, sbDeleteQuestion,
   sbSaveGeoResult, sbGetGeoResults, sbSaveHint, sbGetHints, sbSetKeywordTags,
-  sbUpsertPresenceDaily, sbGetPresenceDaily, sbEnqueueAioScrape, sbGetAioQueue,
+  sbUpsertPresenceDaily, sbGetPresenceDaily, sbEnqueueAioScrape, sbGetAioQueue, sbCancelAioScrape,
   sbGetSchedule, sbSaveSchedule, sbUpdateSchedule, sbTriggerScheduler,
   sbSaveProjectSettings,
   sbGetCategories, sbSaveCategory, sbDeleteCategory,
@@ -37,7 +37,7 @@ import { newProject, parseCSV, parseSemrushCSV } from "../lib/helpers";
 import { parseSemrush } from "../lib/parsers";
 import { C, SITE_PALETTE } from "../lib/constants";
 import { PresenceTrendChart, earliestSelectableDate, computeMecDaily } from "../lib/presenceTrend";
-import { presenceType } from "../lib/calendarDisplay";
+import { presenceType, resultsToCalEntries } from "../lib/calendarDisplay";
 import { matchGscForQuestion } from "../lib/auditTools";
 // Note: sbSaveGeoAxes is called via onSaveAxes prop from App.jsx
 
@@ -2747,7 +2747,9 @@ function HintPanelQuestion({ questionId, question, sources, brandName, brandAlia
 
 // ── ProviderRow — calendar + info + accordion + run button ────────
 
-function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false, brandSites = [], singleSiteProject = false }) {
+function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false, onCancelQueue = null, brandSites = [], singleSiteProject = false }) {
+  // Carrés reconstruits depuis les résultats (persistants) → survivent au rechargement.
+  const calSeed = resultsToCalEntries(results, getProviderId);
   const [open, setOpen] = useState(false);
   const p = provider;
 
@@ -2769,7 +2771,7 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
             marque sélectionnée (filtrée). Multi-marques → rendu SOUS la ligne. */}
         {(singleSiteProject || brandSites.length <= 1) && (
           <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg}
-            siteId={singleSiteProject ? null : (brandSites[0]?.id || null)} />
+            siteId={singleSiteProject ? null : (brandSites[0]?.id || null)} seedEntries={calSeed} />
         )}
 
         {/* Présence — 3 types calculés depuis les champs DB ─────── */}
@@ -2841,7 +2843,11 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
         {/* Provider externe (AI Overview) : ▶ met la question en file pour le scraper local */}
         {external ? (
           isReadOnly ? null : queued ? (
-            <span style={{ fontSize: 10, color: "#C97820", fontStyle: "italic" }} title="En attente du scraper local (lancez-le en mode veille)">en attente…</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 10, color: "#C97820", fontStyle: "italic" }} title="En attente du scraper local (lancez-le en mode veille). Retour auto à ▶ après 1 min.">en attente…</span>
+              <button onClick={onCancelQueue} title="Annuler la demande"
+                style={{ border: "none", background: "transparent", color: "#C9782099", cursor: "pointer", fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
+            </span>
           ) : (
             <button className="gt-provider-run" onClick={onEnqueue} title={`Lancer ${p.label} (via le scraper local)`}>▶</button>
           )
@@ -2864,7 +2870,7 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
           {brandSites.map(bs => (
             <div key={bs.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ width: 74, flexShrink: 0, fontSize: 9.5, fontWeight: 600, color: bs.color || "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={bs.label}>{bs.label}</span>
-              <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} alwaysShow hideProviderLabel />
+              <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} alwaysShow hideProviderLabel seedEntries={calSeed} />
             </div>
           ))}
         </div>
@@ -3491,27 +3497,43 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   const [dailyRows, setDailyRows] = useState([]);
   // File d'attente AI Overview (question_ids en attente/en cours pour ce site)
   const [mecMode, setMecMode] = useState("question"); // switch réponse/question, partagé courbe+chiffres
-  const [aioQueue, setAioQueue] = useState(new Set());
+  // File AI Overview : Map question_id → requested_at (ISO). « en attente » n'est
+  // affiché que si la demande date de MOINS de 60 s ; au-delà → retour auto à
+  // « lancement » (le scraper peut encore la traiter). Croix = annulation manuelle.
+  const AIO_TIMEOUT_MS = 60000;
+  const [aioQueue, setAioQueue] = useState(new Map());
+  const [aioNow, setAioNow] = useState(Date.now());
   const refreshAioQueue = useCallback(() => {
     if (!projectId || !site?.id) return;
-    sbGetAioQueue(projectId, site.id).then(rows => setAioQueue(new Set((rows || []).map(r => r.question_id)))).catch(() => {});
+    sbGetAioQueue(projectId, site.id)
+      .then(rows => setAioQueue(new Map((rows || []).map(r => [r.question_id, r.requested_at || new Date().toISOString()]))))
+      .catch(() => {});
   }, [projectId, site?.id]);
   useEffect(() => { refreshAioQueue(); }, [refreshAioQueue]);
-  // Tant qu'il y a des demandes en attente, ré-interroge la file toutes les 8 s :
-  // c'est ce qui lève l'« en attente… » dès que le scraper local a traité la demande,
-  // et recharge les résultats pour afficher l'AI Overview qui vient d'arriver.
+  const aioPending = (questionId) => {
+    const ts = aioQueue.get(questionId);
+    if (!ts) return false;
+    return (aioNow - new Date(ts).getTime()) < AIO_TIMEOUT_MS;
+  };
   useEffect(() => {
     if (aioQueue.size === 0) return;
     const iv = setInterval(() => {
-      refreshAioQueue();
-      onResultSaved?.(); // recharge les résultats côté parent
+      setAioNow(Date.now());   // fait avancer l'horloge → déclenche l'auto-retour à 60 s
+      refreshAioQueue();       // lève « en attente » dès que le scraper a traité la demande
+      onResultSaved?.();       // recharge les résultats (affiche l'AI Overview arrivé)
     }, 8000);
     return () => clearInterval(iv);
   }, [aioQueue.size, refreshAioQueue, onResultSaved]);
   const enqueueAio = (questionId) => {
     if (!projectId || !site?.id || !questionId) return;
-    setAioQueue(prev => new Set(prev).add(questionId)); // feedback immédiat
+    setAioQueue(prev => new Map(prev).set(questionId, new Date().toISOString())); // feedback immédiat
+    setAioNow(Date.now());
     sbEnqueueAioScrape(projectId, site.id, [questionId]).catch(() => {}).finally(refreshAioQueue);
+  };
+  const cancelAio = (questionId) => {
+    if (!projectId || !site?.id || !questionId) return;
+    setAioQueue(prev => { const m = new Map(prev); m.delete(questionId); return m; });
+    sbCancelAioScrape(projectId, site.id, questionId).catch(() => {});
   };
   // Lecture de l'historique complet de la marque (au-delà des résultats récents).
   useEffect(() => {
@@ -5038,7 +5060,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                         provider={p}
                         external={!!p.external}
                         onEnqueue={() => enqueueAio(q.id)}
-                        queued={aioQueue.has(q.id)}
+                        onCancelQueue={() => cancelAio(q.id)}
+                        queued={aioPending(q.id)}
                         brandSites={brandSitesFor(q)}
                         singleSiteProject={singleSiteProject}
                         results={pResults}

@@ -10,8 +10,8 @@
  */
 import {
   classifyCalEntry, mergeCalCells, groupCalByProvider,
-  cellColor, cellGlyph, filterCalBySite, presenceType, presenceToCalEntry,
-} from "./calendarDisplay.js";
+  cellColor, cellGlyph, filterCalBySite, presenceType, presenceToCalEntry, resultsToCalEntries,
+} from "../src/lib/calendarDisplay.js";
 
 let ko = 0, total = 0;
 const eq = (name, got, exp) => {
@@ -159,6 +159,21 @@ console.log("\n──── COHÉRENCE run ↔ optimiste (même fonction → mê
   const run  = presenceToCalEntry("openai", "wedig", pres, "2026-08-01");
   const opti = presenceToCalEntry("openai", "wedig", pres, "2026-08-01");
   eq("run et optimiste produisent la MÊME entrée", run, opti);
+}
+
+console.log("\n──── resultsToCalEntries : carrés reconstruits depuis les résultats (persistance) ────");
+{
+  const getPid = (model) => model.includes("AI Overview") ? "aio" : "openai";
+  const results = [
+    { created_at: "2026-08-01T09:00:00Z", model: "gpt-4", brand_presences: { wedig: { mentioned: true, mention_position: 2 }, deuxio: { mentioned: false, in_sources: true } } },
+    { created_at: "2026-07-25T09:00:00Z", model: "AI Overview (google.fr)", brand_mentioned: true, brand_mention_position: 1 }, // sans brand_presences → marque principale
+  ];
+  const entries = resultsToCalEntries(results, getPid);
+  eq("2 marques du 1er résultat + 1 du 2e = 3 entrées", entries.length, 3);
+  eq("openai/wedig → mention #2", (e => [e.provider_id, e.site_id, e.brand_mention, e.mention_position])(entries.find(e => e.site_id === "wedig")), ["openai", "wedig", 1, 2]);
+  eq("openai/deuxio → citation", (e => [e.brand_citation, e.brand_present])(entries.find(e => e.site_id === "deuxio")), [1, true]);
+  eq("aio sans brand_presences → entrée marque principale (site_id null)", (e => [e.provider_id, e.site_id, e.brand_mention])(entries.find(e => e.provider_id === "aio")), ["aio", null, 1]);
+  eq("résultat sans date → ignoré", resultsToCalEntries([{ model: "x", brand_presences: { a: {} } }], getPid).length, 0);
 }
 
 console.log(`\n${ko === 0 ? `✅ ${total}/${total} tests passés — affichage des carrés vérifié` : `❌ ${ko}/${total} tests en échec`}`);
