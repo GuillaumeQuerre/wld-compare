@@ -1099,7 +1099,7 @@ function TopBarChart({ title, glyph, data, accent = "#1A3C2E", onBarClick = null
     </div>
   );
 }
-function StatsHeader({ questions, results: allResults, brandName, qualifiedCompetitors = [], aliasMap = {}, onTopClick = null, mode = "response" }) {
+function StatsHeader({ questions, results: allResults, brandName, qualifiedCompetitors = [], aliasMap = {}, onTopClick = null, mode = "response", siteIds = null }) {
   // A.2 — les chiffres portent sur la DERNIÈRE DATE D'INTERROGATION.
   const lastDate = (allResults || []).reduce((mx, r) => {
     const d = (r.created_at || "").slice(0, 10);
@@ -1107,29 +1107,28 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
   }, "");
   const results = lastDate ? (allResults || []).filter(r => (r.created_at || "").slice(0, 10) === lastDate) : (allResults || []);
 
-  // A.1/A.3 — compteur selon le mode : "response" = chaque réponse ; "question"
-  // = questions distinctes (une question compte si ≥1 de ses réponses l'est).
-  const countBy = (matched) => {
-    if (mode !== "question") return matched.length;
-    return new Set(matched.map(r => r.question_id).filter(v => v != null)).size;
+  // Chiffres PAR MARQUE cumulé (somme des marques sélectionnées), via la même
+  // agrégation que les courbes → chiffres et courbes cohérents.
+  const _brands = Array.isArray(siteIds) && siteIds.length ? siteIds : null;
+  const _agg = computeMecDaily(results, _brands)[0] || {
+    responses_count: 0, questions_count: 0,
+    mentions_resp: 0, evocations_resp: 0, citations_resp: 0, mentions_q: 0, evocations_q: 0, citations_q: 0,
   };
-  const total = mode === "question"
-    ? new Set(results.map(r => r.question_id).filter(v => v != null)).size
-    : results.length;
+  const _suf = mode === "question" ? "_q" : "_resp";
+  const total = mode === "question" ? _agg.questions_count : _agg.responses_count;
 
-  // ── Métriques par type de présence (nouveaux champs + rétrocompat) ──
+  // Positions de mention PAR MARQUE (depuis brand_presences), pour la moyenne.
+  const _posBrands = _brands || [null];
+  const mentionPositions = [];
+  results.forEach(r => _posBrands.forEach(sid => {
+    if (sid == null) { if (r.brand_mention_position != null) mentionPositions.push(r.brand_mention_position); }
+    else { const p = r.brand_presences && r.brand_presences[sid]; if (p && p.mention_position != null) mentionPositions.push(p.mention_position); }
+  }));
 
-  // MENTION = dans un top numéroté
-  // Rétrocompat : brand_position > 0 sur anciens résultats
-  const mentionResults   = results.filter(r =>
-    r.brand_mention_position != null ||
-    (r.brand_position != null && r.brand_position > 0)
-  );
-  const mentionPositions = mentionResults
-    .map(r => r.brand_mention_position || r.brand_position)
-    .filter(Boolean);
-  const mentionCount    = countBy(mentionResults);
-  const mentionAvgPos   = mentionPositions.length
+  const mentionCount   = _agg["mentions" + _suf];
+  const evocationCount = _agg["evocations" + _suf];
+  const citationCount  = _agg["citations" + _suf];
+  const mentionAvgPos  = mentionPositions.length
     ? (mentionPositions.reduce((a, b) => a + b, 0) / mentionPositions.length).toFixed(1)
     : null;
 
@@ -1145,7 +1144,6 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
   const evocationPositions = evocationResults
     .map(r => r.brand_evocation_position)
     .filter(Boolean);
-  const evocationCount   = countBy(evocationResults);
   const evocationAvgPos  = evocationPositions.length
     ? (evocationPositions.reduce((a, b) => a + b, 0) / evocationPositions.length).toFixed(1)
     : null;
@@ -1157,7 +1155,6 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
   const citationPositions = citationResults
     .map(r => r.brand_citation_position)
     .filter(Boolean);
-  const citationCount   = countBy(citationResults);
   const citationAvgPos  = citationPositions.length
     ? (citationPositions.reduce((a, b) => a + b, 0) / citationPositions.length).toFixed(1)
     : null;
@@ -2747,9 +2744,9 @@ function HintPanelQuestion({ questionId, question, sources, brandName, brandAlia
 
 // ── ProviderRow — calendar + info + accordion + run button ────────
 
-function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false, onCancelQueue = null, brandSites = [], singleSiteProject = false }) {
+function ProviderRow({ provider, results, brandName, brandAliases, brandDomain = "", hasKey, isRunning, onRun, questionId, newCalEntry = null, question = "", claudeKey = "", projectId = null, siteId = null, savedHint = "", brandTerms = [], competitorMap = {}, lastCalDate = null, isReadOnly = false, errorMsg = null, external = false, onEnqueue = null, queued = false, onCancelQueue = null, brandSites = [], singleSiteProject = false, calResults = null }) {
   // Carrés reconstruits depuis les résultats (persistants) → survivent au rechargement.
-  const calSeed = resultsToCalEntries(results, getProviderId);
+  const calSeed = resultsToCalEntries(calResults || results, getProviderId);
   const [open, setOpen] = useState(false);
   const p = provider;
 
@@ -3493,6 +3490,24 @@ function SiteMultiSelect({ sites = [], value = [], onChange }) {
 function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, categories, setCategories, allResults, allSites = [], readSiteIds = null, siteBrandsMap = {}, gscRows = [], aliasMap = {}, onResultSaved, activeProviders = ["openai"], providerKeys = {}, runMode = "parallel", keywordsOrder = [], refreshTrigger = 0, competitors = [], setCompetitors = null, onSaveKey = null, isReadOnly = false, webSearchSettings = {} }) {
   const [questions, setQuestions]   = useState([]);
   const [results, setResults]       = useState(allResults || []);
+  // Résultats de TOUS les sites du projet, réservés au CALENDRIER. Un résultat
+  // porte brand_presences de toutes les marques mais n'est stocké que sous UN
+  // site : le calendrier doit donc voir tous les sites, quelle que soit la
+  // sélection (sinon désélectionner un site fait disparaître ses carrés colorés).
+  const [calResults, setCalResults] = useState([]);
+  const _allSiteIdsKey = (allSites || []).map(s => s.id).join(",");
+  useEffect(() => {
+    if (!projectId) return;
+    const ids = (allSites || []).map(s => s.id).filter(Boolean);
+    if (!ids.length) return;
+    Promise.all(ids.map(sid => sbGetGeoResults(projectId, sid).catch(() => [])))
+      .then(a => setCalResults(a.flat())).catch(() => {});
+  }, [projectId, _allSiteIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const calResultsByQ = useMemo(() => {
+    const m = {};
+    calResults.forEach(r => { if (!m[r.question_id]) m[r.question_id] = []; m[r.question_id].push(r); });
+    return m;
+  }, [calResults]);
   // ── Agrégats quotidiens M/É/C (geo_presence_daily) : source des courbes ──
   const [dailyRows, setDailyRows] = useState([]);
   // File d'attente AI Overview (question_ids en attente/en cours pour ce site)
@@ -3640,7 +3655,6 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
     const next = providerMode(id) === "used" ? "unused" : providerMode(id) === "unused" ? "hidden" : "used";
     setProviderModes({ ...providerModes, [id]: next });
   };
-  const hiddenProviderIds = PROVIDERS.filter(p => providerMode(p.id) === "hidden").map(p => p.id);
   const [running, setRunning]       = useState({});
   const [providerErrors, setProviderErrors] = useState({}); // { "qId-pid": errorMsg }
   const [runAll, setRunAll]         = useState(false);
@@ -4414,15 +4428,6 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
   const { brand_name = "", brand_aliases = [] } = brand || {};
 
   // Results for filtered questions, filtered by provider selection
-  const filteredResults = useMemo(() => {
-    const qIds = new Set(filtered.map(q => q.id));
-    return results.filter(r => {
-      if (!qIds.has(r.question_id)) return false;
-      if (hiddenProviderIds.includes(getProviderId(r.model))) return false;
-      return true;
-    });
-  }, [filtered, results, providerModes]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Count questions to generate for "Lancer tout" indicator
   const toRunCount = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -4506,10 +4511,11 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
       {results.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           <PresenceTrendChart
-            results={results}
+            results={calResults}
             calendarEntries={calendarEntries}
             dailyRows={dailyRows}
-            minDate={earliestSelectableDate(project, results, calendarEntries)}
+            siteIds={_readIds}
+            minDate={earliestSelectableDate(project, calResults, calendarEntries)}
             title="Mentions · Évocations · Citations"
             compact
             mode={mecMode}
@@ -4583,7 +4589,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           {recomputing ? "Recalcul…" : "↻ Recalculer la détection"}
         </button>
       </div>
-      <div data-tour="stats-header"><StatsHeader questions={filtered} results={filteredResults} brandName={brand_name} qualifiedCompetitors={competitors.filter(c => c.enabled !== false)} aliasMap={aliasMap} mode={mecMode}
+      <div data-tour="stats-header"><StatsHeader questions={filtered} results={calResults} brandName={brand_name} qualifiedCompetitors={competitors.filter(c => c.enabled !== false)} aliasMap={aliasMap} mode={mecMode} siteIds={_readIds}
             onTopClick={(field, name) => { setSearchField(field); setFilterSearch(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")); }} /></div>
 
       {/* ══════════════════════════════════════════════════════
@@ -5063,6 +5069,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                         onCancelQueue={() => cancelAio(q.id)}
                         queued={aioPending(q.id)}
                         brandSites={brandSitesFor(q)}
+                        calResults={(calResultsByQ[q.id] || []).filter(r => getProviderId(r.model) === p.id)}
                         singleSiteProject={singleSiteProject}
                         results={pResults}
                         allProviderResults={qResults}

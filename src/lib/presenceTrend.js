@@ -95,6 +95,20 @@ export function classifyResult(r) {
   };
 }
 
+// Classification PAR MARQUE : lit brand_presences[siteId] du résultat (détection
+// propre à cette marque), indépendamment du site de stockage. Repli sur les
+// champs « marque principale » si brand_presences absent ou marque non couverte.
+export function classifyResultForBrand(r, siteId) {
+  const bp = r && r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences : null;
+  if (bp && siteId && bp[siteId]) {
+    const p = bp[siteId];
+    const isMention = p.mention_position != null;
+    const isPresent = isMention || !!p.mentioned || p.evocation_position != null;
+    return { mention: isMention, evocation: !isMention && isPresent, citation: !!p.in_sources };
+  }
+  return classifyResult(r);
+}
+
 /**
  * Construit la série quotidienne sur un axe de jours CONTINU.
  * results         : geo_results (champs indépendants → source prioritaire)
@@ -150,11 +164,15 @@ function calMecDaily(calendarEntries = []) {
  * d'interrogation ne disparaît, même si la table quotidienne ne l'a pas encore.
  * mode : "response" | "question".
  */
-export function buildPresenceSeries({ results = [], calendarEntries = [], dailyRows = null, mode = "response", from, to }) {
+export function buildPresenceSeries({ results = [], calendarEntries = [], dailyRows = null, mode = "response", from, to, siteIds = null }) {
+  const perBrand = Array.isArray(siteIds) && siteIds.length;
   const toMap = (arr) => { const m = {}; (arr || []).forEach(r => { if (r && r.date) m[r.date] = r; }); return m; };
-  const fromTable   = toMap(dailyRows);
-  const fromResults = toMap(computeMecDaily(results));
-  const fromCal     = toMap(calMecDaily(calendarEntries));
+  // Par marque (sélection) : on calcule tout depuis les résultats via
+  // classification par marque ; dailyRows/calendrier (non ventilés par marque)
+  // sont ignorés pour ne pas fausser le cumulé.
+  const fromTable   = perBrand ? {} : toMap(dailyRows);
+  const fromResults = toMap(computeMecDaily(results, perBrand ? siteIds : null));
+  const fromCal     = perBrand ? {} : toMap(calMecDaily(calendarEntries));
 
   const allDates = [...new Set([...Object.keys(fromTable), ...Object.keys(fromResults), ...Object.keys(fromCal)])]
     .filter(d => (!from || d >= from) && (!to || d <= to))
@@ -191,7 +209,13 @@ export function mecTotalsOf(results = []) {
 //   • par RÉPONSE  : chaque geo_results compte
 //   • par QUESTION : une question compte si ≥1 de ses réponses la classe ainsi
 //                    (mention/évocation exclusives ; citation indépendante)
-export function computeMecDaily(results = []) {
+// computeMecDaily(results, siteIds?) :
+//  • siteIds absent  → comportement historique (marque principale du résultat).
+//  • siteIds fourni  → CUMULÉ par marque : chaque couple (réponse × marque
+//    sélectionnée) compte séparément (classification via brand_presences).
+//    Une réponse présente pour 2 marques compte donc 2 fois.
+export function computeMecDaily(results = [], siteIds = null) {
+  const brands = Array.isArray(siteIds) && siteIds.length ? siteIds : [null]; // [null] = primaire
   const byDay = {};
   for (const r of (results || [])) {
     const date = (r.created_at || "").slice(0, 10);
@@ -199,20 +223,23 @@ export function computeMecDaily(results = []) {
     if (!byDay[date]) byDay[date] = {
       date, responses: 0, questions: new Set(),
       mentions_resp: 0, evocations_resp: 0, citations_resp: 0,
-      q: {}, // question_id -> { mention, evocation, citation }
+      q: {},
     };
     const d = byDay[date];
-    const c = classifyResult(r);
-    d.responses++;
-    const qid = r.question_id != null ? r.question_id : `_${d.responses}`;
-    d.questions.add(qid);
-    if (c.mention) d.mentions_resp++;
-    if (c.evocation) d.evocations_resp++;
-    if (c.citation) d.citations_resp++;
-    if (!d.q[qid]) d.q[qid] = { mention: false, evocation: false, citation: false };
-    if (c.mention) d.q[qid].mention = true;
-    if (c.evocation) d.q[qid].evocation = true;
-    if (c.citation) d.q[qid].citation = true;
+    for (const sid of brands) {
+      const c = sid == null ? classifyResult(r) : classifyResultForBrand(r, sid);
+      d.responses++;
+      const baseQid = r.question_id != null ? r.question_id : `_${d.responses}`;
+      const qid = sid == null ? baseQid : `${baseQid}|${sid}`; // (question × marque) distinct
+      d.questions.add(qid);
+      if (c.mention) d.mentions_resp++;
+      if (c.evocation) d.evocations_resp++;
+      if (c.citation) d.citations_resp++;
+      if (!d.q[qid]) d.q[qid] = { mention: false, evocation: false, citation: false };
+      if (c.mention) d.q[qid].mention = true;
+      if (c.evocation) d.q[qid].evocation = true;
+      if (c.citation) d.q[qid].citation = true;
+    }
   }
   return Object.values(byDay).map(d => {
     let mq = 0, eq = 0, cq = 0;
@@ -302,7 +329,7 @@ function Curves({ series, width = 900, height = 240 }) {
 export function PresenceTrendChart({
   results = [], calendarEntries = [], dailyRows = null, minDate, title = "Chronologie de la présence",
   defaultDays = 30, compact = false, onRangeChange = null, defaultMode = "response", chartHeight = null,
-  mode: modeProp = null, onModeChange = null,
+  mode: modeProp = null, onModeChange = null, siteIds = null,
 }) {
   const today = dayKeyOf(new Date());
   const floor = minDate || addDays(today, -365);
@@ -315,8 +342,8 @@ export function PresenceTrendChart({
 
   const series = useMemo(() => {
     const f = from < floor ? floor : from;
-    return buildPresenceSeries({ results, calendarEntries, dailyRows, mode, from: f, to });
-  }, [results, calendarEntries, dailyRows, mode, from, to, floor]);
+    return buildPresenceSeries({ results, calendarEntries, dailyRows, mode, from: f, to, siteIds });
+  }, [results, calendarEntries, dailyRows, mode, from, to, floor, siteIds]);
 
   // Remontee au parent APRES le rendu (jamais pendant) : evite un setState
   // sur le parent au milieu du rendu de l'enfant.
