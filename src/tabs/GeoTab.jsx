@@ -1330,13 +1330,32 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
   const addCit  = (name, pos) => { const e = ensure(name); if (!e) return; e.cit.count++; if (pos != null && pos > 0) e.cit.bestPos = e.cit.bestPos == null ? pos : Math.min(e.cit.bestPos, pos); };
 
   results.forEach(r => {
-    // ── MARQUE du projet ──
-    const bMent = r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null);
-    if (bMent != null && bMent > 0) addMent(brandName, bMent);
-    // Évocation comptée INDÉPENDAMMENT de la mention : une marque listée dans un top
-    // peut aussi être évoquée dans le récit → elle doit apparaître dans le top évocations.
-    if (r.brand_evocation_position != null) addEvoc(brandName);
-    if (r.brand_in_sources === true || r.brand_in_sources === 1) addCit(brandName, r.brand_citation_position ?? null);
+    // ── MARQUE(S) du projet ──
+    // Cumulé : une entrée « Votre marque » (champs du résultat).
+    // Comparaison : une entrée PAR MARQUE sélectionnée (depuis brand_presences).
+    const _compareTops = view === "compare" && Array.isArray(statBrands) && statBrands.length > 1;
+    const brandEntries = _compareTops
+      ? statBrands.map(b => ({ label: b.label, pres: (r.brand_presences && r.brand_presences[b.id]) || null }))
+      : [{ label: brandName, pres: null }];
+    brandEntries.forEach(({ label, pres }) => {
+      if (!label) return;
+      let mPos, isEvoc, isCit, citPos;
+      if (pres) {
+        mPos = pres.mention_position ?? null;
+        isEvoc = pres.evocation_position != null;
+        isCit = !!pres.in_sources;
+        citPos = pres.citation_position ?? null;
+      } else {
+        mPos = r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null);
+        isEvoc = r.brand_evocation_position != null;
+        isCit = (r.brand_in_sources === true || r.brand_in_sources === 1);
+        citPos = r.brand_citation_position ?? null;
+      }
+      const e = ensure(label); if (e) e.kind = "brand"; // couleur « votre marque » forcée
+      if (mPos != null && mPos > 0) addMent(label, mPos);
+      if (isEvoc) addEvoc(label);
+      if (isCit) addCit(label, citPos);
+    });
 
     // ── CONCURRENTS flaggués (positions fiables M/É/C) ──
     (r.competitors_mentioned || []).forEach(c => {
@@ -3763,7 +3782,7 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   const [kwInput, setKwInput]           = useState("");
   const [hintsMap, setHintsMap]     = useState({}); // { questionId: hint_text }
   // Filters — persisted per project+site in localStorage
-  const filtersKey = `geo_filters_${projectId}_${site?.id}`;
+  const filtersKey = `geo_filters_${projectId}`; // préférences de filtres au niveau PROJET (indépendant du site)
   const loadFilters = () => {
     try { return JSON.parse(localStorage.getItem(filtersKey) || "{}"); } catch { return {}; }
   };
@@ -3846,9 +3865,10 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
     Promise.all([
       Promise.all(ids.map(sid => sbGetGeoResults(projectId, sid).catch(() => []))).then(a => a.flat()),
       sbGetAllQuestions(projectId).catch(() => []),
-      sbGetHints(projectId, site.id),
-      sbGetKeywords(projectId, site.id),
-      sbGetCalendarEntriesBatch(projectId, site.id),
+      // Groupe D : hints / keywords / calendrier suivent la SÉLECTION (union des sites).
+      Promise.all(ids.map(sid => sbGetHints(projectId, sid).catch(() => []))).then(a => a.flat()),
+      Promise.all(ids.map(sid => sbGetKeywords(projectId, sid).catch(() => []))).then(a => a.flat()),
+      Promise.all(ids.map(sid => sbGetCalendarEntriesBatch(projectId, sid).catch(() => []))).then(a => a.flat()),
     ]).then(([results, questions, hints, keywords, calEntries]) => {
       setResults(results.length ? results : (allResults || []));
       setQuestions(questions);
@@ -3862,7 +3882,9 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
       const map = {};
       hints.forEach(r => { map[r.question_id] = { text: r.hint_text, date: r.updated_at }; });
       setHintsMap(map);
-      setKeywords(keywords);
+      // Dédup keywords par id (une même marque peut réapparaître entre sites).
+      const kwSeen = new Set();
+      setKeywords((keywords || []).filter(k => (k && k.id != null && !kwSeen.has(k.id)) ? (kwSeen.add(k.id), true) : false));
       setCalendarEntries(calEntries || []);
     }).catch(e => console.warn("[QuestionsTab] load error:", e));
   }, [projectId, site?.id, refreshTrigger, _readKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4546,7 +4568,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
   const getProvidersToRun = (q, force = false) => {
     const currentKeys = providerKeysRef.current;
     const currentActive = activeProvidersRef.current;
-    let configuredProviders = PROVIDERS.filter(p => currentActive.includes(p.id) && currentKeys[p.id]?.dec);
+    let configuredProviders = PROVIDERS.filter(p => currentActive.includes(p.id) && (p.external || currentKeys[p.id]?.dec));
     // Seuls les providers en état "used" (pills au-dessus des questions) sont interrogés.
     configuredProviders = configuredProviders.filter(p => providerMode(p.id) === "used");
     if (force) return configuredProviders; // always run all when forced (individual ▶ button)
@@ -4572,7 +4594,9 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     for (const { q, providers } of toRun) {
       if (stopAllRef.current) break;
       setRunning(r => ({ ...r, [q.id]: true }));
-      await Promise.all(providers.map(p => runProvider(q, p)));
+      // Providers externes (AI Overview) : on enfile une demande pour le scraper
+      // local, comme un provider à part entière. Les autres : appel API direct.
+      await Promise.all(providers.map(p => p.external ? Promise.resolve(enqueueAio(q.id)) : runProvider(q, p)));
       setRunning(r => ({ ...r, [q.id]: false }));
     }
     setRunAll(false);
@@ -4585,7 +4609,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
   const toRunCount = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const configuredProviders = PROVIDERS.filter(p =>
-      activeProviders.includes(p.id) && providerKeys[p.id]?.dec
+      activeProviders.includes(p.id) && (p.external || providerKeys[p.id]?.dec)
     );
     if (!configuredProviders.length) return 0;
     return filtered.filter(q => {
@@ -4652,7 +4676,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
       setRecomputeMsg(`Recalcul… ${done + errs}/${real.length}`);
     }
     // Recharge le calendrier depuis la base → les carrés reflètent la détection à jour
-    try { const fresh = await sbGetCalendarEntriesBatch(projectId, site.id); setCalendarEntries(fresh || []); } catch { /* best effort */ }
+    try { const fresh = (await Promise.all((Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site.id]).map(sid => sbGetCalendarEntriesBatch(projectId, sid).catch(() => [])))).flat(); setCalendarEntries(fresh || []); } catch { /* best effort */ }
     setRecomputing(false);
     setRecomputeMsg(`Terminé : ${done} résultat(s) recalculé(s)${errs ? `, ${errs} erreur(s)` : ""}.`);
     onResultSaved?.(); // recharge les résultats → les tops se mettent à jour
@@ -5225,7 +5249,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                         if (!toRun.length) return;
                         // Clear erreurs avant retry
                         toRun.forEach(p => setProviderErrors(prev => { const n={...prev}; delete n[`${q.id}-${p.id}`]; return n; }));
-                        toRun.forEach(p => runProvider(q, p));
+                        // AI Overview (externe) → enfile pour le scraper ; autres → API.
+                        toRun.forEach(p => p.external ? enqueueAio(q.id) : runProvider(q, p));
                       }}
                       disabled={isRunning}
                       title="Lancer tous les providers"

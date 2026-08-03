@@ -224,6 +224,19 @@ async function extractAIO(page) {
     // Texte : on retire le label et les libellés de bouton
     let text = (container.innerText || "").trim();
     text = text.replace(new RegExp(cfg.aioLabel, "gi"), "").replace(/^\s*\n/gm, "").trim();
+    // Nettoyage : si on a attrapé toute la page, isoler la portion AI Overview.
+    // 1) Retirer la barre de navigation Google en tête.
+    text = text.replace(/^(Mode IA|Tous|Vidéos courtes|Actualités|Vidéos|Images|Livres|Plus|Outils|Shopping|Maps|Résultats de recherche|All|News|Videos|Books|Tools|Shopping)(\s+(Mode IA|Tous|Vidéos courtes|Actualités|Vidéos|Images|Livres|Plus|Outils|Shopping|Maps|Résultats de recherche|All|News|Videos|Books|Tools|Shopping))*\s*/i, "").trim();
+    // 2) Couper à la FIN de l'AI Overview : bornes qui marquent le début des
+    //    résultats web/SEO (gardés pour plus tard, hors périmètre AIO).
+    const cutMarkers = [
+      /R[ée]sultats Web/i, /Tout afficher/i, /Web results/i,
+      /R[ée]sultats de recherche/i, /Liens sponsoris[ée]s/i, /Recherches associ[ée]es/i,
+      /Autres questions/i, /People also ask/i, /Sponsored/i, /Search Results/i,
+    ];
+    let cutAt = text.length;
+    for (const re of cutMarkers) { const m = text.search(re); if (m > 40 && m < cutAt) cutAt = m; }
+    text = text.slice(0, cutAt).trim();
     // Sources : liens sortants du bloc (hors liens Google internes)
     const seen = new Set(); const sources = [];
     container.querySelectorAll("a[href]").forEach(a => {
@@ -243,12 +256,22 @@ async function extractAIO(page) {
 }
 
 async function launchBrowser() {
-  const browser = await chromium.launch({ headless: CFG.headless, slowMo: CFG.headless ? 0 : 60 });
-  const ctx = await browser.newContext({
+  const opts = {
     locale: CFG.hl === "fr" ? "fr-FR" : CFG.hl,
     viewport: { width: 1280, height: 900 },
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-  });
+  };
+  // Profil PERSISTANT (USER_DATA_DIR) : conserve la session Google d'une fois sur
+  // l'autre → BEAUCOUP moins de CAPTCHA. Connecte-toi à Google une fois dans la
+  // fenêtre, la session est réutilisée ensuite.
+  const udd = process.env.USER_DATA_DIR || "";
+  if (udd) {
+    const ctx = await chromium.launchPersistentContext(udd, { headless: CFG.headless, slowMo: CFG.headless ? 0 : 60, ...opts });
+    const page = ctx.pages()[0] || await ctx.newPage();
+    return { browser: ctx, page }; // ctx.close() ferme tout
+  }
+  const browser = await chromium.launch({ headless: CFG.headless, slowMo: CFG.headless ? 0 : 60 });
+  const ctx = await browser.newContext(opts);
   const page = await ctx.newPage();
   return { browser, page };
 }
@@ -262,16 +285,39 @@ async function handleConsent(page) {
   }
 }
 
+async function isCaptcha(page) {
+  try {
+    if (/sorry\/index|recaptcha|unusual traffic/i.test(page.url())) return true;
+    if (await page.locator("form#captcha-form").count().catch(() => 0)) return true;
+  } catch { /* page en transition */ }
+  return false;
+}
+
+// Attend que l'utilisateur résolve le CAPTCHA dans la fenêtre visible, puis reprend.
+async function waitForCaptchaSolve(page, maxMs = 180000) {
+  console.log("\n⛔ CAPTCHA détecté — RÉSOUS-LE dans la fenêtre Chrome ouverte. Je reprends dès que c'est fait (3 min max)…");
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    await sleep(3000);
+    if (!(await isCaptcha(page))) { console.log("✅ CAPTCHA résolu — je reprends.\n"); return true; }
+  }
+  console.warn("⏱  CAPTCHA non résolu à temps — demande remise en attente.");
+  return false;
+}
+
 // Scrape UNE question et écrit le résultat. Renvoie { found } ou lève une erreur.
-// Renvoie null si un CAPTCHA est détecté (l'appelant doit s'arrêter).
+// Renvoie { captcha:true } si un CAPTCHA non résolu bloque (l'appelant remet en file).
 async function scrapeOne(page, q, ctx) {
   const { siteId, brandName, brandAliases, competitors } = ctx;
   const projectId = ctx.projectId || CFG.projectId; // piloté par la file en veille
   const url = `https://www.${CFG.googleDomain}/search?q=${enc(q.question)}&hl=${CFG.hl}&gl=${CFG.hl}`;
   await page.goto(url, { waitUntil: "domcontentloaded" });
-  // Détection CAPTCHA → on s'arrête proprement (solution C = surveillé à la main)
-  if (/sorry\/index|recaptcha|unusual traffic/i.test(page.url()) || await page.locator("form#captcha-form").count().catch(() => 0)) {
-    return { captcha: true };
+  // CAPTCHA → on laisse l'utilisateur le résoudre dans la fenêtre, puis on recharge.
+  if (await isCaptcha(page)) {
+    const solved = await waitForCaptchaSolve(page);
+    if (!solved) return { captcha: true };
+    await page.goto(url, { waitUntil: "domcontentloaded" }); // recharge la vraie recherche
+    if (await isCaptcha(page)) return { captcha: true };
   }
   await sleep(AIO_CONFIG.waitMs > 4000 ? 3000 : AIO_CONFIG.waitMs);
   const { found, text, sources } = await extractAIO(page);
@@ -287,6 +333,20 @@ async function scrapeOne(page, q, ctx) {
   const model = `AI Overview (${CFG.googleDomain})`;
   const now = new Date().toISOString();
 
+  // Présence PAR MARQUE (toutes les marques du projet) — comme les autres providers.
+  const allBrands = (ctx.allBrands && ctx.allBrands.length) ? ctx.allBrands : [{ siteId, brandName, brandAliases }];
+  const brand_presences = {};
+  for (const b of allBrands) {
+    const db = detectBrand(answer, sources, b.brandName, b.brandAliases, competitors);
+    brand_presences[b.siteId] = {
+      mentioned: !!db.brandMentioned,
+      mention_position:   db.mention?.position   ?? null,
+      evocation_position: db.evocation?.position ?? null,
+      citation_position:  db.citation?.position  ?? null,
+      in_sources: !!db.brandInSources,
+    };
+  }
+
   const record = {
     question_id: q.id, project_id: projectId, site_id: siteId, model,
     answer, answer_type: found ? "aio" : "no_aio", intent_type: null,
@@ -296,25 +356,27 @@ async function scrapeOne(page, q, ctx) {
     brand_mention_position:   d.mention?.position   || null,
     brand_evocation_position: d.evocation?.position || null,
     brand_citation_position:  d.citation?.position  || null,
+    brand_presences,
     created_at: now,
   };
   await saveResult(record);
 
-  // Calendrier (petits carrés) — même moteur partagé que l'app
-  const { presType, mentionPos } = calendarPresence(d);
+  // Calendrier (petits carrés) — une entrée PAR MARQUE, comme les autres providers.
   const _pid = getProviderId(model), _day = now.slice(0, 10);
-  // Une seule entrée calendrier par (question, provider, MARQUE, jour) : on supprime
-  // l'entrée existante de CETTE marque ce jour avant d'insérer (pas les autres marques).
-  await sb(`geo_calendar_dates?question_id=eq.${enc(q.id)}&provider_id=eq.${enc(_pid)}&site_id=eq.${enc(siteId)}&test_date=eq.${_day}`, { method: "DELETE" }).catch(() => {});
-  await sb("geo_calendar_dates", { method: "POST", body: {
-    question_id: q.id, provider_id: _pid, site_id: siteId,
-    brand_present: d.brandMentioned === true,
-    brand_mention:   presType === "mention"   ? 1 : 0,
-    brand_citation:  presType === "citation"  ? 1 : 0,
-    brand_evocation: presType === "evocation" ? 1 : 0,
-    mention_position: presType === "mention" && mentionPos != null ? mentionPos : null,
-    test_date: _day,
-  }}).catch(() => {});
+  for (const [sid, pres] of Object.entries(brand_presences)) {
+    const pType = pres.mention_position != null ? "mention" : pres.evocation_position != null ? "evocation" : (pres.in_sources ? "citation" : null);
+    // Dédup : supprime l'entrée de CETTE marque ce jour avant d'insérer (pas les autres).
+    await sb(`geo_calendar_dates?question_id=eq.${enc(q.id)}&provider_id=eq.${enc(_pid)}&site_id=eq.${enc(sid)}&test_date=eq.${_day}`, { method: "DELETE" }).catch(() => {});
+    await sb("geo_calendar_dates", { method: "POST", body: {
+      question_id: q.id, provider_id: _pid, site_id: sid,
+      brand_present: !!(pres.mentioned || pType === "citation"),
+      brand_mention:   pType === "mention"   ? 1 : 0,
+      brand_citation:  pType === "citation"  ? 1 : 0,
+      brand_evocation: pType === "evocation" ? 1 : 0,
+      mention_position: pType === "mention" && pres.mention_position != null ? pres.mention_position : null,
+      test_date: _day,
+    }}).catch(() => {});
+  }
 
   return { found, position: d.mention?.position, mentioned: d.brandMentioned };
 }
@@ -358,14 +420,19 @@ const _ctxCache = {};
 async function resolveCtx(project_id, site_id) {
   const key = `${project_id}|${site_id}`;
   if (_ctxCache[key]) return _ctxCache[key];
-  let brandName = "", brandAliases = [], competitors = [];
+  let brandName = "", brandAliases = [], competitors = [], allBrands = [];
   try {
     const b = await sb(`site_brand?project_id=eq.${enc(project_id)}&site_id=eq.${enc(site_id)}&limit=1`);
     const row = b?.[0];
     if (row && row.brand_name) { brandName = row.brand_name; brandAliases = Array.isArray(row.brand_aliases) ? row.brand_aliases : []; }
   } catch { /* marque introuvable → détection sans marque */ }
   try { competitors = await sb(`geo_competitors?project_id=eq.${enc(project_id)}&select=name,domain`) || []; } catch { competitors = []; }
-  const ctx = { projectId: project_id, siteId: site_id, brandName, brandAliases, competitors };
+  // TOUTES les marques du projet → détection multi-marques (brand_presences).
+  try {
+    const brows = await sb(`site_brand?project_id=eq.${enc(project_id)}&select=site_id,brand_name,brand_aliases`);
+    allBrands = (brows || []).filter(b => b.brand_name).map(b => ({ siteId: b.site_id, brandName: b.brand_name, brandAliases: Array.isArray(b.brand_aliases) ? b.brand_aliases : [] }));
+  } catch { allBrands = []; }
+  const ctx = { projectId: project_id, siteId: site_id, brandName, brandAliases, competitors, allBrands };
   _ctxCache[key] = ctx;
   return ctx;
 }
@@ -375,6 +442,13 @@ async function resolveCtx(project_id, site_id) {
 async function watchLoopGlobal() {
   console.log("👁  Mode veille (piloté par la file) — aucune config projet requise.");
   console.log("    En attente des demandes lancées depuis l'app (Ctrl-C pour arrêter)…");
+  // Récupération : les demandes restées « running » (arrêt/plantage précédent) sont
+  // orphelines — on les repasse en « pending » pour qu'elles soient retraitées.
+  try {
+    const filter = CFG.projectId ? `&project_id=eq.${enc(CFG.projectId)}` : "";
+    const reclaimed = await sb(`geo_scrape_queue?status=eq.running${filter}`, { method: "PATCH", body: { status: "pending" } });
+    void reclaimed;
+  } catch { /* ignore */ }
   const { browser, page } = await launchBrowser();
   await page.goto(`https://www.${CFG.googleDomain}/`, { waitUntil: "domcontentloaded" });
   await handleConsent(page);
@@ -400,6 +474,7 @@ async function watchLoopGlobal() {
         try { const qq = await sb(`geo_questions?id=eq.${enc(item.question_id)}&select=id,question`); if (qq?.[0]) q = { id: qq[0].id, question: qq[0].question }; } catch { /* ignore */ }
       }
       await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "running" } }).catch(() => {});
+      console.log(`→ Demande reçue · projet ${item.project_id} · site ${item.site_id} · « ${(q.question || "").slice(0, 50)} »`);
       try {
         const ctx = await resolveCtx(item.project_id, item.site_id);
         const r = await scrapeOne(page, q, ctx);
