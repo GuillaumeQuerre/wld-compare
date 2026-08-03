@@ -3656,6 +3656,21 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   const [urlGenStatus, setUrlGenStatus] = useState(""); // "", "crawl", "gen", "error:…", "done:N"
   const [editingQ, setEditingQ]     = useState(null); // { id, text } — question being edited
   const [dragId, setDragId]         = useState(null); // glisser-déposer : question en cours de déplacement
+  // Auto-scroll pendant le glisser-déposer : la page défile quand le curseur
+  // approche du haut/bas de la fenêtre (le drag HTML5 ne le fait pas seul).
+  const dragYRef = useRef(0);
+  const scrollTimerRef = useRef(null);
+  const startAutoScroll = () => {
+    if (scrollTimerRef.current) return;
+    scrollTimerRef.current = setInterval(() => {
+      const y = dragYRef.current;
+      const edge = 90, speed = 16;
+      if (y > 0 && y < edge) window.scrollBy(0, -speed);
+      else if (y > 0 && y > window.innerHeight - edge) window.scrollBy(0, speed);
+    }, 16);
+  };
+  const stopAutoScroll = () => { if (scrollTimerRef.current) { clearInterval(scrollTimerRef.current); scrollTimerRef.current = null; } dragYRef.current = 0; };
+  useEffect(() => () => stopAutoScroll(), []); // nettoyage au démontage
   // Réordonne les questions (glisser-déposer) et ENREGISTRE l'ordre (sort_order),
   // pour qu'il reste consistant après interrogation et rechargement.
   const moveQuestion = (fromId, toId) => {
@@ -4990,7 +5005,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           {questions.length === 0 ? "Aucune question — générez-en depuis les mots-clés ou ajoutez-en manuellement" : "Aucune question ne correspond aux filtres"}
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}
+          onDragOver={dragId ? (e => { e.preventDefault(); dragYRef.current = e.clientY; }) : undefined}>
           {filtered.map((q, idx) => {
             const qResults = resultsByQ[q.id] || [];
             const hasBrand = qResults.some(r => r.brand_mentioned === true || r.brand_mentioned === 1);
@@ -5010,8 +5026,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                   <span
                     draggable
-                    onDragStart={() => setDragId(q.id)}
-                    onDragEnd={() => setDragId(null)}
+                    onDragStart={() => { setDragId(q.id); startAutoScroll(); }}
+                    onDragEnd={() => { setDragId(null); stopAutoScroll(); }}
                     title="Glisser pour réordonner"
                     style={{ flexShrink: 0, marginTop: 1, cursor: "grab", color: "#CBD5E1", fontSize: 12, userSelect: "none", lineHeight: 1.4 }}>⠿</span>
                   <span style={{ flexShrink: 0, marginTop: 1, minWidth: 22, textAlign: "right", fontSize: 11, fontWeight: 600, color: "#1A3C2E", fontVariantNumeric: "tabular-nums", userSelect: "none" }}>{idx + 1}</span>
