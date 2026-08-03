@@ -64,9 +64,14 @@ import { detectBrand, getProviderId, calendarPresence } from "../src/lib/geoEngi
 
 // ── Config lue depuis l'environnement ────────────────────────────────────
 const CFG = {
-  supabaseUrl:  must("SUPABASE_URL"),
+  // Normalise l'URL : retire un éventuel /rest/v1 déjà présent dans SUPABASE_URL
+  // (sinon les requêtes tapent .../rest/v1/rest/v1 → 404 PGRST125 « Invalid path »).
+  supabaseUrl:  must("SUPABASE_URL").replace(/\/+$/, "").replace(/\/rest\/v1$/, ""),
   supabaseKey:  must("SUPABASE_KEY"),
-  projectId:    must("PROJECT_ID"),
+  // PROJECT_ID facultatif en mode VEILLE : la file porte déjà project_id + site_id,
+  // le scraper traite ce que l'app enfile (multi-projets). Requis seulement pour
+  // le mode « one-shot » (interroger tout un projet d'un coup).
+  projectId:    process.env.PROJECT_ID || "",
   // SITE_ID facultatif : par défaut, on prend le site principal du projet.
   // Renseigne-le seulement pour cibler un autre site d'un projet multi-sites.
   siteId:       process.env.SITE_ID || "",
@@ -148,7 +153,23 @@ async function loadContext() {
   if (site) {
     siteId = site.id;
   }
-  if (!siteId) { console.error("❌ Aucun site trouvé pour ce projet (sites_json vide). Renseigne SITE_ID en dernier recours."); process.exit(1); }
+  if (!siteId) {
+    console.error("❌ Aucun site trouvé pour ce projet (sites_json vide).");
+    console.error(`   PROJECT_ID actuel = « ${CFG.projectId} » — vérifie que c'est bien l'ID du projet dans l'app (PAS le ref Supabase).`);
+    // Aide : lister les projets disponibles pour identifier le bon PROJECT_ID.
+    try {
+      const all = await sb(`projects?select=id,name&order=name.asc&limit=50`);
+      if (Array.isArray(all) && all.length) {
+        console.error("\n   Projets disponibles (id → nom) :");
+        all.forEach(p => console.error(`     ${p.id}  →  ${p.name || "(sans nom)"}`));
+        console.error("\n   → Mets le bon id dans PROJECT_ID (.env), puis relance.");
+      } else {
+        console.error("   Aucun projet listé — la clé n'a peut-être pas accès à la table projects.");
+      }
+    } catch (e) { console.error("   (impossible de lister les projets : " + (e?.message || e) + ")"); }
+    console.error("\n   En dernier recours, force un SITE_ID directement.");
+    process.exit(1);
+  }
 
   // La marque n'est PAS dans sites_json : elle vit dans la table `site_brand`
   // (par project_id + site_id), exactement comme sbGetBrand() dans l'app.
@@ -245,6 +266,7 @@ async function handleConsent(page) {
 // Renvoie null si un CAPTCHA est détecté (l'appelant doit s'arrêter).
 async function scrapeOne(page, q, ctx) {
   const { siteId, brandName, brandAliases, competitors } = ctx;
+  const projectId = ctx.projectId || CFG.projectId; // piloté par la file en veille
   const url = `https://www.${CFG.googleDomain}/search?q=${enc(q.question)}&hl=${CFG.hl}&gl=${CFG.hl}`;
   await page.goto(url, { waitUntil: "domcontentloaded" });
   // Détection CAPTCHA → on s'arrête proprement (solution C = surveillé à la main)
@@ -256,11 +278,17 @@ async function scrapeOne(page, q, ctx) {
 
   const answer = found && text ? text : "(Aucun AI Overview affiché pour cette requête)";
   const d = detectBrand(answer, sources, brandName, brandAliases, competitors);
+  // Diagnostic : combien de caractères d'AIO extraits, quelle marque cherchée.
+  // Permet de distinguer « AIO vide/extraction cassée » d'« AIO ok mais marque absente ».
+  if (process.env.AIO_DEBUG === "true" || process.env.AIO_DEBUG === "1") {
+    console.log(`     ⟐ AIO=${found ? "oui" : "non"} · ${found && text ? text.length : 0} car. · marque="${brandName}" · ${(sources || []).length} source(s) · détecté=${d.brandMentioned ? "OUI" : "non"}`);
+    if (found && text) console.log(`     ⟐ extrait: ${text.slice(0, 180).replace(/\s+/g, " ")}…`);
+  }
   const model = `AI Overview (${CFG.googleDomain})`;
   const now = new Date().toISOString();
 
   const record = {
-    question_id: q.id, project_id: CFG.projectId, site_id: siteId, model,
+    question_id: q.id, project_id: projectId, site_id: siteId, model,
     answer, answer_type: found ? "aio" : "no_aio", intent_type: null,
     sources, source_types: [],
     brand_mentioned: d.brandMentioned, brand_position: d.brandPosition, brand_in_sources: d.brandInSources,
@@ -274,25 +302,31 @@ async function scrapeOne(page, q, ctx) {
 
   // Calendrier (petits carrés) — même moteur partagé que l'app
   const { presType, mentionPos } = calendarPresence(d);
+  const _pid = getProviderId(model), _day = now.slice(0, 10);
+  // Une seule entrée calendrier par (question, provider, MARQUE, jour) : on supprime
+  // l'entrée existante de CETTE marque ce jour avant d'insérer (pas les autres marques).
+  await sb(`geo_calendar_dates?question_id=eq.${enc(q.id)}&provider_id=eq.${enc(_pid)}&site_id=eq.${enc(siteId)}&test_date=eq.${_day}`, { method: "DELETE" }).catch(() => {});
   await sb("geo_calendar_dates", { method: "POST", body: {
-    question_id: q.id, provider_id: getProviderId(model),
+    question_id: q.id, provider_id: _pid, site_id: siteId,
     brand_present: d.brandMentioned === true,
     brand_mention:   presType === "mention"   ? 1 : 0,
     brand_citation:  presType === "citation"  ? 1 : 0,
     brand_evocation: presType === "evocation" ? 1 : 0,
     mention_position: presType === "mention" && mentionPos != null ? mentionPos : null,
-    test_date: now.slice(0, 10),
+    test_date: _day,
   }}).catch(() => {});
 
   return { found, position: d.mention?.position, mentioned: d.brandMentioned };
 }
 
 async function run() {
+  // Mode VEILLE : piloté par la file, aucun PROJECT_ID requis. Le scraper traite
+  // ce que l'app enfile (project_id + site_id portés par chaque demande).
+  if (CFG.watch) { await watchLoopGlobal(); return; }
+
   const ctx0 = await loadContext();
   const { questions, siteId, siteName, brandName, competitors, multiSite } = ctx0;
   const list = CFG.maxQuestions > 0 ? questions.slice(0, CFG.maxQuestions) : questions;
-
-  if (CFG.watch) { await watchLoop(ctx0); return; }
 
   console.log(`▶ Projet ${CFG.projectId} · site « ${siteName} »${multiSite ? " (projet multi-sites : site principal ou SITE_ID/SITE_LABEL)" : ""}`);
   console.log(`  ${list.length} question(s) · marque="${brandName}" · ${competitors.length} concurrent(s)`);
@@ -316,6 +350,75 @@ async function run() {
 
   await browser.close();
   console.log(`\n✔ Terminé : ${ok} enregistrées (${aio} avec AIO), ${skipped} en erreur.`);
+}
+
+// Résout le contexte (marque, alias, concurrents) d'une demande à partir de son
+// project_id + site_id. Mis en cache par (projet|site). Le project_id vient de la FILE.
+const _ctxCache = {};
+async function resolveCtx(project_id, site_id) {
+  const key = `${project_id}|${site_id}`;
+  if (_ctxCache[key]) return _ctxCache[key];
+  let brandName = "", brandAliases = [], competitors = [];
+  try {
+    const b = await sb(`site_brand?project_id=eq.${enc(project_id)}&site_id=eq.${enc(site_id)}&limit=1`);
+    const row = b?.[0];
+    if (row && row.brand_name) { brandName = row.brand_name; brandAliases = Array.isArray(row.brand_aliases) ? row.brand_aliases : []; }
+  } catch { /* marque introuvable → détection sans marque */ }
+  try { competitors = await sb(`geo_competitors?project_id=eq.${enc(project_id)}&select=name,domain`) || []; } catch { competitors = []; }
+  const ctx = { projectId: project_id, siteId: site_id, brandName, brandAliases, competitors };
+  _ctxCache[key] = ctx;
+  return ctx;
+}
+
+// Veille PILOTÉE PAR LA FILE : polle toutes les demandes pending (tous projets),
+// résout le contexte de chacune et la traite. Aucun PROJECT_ID requis.
+async function watchLoopGlobal() {
+  console.log("👁  Mode veille (piloté par la file) — aucune config projet requise.");
+  console.log("    En attente des demandes lancées depuis l'app (Ctrl-C pour arrêter)…");
+  const { browser, page } = await launchBrowser();
+  await page.goto(`https://www.${CFG.googleDomain}/`, { waitUntil: "domcontentloaded" });
+  await handleConsent(page);
+
+  let stop = false;
+  process.on("SIGINT", () => { stop = true; console.log("\n⏹  Arrêt demandé…"); });
+
+  while (!stop) {
+    let pending = [];
+    try {
+      // Toutes les demandes, tous projets/sites confondus.
+      const filter = CFG.projectId ? `&project_id=eq.${enc(CFG.projectId)}` : "";
+      pending = await sb(`geo_scrape_queue?status=eq.pending${filter}&order=requested_at.asc&limit=5`);
+    } catch { pending = []; }
+
+    if (!pending || !pending.length) { await sleep(CFG.pollMs); continue; }
+
+    for (const item of pending) {
+      if (stop) break;
+      // Libellé de la question (depuis la base).
+      let q = { id: item.question_id, question: item.question_text };
+      if (!q.question) {
+        try { const qq = await sb(`geo_questions?id=eq.${enc(item.question_id)}&select=id,question`); if (qq?.[0]) q = { id: qq[0].id, question: qq[0].question }; } catch { /* ignore */ }
+      }
+      await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "running" } }).catch(() => {});
+      try {
+        const ctx = await resolveCtx(item.project_id, item.site_id);
+        const r = await scrapeOne(page, q, ctx);
+        if (r?.captcha) {
+          console.error("⛔ CAPTCHA — remise en attente et pause 60s.");
+          await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "pending" } }).catch(() => {});
+          await sleep(60000); continue;
+        }
+        await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "done", done_at: new Date().toISOString() } }).catch(() => {});
+        console.log(`  ✅ [${item.project_id?.slice(0, 8)}…] ${q.question?.slice(0, 55)} — ${r.found ? (r.position ? "top #" + r.position : r.mentioned ? "présent" : "absent") : "pas d'AIO"}`);
+      } catch (e) {
+        await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "error", error: e.message.slice(0, 200), done_at: new Date().toISOString() } }).catch(() => {});
+        console.warn(`  ⚠️  ${q.question?.slice(0, 55)} — ${e.message.slice(0, 80)}`);
+      }
+      await sleep(jitter());
+    }
+  }
+  await browser.close();
+  console.log("✔ Veille terminée.");
 }
 
 // Boucle de VEILLE : interroge la file geo_scrape_queue et traite les demandes
@@ -383,6 +486,11 @@ async function watchLoop(ctx0) {
 }
 
 async function saveResult(record) {
+  // UN SEUL résultat par (question, modèle) : on supprime l'ancien avant d'insérer.
+  // Évite l'empilement après CAPTCHA/relances.
+  try {
+    await sb(`geo_results?question_id=eq.${enc(record.question_id)}&model=eq.${enc(record.model)}`, { method: "DELETE" });
+  } catch { /* ignore */ }
   // Insert avec repli si des colonnes "détail" manquent (schéma non migré)
   try { await sb("geo_results", { method: "POST", body: record }); }
   catch (e) {
