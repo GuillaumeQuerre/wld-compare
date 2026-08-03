@@ -36,7 +36,7 @@ import UploadCard from "../components/UploadCard";
 import { newProject, parseCSV, parseSemrushCSV } from "../lib/helpers";
 import { parseSemrush } from "../lib/parsers";
 import { C, SITE_PALETTE } from "../lib/constants";
-import { PresenceTrendChart, earliestSelectableDate, computeMecDaily } from "../lib/presenceTrend";
+import { PresenceTrendChart, earliestSelectableDate, computeMecDaily, BRAND_PALETTE } from "../lib/presenceTrend";
 import { presenceType, resultsToCalEntries } from "../lib/calendarDisplay";
 import { matchGscForQuestion } from "../lib/auditTools";
 // Note: sbSaveGeoAxes is called via onSaveAxes prop from App.jsx
@@ -1099,7 +1099,7 @@ function TopBarChart({ title, glyph, data, accent = "#1A3C2E", onBarClick = null
     </div>
   );
 }
-function StatsHeader({ questions, results: allResults, brandName, qualifiedCompetitors = [], aliasMap = {}, onTopClick = null, mode = "response", siteIds = null }) {
+function StatsHeader({ questions, results: allResults, brandName, qualifiedCompetitors = [], aliasMap = {}, onTopClick = null, mode = "response", siteIds = null, view = "cumule", statBrands = [] }) {
   // A.2 — les chiffres portent sur la DERNIÈRE DATE D'INTERROGATION.
   const lastDate = (allResults || []).reduce((mx, r) => {
     const d = (r.created_at || "").slice(0, 10);
@@ -1300,7 +1300,33 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
     <div style={{ marginBottom: 24 }}>
 
       {/* ── 3 couples Présence + Position ── */}
-      <div className="gt-kpi-grid geo-stats-kpi-grid" style={{ marginBottom: 12 }}>
+      {/* Mode COMPARAISON : un jeu de 3 chiffres PAR MARQUE (mention/évocation/citation). */}
+      {view === "compare" && statBrands.length > 1 && (
+        <div style={{ marginBottom: 12, border: "0.5px solid #1A3C2E14", borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", fontSize: 10, fontWeight: 700, color: "#94A3B8", padding: "6px 12px", background: "#1A3C2E08", textTransform: "uppercase", letterSpacing: 0.3 }}>
+            <span>Marque</span><span style={{ textAlign: "center" }}>Mention</span><span style={{ textAlign: "center" }}>Évocation</span><span style={{ textAlign: "center" }}>Citation</span>
+          </div>
+          {statBrands.map((b, i) => {
+            const a = computeMecDaily(results, [b.id])[0] || { responses_count: 0, questions_count: 0, mentions_resp: 0, evocations_resp: 0, citations_resp: 0, mentions_q: 0, evocations_q: 0, citations_q: 0 };
+            const tot = mode === "question" ? a.questions_count : a.responses_count;
+            const pct = (v) => tot ? Math.round(v / tot * 100) : 0;
+            const col = b.color || BRAND_PALETTE[i % BRAND_PALETTE.length];
+            return (
+              <div key={b.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", alignItems: "center", padding: "8px 12px", borderTop: "0.5px solid #1A3C2E10" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#1A3C2E" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: col, flexShrink: 0 }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.label}</span>
+                </span>
+                <span style={{ textAlign: "center", fontWeight: 700, color: "#1A7A4A" }}>{pct(a["mentions" + _suf])}%<span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 400 }}> · {a["mentions" + _suf]}</span></span>
+                <span style={{ textAlign: "center", fontWeight: 700, color: "#C97820" }}>{pct(a["evocations" + _suf])}%<span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 400 }}> · {a["evocations" + _suf]}</span></span>
+                <span style={{ textAlign: "center", fontWeight: 700, color: "#2563EB" }}>{pct(a["citations" + _suf])}%<span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 400 }}> · {a["citations" + _suf]}</span></span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="gt-kpi-grid geo-stats-kpi-grid" style={{ marginBottom: 12, display: view === "compare" && statBrands.length > 1 ? "none" : undefined }}>
 
         {/* Mention */}
         <div className="gt-kpi-card">
@@ -3523,6 +3549,7 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   const [dailyRows, setDailyRows] = useState([]);
   // File d'attente AI Overview (question_ids en attente/en cours pour ce site)
   const [mecMode, setMecMode] = useState("question"); // switch réponse/question, partagé courbe+chiffres
+  const [mecView, setMecView] = useState("cumule");    // Cumulé (somme sélection) / Comparaison (par marque)
   // File AI Overview : Map question_id → requested_at (ISO). « en attente » n'est
   // affiché que si la demande date de MOINS de 60 s ; au-delà → retour auto à
   // « lancement » (le scraper peut encore la traiter). Croix = annulation manuelle.
@@ -3564,8 +3591,9 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   // Lecture de l'historique complet de la marque (au-delà des résultats récents).
   useEffect(() => {
     if (!projectId || !site?.id) return;
-    sbGetPresenceDaily(projectId, [site.id]).then(rows => setDailyRows(rows || [])).catch(() => {});
-  }, [projectId, site?.id]);
+    const ids = (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site.id]).filter(Boolean);
+    sbGetPresenceDaily(projectId, ids).then(rows => setDailyRows(rows || [])).catch(() => {});
+  }, [projectId, site?.id, (Array.isArray(readSiteIds) ? readSiteIds.join(",") : "")]); // eslint-disable-line react-hooks/exhaustive-deps
   // Matérialisation : recalcule les jours présents dans les résultats et upsert,
   // puis fusionne dans l'état (les jours recalculés priment sur l'historique).
   // GARDE-FOU : on n'upsert PAS un jour dont le recalcul compte MOINS de réponses
@@ -4518,14 +4546,31 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
   return (
     <div>
-      {/* ── Évolution chronologique : mentions / évocations / citations ── */}
-      {results.length > 0 && (
+      {/* ── Suivi chronologique : mentions / évocations / citations ── */}
+      {calResults.length > 0 && (
         <div style={{ marginBottom: 18 }}>
+          {/* Switch Cumulé / Comparaison — visible dès 2 marques sélectionnées */}
+          {_readIds.length > 1 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+              <span style={{ display: "inline-flex", border: "0.5px solid #1A3C2E18", borderRadius: 20, overflow: "hidden" }}>
+                {[["cumule", "Cumulé"], ["compare", "Comparaison"]].map(([v, lbl]) => (
+                  <button key={v} onClick={() => setMecView(v)}
+                    style={{ padding: "3px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
+                      background: mecView === v ? "#1A7A4A10" : "transparent", color: mecView === v ? "#1A7A4A" : "#94A3B8" }}
+                    title={v === "cumule" ? "Somme des marques sélectionnées" : "Une courbe et un jeu de chiffres par marque"}>
+                    {lbl}
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
           <PresenceTrendChart
             results={calResults}
             calendarEntries={calendarEntries}
             dailyRows={dailyRows}
             siteIds={_readIds}
+            view={_readIds.length > 1 ? mecView : "cumule"}
+            brands={(allSites || []).filter(s => _readIds.includes(s.id)).map(s => ({ id: s.id, label: s.label, color: s.color }))}
             minDate={earliestSelectableDate(project, calResults, calendarEntries)}
             title="Suivi Chronologique"
             compact
@@ -4600,7 +4645,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           {recomputing ? "Recalcul…" : "↻ Recalculer la détection"}
         </button>
       </div>
-      <div data-tour="stats-header"><StatsHeader questions={filtered} results={calResults} brandName={brand_name} qualifiedCompetitors={competitors.filter(c => c.enabled !== false)} aliasMap={aliasMap} mode={mecMode} siteIds={_readIds}
+      <div data-tour="stats-header"><StatsHeader questions={filtered} results={calResults} brandName={brand_name} qualifiedCompetitors={competitors.filter(c => c.enabled !== false)} aliasMap={aliasMap} mode={mecMode} siteIds={_readIds} view={_readIds.length > 1 ? mecView : "cumule"} statBrands={(allSites || []).filter(s => _readIds.includes(s.id)).map(s => ({ id: s.id, label: s.label, color: s.color }))}
             onTopClick={(field, name) => { setSearchField(field); setFilterSearch(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")); }} /></div>
 
       {/* ══════════════════════════════════════════════════════
@@ -6340,7 +6385,10 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
   useEffect(() => {
     if (!projectId || !site?.id) return;
     sbGetBrand(projectId, site.id).then(b => { setBrand(b); });
-    sbGetGeoResults(projectId, site.id).then(r => { setAllResults(r); }); // keep previous data while loading
+    // Résultats de TOUS les sites du projet (source unique, indépendante de la
+    // sélection) : un résultat porte brand_presences de toutes les marques.
+    Promise.all((Array.isArray(sites) ? sites : []).map(s => sbGetGeoResults(projectId, s.id).catch(() => [])))
+      .then(a => setAllResults(a.flat()));
     sbGetKeywords(projectId, site.id).then(kws => { setKeywords(kws || []); });
     sbGetCompetitors(projectId, site.id).then(c => { setCompetitors(c || []); });
     sbGetAliases(projectId, site.id).then(rows => {
@@ -6607,7 +6655,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
             aliasMap={aliasMap}
             brand={brand} categories={categories} setCategories={setCategories}
             allResults={allResults.filter(r => effSiteIds.includes(r.site_id))}
-            onResultSaved={() => sbGetGeoResults(projectId, primarySite.id).then(setAllResults)}
+            onResultSaved={() => Promise.all((Array.isArray(sites) ? sites : []).map(s => sbGetGeoResults(projectId, s.id).catch(() => []))).then(a => setAllResults(a.flat()))}
             activeProviders={activeProviders} providerKeys={providerKeys}
             runMode={runMode} keywordsOrder={keywords.map(k => k.id)}
             refreshTrigger={questionsKey}
@@ -6641,7 +6689,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
             </div>
             <CompetitorManager
               projectId={projectId} siteId={site?.id}
-              allResults={allResults.filter(r => r.site_id === site?.id)}
+              allResults={allResults.filter(r => effSiteIds.includes(r.site_id))}
               competitors={competitorsView} setCompetitors={setCompetitors}
               brandLabel={brand?.brand_name || site?.name || "Votre marque"}
               sfData={sfData}
@@ -6660,7 +6708,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
         {/* ── Sources ── */}
         {subTab === "urls" && (
           <UrlsTab projectId={projectId} categories={categories} brand={brand}
-            allResults={allResults.filter(r => r.site_id === site?.id)}
+            allResults={allResults.filter(r => effSiteIds.includes(r.site_id))}
             qualifiedCompetitors={competitors} />
         )}
 

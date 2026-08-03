@@ -16,6 +16,8 @@ import React, { useState, useMemo, useEffect } from "react";
 
 export const MEC_COLORS = { mentions: "#1A7A4A", evocations: "#C97820", citations: "#2563EB" };
 export const MEC_LABELS = { mentions: "Mentions", evocations: "Évocations", citations: "Citations" };
+// Palette pour le mode Comparaison (une couleur par marque, repli si la marque n'a pas la sienne).
+export const BRAND_PALETTE = ["#1A7A4A", "#2563EB", "#C97820", "#7C3AED", "#DB2777", "#0891B2", "#B45309", "#4B5563"];
 
 // Courbe lissée passant par TOUS les points, sans dépassement (interpolation
 // cubique monotone de Fritsch-Carlson) : idéal pour des comptes en dents de scie
@@ -267,7 +269,7 @@ export function earliestSelectableDate(project, results = [], calendarEntries = 
 }
 
 // ── Rendu SVG : 3 courbes sur un axe fait des DATES DE DÉTECTION ──────────
-function Curves({ series, width = 900, height = 240 }) {
+function Curves({ series, width = 900, height = 240, keys = ["citations", "evocations", "mentions"], colors = MEC_COLORS, labels = MEC_LABELS }) {
   const padL = 34, padR = 12, padT = 12, padB = 26;
   const w = Math.max(width, 240), h = height;
   const innerW = w - padL - padR, innerH = h - padT - padB;
@@ -280,8 +282,8 @@ function Curves({ series, width = 900, height = 240 }) {
   const pts = (series || []).filter(d => d && d.date);
   const n = pts.length;
 
-  // B) Axe vertical : borne max = 120% du plus élevé parmi MENTIONS ou ÉVOCATIONS.
-  const peak = Math.max(0, ...pts.map(d => Math.max(val(d, "mentions"), val(d, "evocations"))));
+  // B) Axe vertical : borne max = 120% du plus élevé parmi toutes les courbes tracées.
+  const peak = Math.max(0, ...pts.flatMap(d => keys.map(k => val(d, k))));
   const maxVal = Math.max(1, Math.ceil(peak * 1.2));
 
   // Points régulièrement espacés (une position par date de détection).
@@ -303,17 +305,17 @@ function Curves({ series, width = 900, height = 240 }) {
         <text key={d.date} x={x(i)} y={h - 8} textAnchor="middle" fontSize="9" fill="#94A3B8">{d.date.slice(8, 10)}/{d.date.slice(5, 7)}</text>
       ))}
       {/* C) Une courbe LISSÉE fine par set reliant tous les points, points par-dessus. */}
-      {["citations", "evocations", "mentions"].map(key => (
+      {keys.map(key => (
         <g key={key}>
           {n > 1 && (
             <path
               d={smoothPathD(pts.map((d, i) => [x(i), y(val(d, key))]))}
-              fill="none" stroke={MEC_COLORS[key]} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round"
+              fill="none" stroke={colors[key]} strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round"
             />
           )}
           {pts.map((d, i) => (
-            <circle key={d.date} cx={x(i)} cy={y(val(d, key))} r={n === 1 ? 2.6 : 1.8} fill={MEC_COLORS[key]}>
-              <title>{`${d.date} — ${MEC_LABELS[key]} : ${val(d, key)} (sur ${d.tested} réponses)`}</title>
+            <circle key={d.date} cx={x(i)} cy={y(val(d, key))} r={n === 1 ? 2.6 : 1.8} fill={colors[key]}>
+              <title>{`${d.date} — ${labels[key]} : ${val(d, key)} (sur ${d.tested} réponses)`}</title>
             </circle>
           ))}
         </g>
@@ -329,7 +331,7 @@ function Curves({ series, width = 900, height = 240 }) {
 export function PresenceTrendChart({
   results = [], calendarEntries = [], dailyRows = null, minDate, title = "Chronologie de la présence",
   defaultDays = 30, compact = false, onRangeChange = null, defaultMode = "response", chartHeight = null,
-  mode: modeProp = null, onModeChange = null, siteIds = null,
+  mode: modeProp = null, onModeChange = null, siteIds = null, view = "cumule", brands = [],
 }) {
   const today = dayKeyOf(new Date());
   const floor = minDate || addDays(today, -365);
@@ -344,6 +346,25 @@ export function PresenceTrendChart({
     const f = from < floor ? floor : from;
     return buildPresenceSeries({ results, calendarEntries, dailyRows, mode, from: f, to, siteIds });
   }, [results, calendarEntries, dailyRows, mode, from, to, floor, siteIds]);
+
+  // Mode COMPARAISON : une courbe par marque (métrique = mentions), alignées sur
+  // l'union des dates. keys/colors/labels = marques.
+  const compare = useMemo(() => {
+    if (view !== "compare" || !Array.isArray(brands) || !brands.length) return null;
+    const f = from < floor ? floor : from;
+    const per = brands.map(b => ({ b, s: buildPresenceSeries({ results, mode, from: f, to, siteIds: [b.id] }) }));
+    const byBD = {}; const dates = new Set();
+    per.forEach(({ b, s }) => { byBD[b.id] = {}; s.forEach(d => { byBD[b.id][d.date] = d.mentions; dates.add(d.date); }); });
+    const pts = [...dates].sort().map(date => {
+      const row = { date, tested: 0 };
+      brands.forEach(b => { row[b.id] = byBD[b.id][date] || 0; });
+      return row;
+    });
+    const keys = brands.map(b => b.id);
+    const colors = {}; const labels = {};
+    brands.forEach((b, i) => { colors[b.id] = b.color || BRAND_PALETTE[i % BRAND_PALETTE.length]; labels[b.id] = b.label; });
+    return { pts, keys, colors, labels };
+  }, [view, brands, results, mode, from, to, floor]);
 
   // Remontee au parent APRES le rendu (jamais pendant) : evite un setState
   // sur le parent au milieu du rendu de l'enfant.
@@ -397,15 +418,27 @@ export function PresenceTrendChart({
         </div>
       </div>
 
-      <Curves series={series} height={chartHeight || (compact ? 190 : 240)} />
+      {view === "compare" && compare
+        ? <Curves series={compare.pts} keys={compare.keys} colors={compare.colors} labels={compare.labels} height={chartHeight || (compact ? 190 : 240)} />
+        : <Curves series={series} height={chartHeight || (compact ? 190 : 240)} />}
 
       <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
-        {["mentions", "evocations", "citations"].map(k => (
-          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748B" }}>
-            <span style={{ width: 14, height: 2.5, borderRadius: 2, background: MEC_COLORS[k] }} />
-            {MEC_LABELS[k]} <b style={{ color: MEC_COLORS[k] }}>{totals[k]}</b>
-          </span>
-        ))}
+        {view === "compare" && compare
+          ? compare.keys.map(k => {
+              const last = [...compare.pts].reverse().find(d => (d[k] || 0) > 0) || compare.pts[compare.pts.length - 1];
+              return (
+                <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748B" }}>
+                  <span style={{ width: 14, height: 2.5, borderRadius: 2, background: compare.colors[k] }} />
+                  {compare.labels[k]} <b style={{ color: compare.colors[k] }}>{last ? (last[k] || 0) : 0}</b>
+                </span>
+              );
+            })
+          : ["mentions", "evocations", "citations"].map(k => (
+              <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748B" }}>
+                <span style={{ width: 14, height: 2.5, borderRadius: 2, background: MEC_COLORS[k] }} />
+                {MEC_LABELS[k]} <b style={{ color: MEC_COLORS[k] }}>{totals[k]}</b>
+              </span>
+            ))}
       </div>
     </div>
   );
