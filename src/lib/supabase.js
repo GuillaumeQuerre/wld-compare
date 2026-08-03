@@ -404,16 +404,26 @@ export async function sbGetPresenceDaily(project_id, site_ids = [], from = null,
 export async function sbEnqueueAioScrape(project_id, site_id, question_ids = []) {
   const ids = (Array.isArray(question_ids) ? question_ids : [question_ids]).filter(Boolean);
   if (!ids.length) return { queued: 0 };
-  // Insert simple (pas d'on_conflict : l'index unique est PARTIEL, PostgREST le
-  // refuserait). L'index empêche déjà un doublon pending/running côté base ;
-  // un 409 signifie « déjà en file » et n'est pas une erreur.
-  const body = ids.map(question_id => ({ project_id, site_id, question_id, status: "pending", requested_at: new Date().toISOString() }));
+  // Évite le 409 (index unique PARTIEL sur pending/running) : on ne réinsère pas
+  // une demande déjà en file. On lit d'abord les demandes actives, puis on insère
+  // seulement celles qui manquent.
+  let already = new Set();
+  try {
+    const inList = ids.map(encodeURIComponent).join(",");
+    const chk = await fetch(`${PROXY}/rest/v1/geo_scrape_queue?project_id=eq.${encodeURIComponent(project_id)}&site_id=eq.${encodeURIComponent(site_id)}&question_id=in.(${inList})&status=in.(pending,running)&select=question_id`, { headers: authHeaders() });
+    if (chk.ok) { const rows = await chk.json(); already = new Set((rows || []).map(r => r.question_id)); }
+  } catch { /* si la lecture échoue, on tente l'insert (le 409 reste géré plus bas) */ }
+  const toInsert = ids.filter(id => !already.has(id));
+  if (!toInsert.length) return { queued: ids.length }; // déjà en file → rien à faire
+
+  const body = toInsert.map(question_id => ({ project_id, site_id, question_id, status: "pending", requested_at: new Date().toISOString() }));
   try {
     const res = await fetch(`${PROXY}/rest/v1/geo_scrape_queue`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json", "Prefer": "return=minimal" },
       body: JSON.stringify(body),
     });
+    // 409 = doublon pending/running apparu entre-temps → considéré « déjà en file ».
     return { queued: (res.ok || res.status === 409) ? ids.length : 0 };
   } catch { return { queued: 0 }; }
 }

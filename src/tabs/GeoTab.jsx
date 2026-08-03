@@ -1100,6 +1100,94 @@ function TopBarChart({ title, glyph, data, accent = "#1A3C2E", onBarClick = null
     </div>
   );
 }
+// Panneau « Autres marques à identifier » — rendu dans l'onglet Concurrents.
+function UnknownBrandsPanel({ list = [] }) {
+  if (!list.length) return null;
+  return (
+    <div className="gt-kpi-card" style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 22, height: 22, borderRadius: 6, background: "#C978201A", color: "#C97820", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>?</span>
+        <span className="gt-kpi-label" style={{ marginBottom: 0 }}>Autres marques à identifier</span>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "#1A3C2E" }}>{list.length}</span>
+      </div>
+      <div style={{ fontSize: 11, color: "#1A3C2E", marginBottom: 10 }}>
+        Entités présentes dans les tops LLM qui ne sont ni votre marque ni un concurrent renseigné. Ajoutez-les comme concurrents pour les suivre.
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {list.slice(0, 30).map((e, i) => (
+          <span key={i} title={`${e.count} apparition${e.count > 1 ? "s" : ""}${e.bestPos ? ` · meilleure position #${e.bestPos}` : ""}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 14, border: "0.5px solid #1A3C2E18", background: "#fff", fontSize: 11, color: "#1A3C2E" }}>
+            {e.bestPos && <span style={{ fontSize: 9, fontWeight: 700, color: "#C97820", fontVariantNumeric: "tabular-nums" }}>#{e.bestPos}</span>}
+            {e.name}
+            <span style={{ fontSize: 9, color: "#1A3C2E" }}>×{e.count}</span>
+          </span>
+        ))}
+        {list.length > 30 && <span style={{ fontSize: 10, color: "#1A3C2E", alignSelf: "center" }}>+ {list.length - 30} autres</span>}
+      </div>
+    </div>
+  );
+}
+
+// Calcule la liste des « autres marques à identifier » (entités présentes dans les
+// tops LLM qui ne sont ni la marque ni un concurrent renseigné). Extrait pour être
+// réutilisable dans l'onglet Concurrents. Termes génériques exclus.
+function computeUnknownEntities({ results = [], brandName = "", qualifiedCompetitors = [], aliasMap = {} }) {
+  const brandKey = (brandName || "").toLowerCase().replace(/\s+/g, "");
+  const compCatByName = {};
+  (qualifiedCompetitors || []).forEach(c => { if (c.name) compCatByName[c.name.toLowerCase()] = c.category || "other"; });
+  const kindOf = (rawName) => {
+    const n = (rawName || "").toLowerCase();
+    const compact = n.replace(/\s+/g, "").replace(/^www\./, "");
+    const wb = (hay, needle) => {
+      if (!needle) return false;
+      const esc = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`, "i").test(hay);
+    };
+    if (brandKey && (wb(n, brandKey) || compact === brandKey || compact.includes(brandKey))) return "brand";
+    for (const [cname, cat] of Object.entries(compCatByName)) {
+      const cc = cname.replace(/\s+/g, "");
+      if (cc && (wb(n, cname) || compact === cc || compact.includes(cc))) return cat;
+    }
+    return "other";
+  };
+  const GENERIC_ENTITIES = new Set(["site web", "site internet", "site", "description", "votre marque", "la marque", "marque", "n/a", "na", "aucun", "aucune", "non", "autre", "autres", "etc"]);
+  const aliasLut = {};
+  Object.entries(aliasMap || {}).forEach(([a, b]) => { aliasLut[(a || "").toLowerCase().trim()] = b; });
+  const canon = (name) => { if (!name) return name; return aliasLut[name.toLowerCase().trim()] || name; };
+  const agg = {};
+  const ensure = (rawName) => {
+    if (!rawName) return null;
+    const name = canon(rawName);
+    const key = name.toLowerCase();
+    if (GENERIC_ENTITIES.has(key.trim())) return null;
+    if (!agg[key]) agg[key] = { name, kind: kindOf(name), ment: { count: 0, bestPos: null }, evoc: { count: 0 }, cit: { count: 0 }, isAlias: false };
+    return agg[key];
+  };
+  const addMent = (name, pos) => { const e = ensure(name); if (!e) return; e.ment.count++; if (pos != null && pos > 0) e.ment.bestPos = e.ment.bestPos == null ? pos : Math.min(e.ment.bestPos, pos); };
+  const addEvoc = (name) => { const e = ensure(name); if (e) e.evoc.count++; };
+  const addCit  = (name) => { const e = ensure(name); if (e) e.cit.count++; };
+  (results || []).forEach(r => {
+    (r.competitors_mentioned || []).forEach(c => {
+      if (!c.name) return;
+      const mPos = c.mention_position != null ? c.mention_position : (c.position != null && c.position > 0 ? c.position : null);
+      if (mPos != null && mPos > 0) addMent(c.name, mPos);
+      if (c.evocation_position != null) addEvoc(c.name);
+      if (c.in_sources || c.citation_position != null) addCit(c.name);
+    });
+    (r.unknown_entities || []).forEach(e => {
+      if (!e?.name) return;
+      const mPos = e.mention_position != null ? e.mention_position : (e.position != null && e.position > 0 ? e.position : null);
+      if (mPos != null && mPos > 0) addMent(e.name, mPos);
+      if (e.evocation_position != null) addEvoc(e.name);
+      if (e.in_sources || e.citation_position != null) addCit(e.name);
+    });
+  });
+  return Object.values(agg)
+    .filter(e => e.kind === "other" && !e.isAlias && (e.ment.count + e.evoc.count + e.cit.count) > 0)
+    .map(e => ({ name: e.name, count: e.ment.count + e.evoc.count + e.cit.count, bestPos: e.ment.bestPos }))
+    .sort((a, b) => { const pa = a.bestPos ?? 9999, pb = b.bestPos ?? 9999; return pa !== pb ? pa - pb : b.count - a.count; });
+}
+
 function StatsHeader({ questions, results: allResults, brandName, qualifiedCompetitors = [], aliasMap = {}, onTopClick = null, mode = "response", siteIds = null, view = "cumule", statBrands = [] }) {
   // A.2 — les chiffres portent sur la DERNIÈRE DATE D'INTERROGATION.
   const lastDate = (allResults || []).reduce((mx, r) => {
@@ -1296,6 +1384,7 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
     .filter(e => e.kind === "other" && !e.isAlias && (e.ment.count + e.evoc.count + e.cit.count) > 0)
     .map(e => ({ name: e.name, count: e.ment.count + e.evoc.count + e.cit.count, bestPos: e.ment.bestPos }))
     .sort((a, b) => { const pa = a.bestPos ?? 9999, pb = b.bestPos ?? 9999; return pa !== pb ? pa - pb : b.count - a.count; });
+  void unknownEntitiesList; // conservé pour d'éventuels usages ; affichage déplacé dans Concurrents
 
   return (
     <div style={{ marginBottom: 24 }}>
@@ -1411,29 +1500,7 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
       </div>
 
       {/* Autres marques présentes dans les tops — à identifier */}
-      {unknownEntitiesList.length > 0 && (
-        <div className="gt-kpi-card" style={{ marginTop: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <span style={{ width: 22, height: 22, borderRadius: 6, background: "#C978201A", color: "#C97820", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>?</span>
-            <span className="gt-kpi-label" style={{ marginBottom: 0 }}>Autres marques à identifier</span>
-            <span style={{ marginLeft: "auto", fontSize: 11, color: "#1A3C2E" }}>{unknownEntitiesList.length}</span>
-          </div>
-          <div style={{ fontSize: 11, color: "#1A3C2E", marginBottom: 10 }}>
-            Entités présentes dans les tops LLM qui ne sont ni votre marque ni un concurrent renseigné. Ajoutez-les comme concurrents pour les suivre.
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {unknownEntitiesList.slice(0, 30).map((e, i) => (
-              <span key={i} title={`${e.count} apparition${e.count > 1 ? "s" : ""}${e.bestPos ? ` · meilleure position #${e.bestPos}` : ""}`}
-                style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 14, border: "0.5px solid #1A3C2E18", background: "#fff", fontSize: 11, color: "#1A3C2E" }}>
-                {e.bestPos && <span style={{ fontSize: 9, fontWeight: 700, color: "#C97820", fontVariantNumeric: "tabular-nums" }}>#{e.bestPos}</span>}
-                {e.name}
-                <span style={{ fontSize: 9, color: "#1A3C2E" }}>×{e.count}</span>
-              </span>
-            ))}
-            {unknownEntitiesList.length > 30 && <span style={{ fontSize: 10, color: "#1A3C2E", alignSelf: "center" }}>+ {unknownEntitiesList.length - 30} autres</span>}
-          </div>
-        </div>
-      )}
+      {/* « Autres marques à identifier » déplacé dans l'onglet Concurrents. */}
     </div>
   );
 }
@@ -1532,7 +1599,13 @@ function ToolImportOverlay({ target, tool, citedUrls = null, onClose, onSubmit }
   );
 }
 
-function CompetitorManager({ projectId, siteId, allResults, competitors, setCompetitors, brandLabel = "Votre marque", sfData = {}, smData = {}, smOverview = {}, sfPerimeter = null }) {
+function CompetitorManager({ projectId, siteId, allResults, competitors, setCompetitors, brandLabel = "Votre marque", aliasMap = {}, sfData = {}, smData = {}, smOverview = {}, sfPerimeter = null }) {
+  // « Autres marques à identifier » (déplacé depuis le Suivi) — entités des tops
+  // LLM ni marque ni concurrent renseigné.
+  const unknownEntitiesList = useMemo(
+    () => computeUnknownEntities({ results: allResults, brandName: brandLabel, qualifiedCompetitors: (competitors || []).filter(c => c.enabled !== false), aliasMap }),
+    [allResults, brandLabel, competitors, aliasMap]
+  );
   const [newName, setNewName] = useState("");
   const [newCat,  setNewCat]  = useState("direct");
   const [saving,  setSaving]  = useState(false);
@@ -1766,6 +1839,8 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
 
   return (
     <div>
+      {/* Autres marques à identifier (déplacé depuis le Suivi) */}
+      <UnknownBrandsPanel list={unknownEntitiesList} />
       {/* Formulaire ajout */}
       <div style={{ background: "transparent", border: "none", borderBottom: "0.5px solid #1A3C2E0D", padding: "0 0 16px 0", marginBottom: 16 }}>
         <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.12em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 10 }}>Ajouter un concurrent</div>
@@ -3551,6 +3626,7 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   // File d'attente AI Overview (question_ids en attente/en cours pour ce site)
   const [mecMode, setMecMode] = useState("question"); // switch réponse/question, partagé courbe+chiffres
   const [mecView, setMecView] = useState("cumule");    // Cumulé (somme sélection) / Comparaison (par marque)
+  const [compareMetric, setCompareMetric] = useState("mentions"); // métrique tracée en Comparaison
   // File AI Overview : Map question_id → requested_at (ISO). « en attente » n'est
   // affiché que si la demande date de MOINS de 60 s ; au-delà → retour auto à
   // « lancement » (le scraper peut encore la traiter). Croix = annulation manuelle.
@@ -4609,6 +4685,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
             siteIds={_readIds}
             view={_readIds.length > 1 ? mecView : "cumule"}
             brands={(allSites || []).filter(s => _readIds.includes(s.id)).map(s => ({ id: s.id, label: s.label, color: s.color }))}
+            compareMetric={compareMetric}
+            onCompareMetricChange={setCompareMetric}
             minDate={earliestSelectableDate(project, calResults, calendarEntries)}
             title="Suivi Chronologique"
             compact
@@ -6741,6 +6819,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
               allResults={allResults.filter(r => effSiteIds.includes(r.site_id))}
               competitors={competitorsView} setCompetitors={setCompetitors}
               brandLabel={brand?.brand_name || site?.name || "Votre marque"}
+              aliasMap={aliasMap}
               sfData={sfData}
               smData={smData}
               smOverview={smOverview}
