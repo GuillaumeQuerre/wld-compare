@@ -695,27 +695,37 @@ export async function sbSaveGeoResult(result) {
     body: JSON.stringify(row),
   });
 
-  let res = await doInsert({ ...baseRow, ...detailCols });
-
-  // Si échec à cause d'une colonne inconnue (400/PGRST204) → retry sans les colonnes détaillées
-  if (!res.ok && Object.keys(detailCols).length > 0) {
-    const errPeek = await res.clone().text().catch(() => "");
-    if (res.status === 400 || /column|PGRST204|schema/i.test(errPeek)) {
-      console.warn("[sbSaveGeoResult] retry sans colonnes détaillées:", errPeek.slice(0, 120));
-      res = await doInsert(baseRow);
+  // Repli GRANULAIRE : si une colonne détaillée manque en base, PostgREST la nomme
+  // dans l'erreur. On retire UNIQUEMENT cette colonne et on réessaie — les autres
+  // (surtout brand_presences) sont préservées. Évite de perdre la présence par
+  // marque quand une colonne annexe (ex. unknown_entities) manque.
+  const saveWithColumnFallback = async (doFn) => {
+    let row = { ...baseRow, ...detailCols };
+    let r = await doFn(row);
+    for (let i = 0; i < 8 && !r.ok; i++) {
+      if (r.status !== 400) break;
+      const peek = await r.clone().text().catch(() => "");
+      if (!/column|PGRST204|schema/i.test(peek)) break;
+      const m = peek.match(/'([a-z_]+)' column/i) || peek.match(/column ["']?([a-z_]+)["']?/i);
+      const col = m && m[1];
+      if (col && (col in row) && !(col in baseRow)) {
+        delete row[col];
+        console.warn(`[sbSaveGeoResult] colonne '${col}' absente → retirée, retry (brand_presences conservé)`);
+        r = await doFn(row);
+      } else {
+        r = await doFn(baseRow); // colonne non identifiable → dernier repli base
+        break;
+      }
     }
-  }
+    return r;
+  };
+
+  let res = await saveWithColumnFallback(doInsert);
 
   // Si conflit de clé unique (409) malgré le DELETE → bascule en UPSERT (merge)
   if (!res.ok && res.status === 409) {
     console.warn("[sbSaveGeoResult] 409 conflict → bascule en upsert (merge-duplicates)");
-    res = await doUpsert({ ...baseRow, ...detailCols });
-    if (!res.ok && Object.keys(detailCols).length > 0) {
-      const peek = await res.clone().text().catch(() => "");
-      if (res.status === 400 || /column|PGRST204|schema/i.test(peek)) {
-        res = await doUpsert(baseRow);
-      }
-    }
+    res = await saveWithColumnFallback(doUpsert);
   }
 
   if (!res.ok) {
@@ -1033,9 +1043,11 @@ export async function sbUpsertCalendarEntry(question_id, provider_id, test_date,
   });
 
   try {
-    // 1) Supprimer l'éventuelle entrée existante pour cette (question, provider, date)
+    // 1) Supprimer l'éventuelle entrée existante pour cette (question, provider, date).
+    //    Scopé à site_id null : ne touche QUE l'entrée « marque principale » (legacy),
+    //    jamais les entrées par marque (site_id renseigné) → l'historique par marque survit.
     await fetchSupabase(
-      `${PROXY}/rest/v1/geo_calendar_dates?question_id=eq.${encodeURIComponent(question_id)}&provider_id=eq.${encodeURIComponent(provider_id)}&test_date=eq.${encodeURIComponent(test_date)}`,
+      `${PROXY}/rest/v1/geo_calendar_dates?question_id=eq.${encodeURIComponent(question_id)}&provider_id=eq.${encodeURIComponent(provider_id)}&test_date=eq.${encodeURIComponent(test_date)}&site_id=is.null`,
       { method: "DELETE", headers: authHeaders() }
     );
     // 2) Réinsérer avec la détection à jour (payload complet, fallback colonnes de base)
@@ -1062,7 +1074,7 @@ export async function sbGetCalendarEntries(question_id) {
     const since = new Date(); since.setDate(since.getDate() - 30);
     const sinceStr = since.toISOString().slice(0, 10);
     const res = await fetch(
-      `${PROXY}/rest/v1/geo_calendar_dates?question_id=eq.${encodeURIComponent(question_id)}&test_date=gte.${sinceStr}&order=test_date.asc&select=provider_id,test_date,brand_present,brand_mention,brand_citation,brand_evocation,mention_position`,
+      `${PROXY}/rest/v1/geo_calendar_dates?question_id=eq.${encodeURIComponent(question_id)}&test_date=gte.${sinceStr}&order=test_date.asc&select=provider_id,test_date,brand_present,brand_mention,brand_citation,brand_evocation,mention_position,site_id`,
       { headers: authHeaders() }
     );
     if (!res.ok) return [];

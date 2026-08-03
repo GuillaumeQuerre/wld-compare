@@ -21,12 +21,27 @@
  * ════════════════════════════════════════════════════════════════════════
  */
 
-// Charge un .env local s'il existe (loader zéro-dépendance)
+// Charge un .env local s'il existe (loader zéro-dépendance).
+// IMPORTANT : détecte si une variable de session ($env: PowerShell) masque le .env.
 import { readFileSync, existsSync } from "node:fs";
+const envFileVals = {};
 if (existsSync(".env")) {
   for (const line of readFileSync(".env", "utf8").split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/i);
+    if (m) {
+      const val = m[2].replace(/^["']|["']$/g, "");
+      envFileVals[m[1]] = val;
+      if (!process.env[m[1]]) process.env[m[1]] = val;
+    }
+  }
+}
+// Avertit si une variable de session diffère du .env (le shell l'emporte → piège)
+for (const name of ["SUPABASE_URL", "SUPABASE_KEY"]) {
+  if (envFileVals[name] && process.env[name] && envFileVals[name] !== process.env[name]) {
+    console.log(`⚠️  ${name} : une variable de SESSION masque ton .env.`);
+    console.log(`    Session utilisée : longueur ${process.env[name].length} · commence par « ${process.env[name].slice(0, 6)} »`);
+    console.log(`    .env (ignoré)    : longueur ${envFileVals[name].length} · commence par « ${envFileVals[name].slice(0, 6)} »`);
+    console.log(`    → Ouvre un NOUVEAU terminal, ou lance : Remove-Item Env:\\${name}\n`);
   }
 }
 
@@ -48,12 +63,21 @@ const headers = {
   "Content-Type": "application/json",
 };
 
-// Détecte le type de clé (indicatif) sans l'afficher
-const keyKind = (() => {
-  try {
-    const payload = JSON.parse(Buffer.from(KEY.split(".")[1], "base64").toString());
-    return payload.role || "inconnu";
-  } catch { return "inconnu"; }
+// Détecte le type de clé + affiche des infos SÛRES (longueur, début/fin, format)
+// pour révéler une clé tronquée, un placeholder ou un nouveau format.
+const keyInfo = (() => {
+  const k = KEY || "";
+  let format = "inconnu";
+  if (k.startsWith("eyJ")) format = "JWT (anon/service_role)";
+  else if (k.startsWith("sb_secret_")) format = "clé secrète (nouveau format)";
+  else if (k.startsWith("sb_publishable_")) format = "clé publishable (nouveau format)";
+  else if (k.includes("ta_vraie_clé") || k.includes("...")) format = "⚠️ PLACEHOLDER non remplacé";
+  let role = "inconnu";
+  if (k.startsWith("eyJ")) {
+    try { role = JSON.parse(Buffer.from(k.split(".")[1], "base64").toString()).role || "inconnu"; } catch { /* */ }
+  }
+  const masked = k.length > 14 ? `${k.slice(0, 8)}…${k.slice(-4)}` : "(trop courte)";
+  return { format, role, len: k.length, masked };
 })();
 
 const line = (ok, label, detail = "") =>
@@ -77,7 +101,12 @@ const TEST_Q = "diag-question";
 
 console.log("\n════════ DIAGNOSTIC FILE AI OVERVIEW ════════");
 console.log(`Base   : ${base}`);
-console.log(`Clé    : type « ${keyKind} » ${keyKind === "service_role" ? "(RLS contourné)" : keyKind === "anon" ? "(RLS appliqué — droits requis)" : ""}`);
+console.log(`Clé    : format « ${keyInfo.format} »${keyInfo.role !== "inconnu" ? ` · rôle ${keyInfo.role}` : ""}`);
+console.log(`         longueur ${keyInfo.len} · ${keyInfo.masked}`);
+if (!KEY.startsWith("eyJ") && !KEY.startsWith("sb_")) {
+  console.log("         ⚠️  Une clé valide commence par « eyJ » (JWT) ou « sb_secret_ » (nouveau format).");
+  console.log("             La tienne ne correspond à aucun → c'est probablement la MAUVAISE valeur.");
+}
 console.log("──────────────────────────────────────────────\n");
 
 let insertedId = null;
@@ -131,6 +160,17 @@ if (insertedId) {
   if (r.ok) line(true, "[6] Colonne site_id sur geo_calendar_dates", "présente → carrés par marque possibles");
   else if (r.status === 400 && /site_id/.test(r.text)) line(false, "[6] Colonne site_id sur geo_calendar_dates", "ABSENTE → carrés par marque impossibles. Lance migration_calendar_per_brand.sql");
   else line(false, "[6] Colonne site_id sur geo_calendar_dates", `${r.status} — ${r.text.slice(0, 120)}`);
+}
+
+// ── [7] CRITIQUE : colonne brand_presences sur geo_results ───────────────
+// Sans elle, la présence par marque est SILENCIEUSEMENT supprimée à chaque
+// sauvegarde (sbSaveGeoResult retombe sur les colonnes de base) → chiffres et
+// courbes vides « ni sur la marque, ni sur les autres ».
+{
+  const r = await req("GET", "geo_results?select=brand_presences&limit=1");
+  if (r.ok) line(true, "[7] Colonne brand_presences sur geo_results", "présente → présence par marque sauvegardée");
+  else if (r.status === 400 && /brand_presences/.test(r.text)) line(false, "[7] Colonne brand_presences sur geo_results", "ABSENTE → LA présence par marque n'est PAS sauvegardée. Lance migration_multibrand.sql");
+  else line(false, "[7] Colonne brand_presences sur geo_results", `${r.status} — ${r.text.slice(0, 120)}`);
 }
 
 console.log("\n──────────────────────────────────────────────");
