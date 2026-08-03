@@ -1222,10 +1222,17 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
     const c = aliasLut[name.toLowerCase().trim()];
     return c || name;
   };
+  // Termes génériques que les LLM listent parfois comme des « entités » mais qui
+  // ne sont PAS des marques → jamais comptés (mentions, évocations, citations, tops).
+  const GENERIC_ENTITIES = new Set([
+    "site web", "site internet", "site", "description", "votre marque", "la marque",
+    "marque", "n/a", "na", "aucun", "aucune", "non", "autre", "autres", "etc",
+  ]);
   const ensure = (rawName) => {
     if (!rawName) return null;
     const name = canon(rawName);               // somme l'alias sur le canonique
     const key = name.toLowerCase();
+    if (GENERIC_ENTITIES.has(key.trim())) return null; // terme générique → ignoré
     if (!agg[key]) agg[key] = { name, kind: kindOf(name), ment: { count: 0, bestPos: null }, evoc: { count: 0 }, cit: { count: 0, bestPos: null } };
     return agg[key];
   };
@@ -2750,7 +2757,11 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
   const [open, setOpen] = useState(false);
   const p = provider;
 
-  const result = [...(results || [])].sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0))[0] || null;
+  // Réponse affichée : résultats du provider ; repli sur calResults (tous sites)
+  // pour que la réponse et la recommandation restent visibles même si la marque
+  // sous laquelle la question a été lancée n'est pas dans la sélection courante.
+  const _answerSrc = (results && results.length) ? results : (calResults || []);
+  const result = [...(_answerSrc || [])].sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0))[0] || null;
   const sources = result?.sources || [];
   const comps   = result?.competitors_mentioned || [];
 
@@ -4516,7 +4527,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
             dailyRows={dailyRows}
             siteIds={_readIds}
             minDate={earliestSelectableDate(project, calResults, calendarEntries)}
-            title="Mentions · Évocations · Citations"
+            title="Suivi Chronologique"
             compact
             mode={mecMode}
             onModeChange={setMecMode}

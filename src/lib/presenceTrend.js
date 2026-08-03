@@ -351,10 +351,11 @@ export function PresenceTrendChart({
     if (onRangeChange) onRangeChange({ from: from < floor ? floor : from, to, mode, series });
   }, [series]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totals = series.reduce((a, d) => ({
-    mentions: a.mentions + d.mentions, evocations: a.evocations + d.evocations,
-    citations: a.citations + d.citations, tested: a.tested + d.tested,
-  }), { mentions: 0, evocations: 0, citations: 0, tested: 0 });
+  // Les chiffres de légende/en-tête portent sur la DERNIÈRE date d'interrogation
+  // (dernier point avec des données), pas sur la somme de la période.
+  const _lastPt = [...series].reverse().find(d => d.tested > 0)
+    || series[series.length - 1] || { mentions: 0, evocations: 0, citations: 0, tested: 0 };
+  const totals = { mentions: _lastPt.mentions, evocations: _lastPt.evocations, citations: _lastPt.citations, tested: _lastPt.tested };
 
   const preset = (days) => { const f = addDays(today, -(days - 1)); setFrom(f < floor ? floor : f); setTo(today); };
   const btn = (active) => ({
