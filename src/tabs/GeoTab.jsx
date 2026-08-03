@@ -19,6 +19,7 @@ import {
   sbSetQuestionIntent,
   sbSetQuestionSites,
   sbGetAllQuestions,
+  sbReorderQuestions,
   sbBulkSetKeywordCategory, sbBulkSetQuestionCategory,
   sbGetUrlIndex, sbUpdateUrlMeta, sbIncrementUrlCounts,
   sbAddCalendarEntry, sbUpsertCalendarEntry, sbGetCalendarEntriesBatch,
@@ -3624,14 +3625,23 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
     const kwIndexMap = {};
     keywordsOrder.forEach((id, i) => { kwIndexMap[id] = i; });
     return [...questions].sort((a, b) => {
-      // 1. Favorites first
+      // 1. Favoris d'abord (priorité absolue)
       if (a.is_favorite && !b.is_favorite) return -1;
       if (!a.is_favorite && b.is_favorite) return 1;
-      // 2. Keyword order (undefined → end)
+      // 2. Ordre MANUEL (glisser-déposer) — stable, non modifié par l'interrogation.
+      //    Les questions sans ordre manuel passent après celles qui en ont un.
+      const soa = Number.isFinite(a.sort_order) ? a.sort_order : null;
+      const sob = Number.isFinite(b.sort_order) ? b.sort_order : null;
+      if (soa != null || sob != null) {
+        if (soa == null) return 1;
+        if (sob == null) return -1;
+        if (soa !== sob) return soa - sob;
+      }
+      // 3. Keyword order (undefined → end)
       const ia = kwIndexMap[a.keyword_id] ?? 9999;
       const ib = kwIndexMap[b.keyword_id] ?? 9999;
       if (ia !== ib) return ia - ib;
-      // 3. Creation date within same keyword
+      // 4. Creation date within same keyword
       return new Date(a.created_at) - new Date(b.created_at);
     });
   }, [questions, keywordsOrder]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3645,6 +3655,19 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   const [urlGenCount, setUrlGenCount] = useState(15);  // 10–25
   const [urlGenStatus, setUrlGenStatus] = useState(""); // "", "crawl", "gen", "error:…", "done:N"
   const [editingQ, setEditingQ]     = useState(null); // { id, text } — question being edited
+  const [dragId, setDragId]         = useState(null); // glisser-déposer : question en cours de déplacement
+  // Réordonne les questions (glisser-déposer) et ENREGISTRE l'ordre (sort_order),
+  // pour qu'il reste consistant après interrogation et rechargement.
+  const moveQuestion = (fromId, toId) => {
+    if (!fromId || fromId === toId) return;
+    const ids = sortedQuestions.map(q => q.id);
+    const fromIdx = ids.indexOf(fromId), toIdx = ids.indexOf(toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+    const pos = {}; ids.forEach((id, i) => { pos[id] = i; });
+    setQuestions(prev => prev.map(q => (pos[q.id] != null ? { ...q, sort_order: pos[q.id] } : q)));
+    sbReorderQuestions(projectId, ids).catch(() => {});
+  };
   const [editingKw, setEditingKw]       = useState(null);
   const [kwInput, setKwInput]           = useState("");
   const [hintsMap, setHintsMap]     = useState({}); // { questionId: hint_text }
@@ -4975,12 +4998,22 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
             const isSel = selected.has(q.id);
             const kwTag = keywords.find(k => k.id === q.keyword_id);
             return (
-              <div key={q.id} className={`gt-item${isSel ? " gt-item--selected" : ""}`} style={{
+              <div key={q.id} className={`gt-item${isSel ? " gt-item--selected" : ""}`}
+              onDragOver={dragId ? (e => e.preventDefault()) : undefined}
+              onDrop={dragId ? (e => { e.preventDefault(); moveQuestion(dragId, q.id); setDragId(null); }) : undefined}
+              style={{
               borderLeft: `2px solid ${hasBrand ? "#1A7A4A" : q.is_favorite ? "#C97820" : "#1A3C2E11"}`,
               paddingLeft: 12,
               borderRadius: 0,
+              opacity: dragId === q.id ? 0.4 : 1,
             }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <span
+                    draggable
+                    onDragStart={() => setDragId(q.id)}
+                    onDragEnd={() => setDragId(null)}
+                    title="Glisser pour réordonner"
+                    style={{ flexShrink: 0, marginTop: 1, cursor: "grab", color: "#CBD5E1", fontSize: 12, userSelect: "none", lineHeight: 1.4 }}>⠿</span>
                   <span style={{ flexShrink: 0, marginTop: 1, minWidth: 22, textAlign: "right", fontSize: 11, fontWeight: 600, color: "#1A3C2E", fontVariantNumeric: "tabular-nums", userSelect: "none" }}>{idx + 1}</span>
                   <input type="checkbox" checked={isSel} onChange={() => { setSelected(prev => { const n = new Set(prev); n.has(q.id) ? n.delete(q.id) : n.add(q.id); return n; }); }} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
                   <button onClick={() => toggleFav(q.id, q.is_favorite)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, flexShrink: 0, opacity: q.is_favorite ? 0.9 : 0.2, transition: "opacity 0.2s" }}>⭐</button>

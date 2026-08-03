@@ -556,6 +556,19 @@ export async function sbGetAllQuestions(project_id) {
   return res.json();
 }
 
+// Enregistre l'ordre manuel (glisser-déposer) : sort_order = position dans la liste.
+// Si la colonne sort_order n'existe pas encore, les PATCH échouent silencieusement
+// (l'ordre reste celui de la session jusqu'à la migration).
+export async function sbReorderQuestions(project_id, orderedIds) {
+  await Promise.all((orderedIds || []).map((id, i) =>
+    fetch(`${PROXY}/rest/v1/geo_questions?id=eq.${encodeURIComponent(id)}&project_id=eq.${encodeURIComponent(project_id)}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "Content-Type": "application/json", "Prefer": "return=minimal" },
+      body: JSON.stringify({ sort_order: i }),
+    }).catch(() => {})
+  ));
+}
+
 // ── GEO Analyses (Fan-out & Roadmap "Et maintenant ?") ───────────
 // Table geo_analyses : { id, project_id, site_id, kind, content (jsonb), created_at }
 // kind = "fanout" (bouton Analyser) | "roadmap" (bouton Et maintenant ?)
