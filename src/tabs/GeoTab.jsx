@@ -3705,7 +3705,13 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
       const prev = storedByDate[r.date];
       return !prev || (r.responses_count || 0) >= (prev.responses_count || 0);
     });
-    if (toUpsert.length) sbUpsertPresenceDaily(projectId, site.id, toUpsert).catch(() => {});
+    // Matérialisation quotidienne PAR MARQUE sélectionnée (chaque site stocke sa
+    // propre présence, cohérent avec le calcul par marque des courbes).
+    (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site.id]).forEach(sid => {
+      const freshSid = computeMecDaily(results, [sid]);
+      const toUp = freshSid.filter(r => { const prev = storedByDate[r.date]; return !prev || (r.responses_count || 0) >= (prev.responses_count || 0); });
+      if (toUp.length) sbUpsertPresenceDaily(projectId, sid, toUp).catch(() => {});
+    });
     setDailyRows(prev => {
       const byDate = {};
       (prev || []).forEach(r => { byDate[r.date] = r; });
@@ -6803,7 +6809,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
             allSites={safeSites}
             readSiteIds={effSiteIds}
             siteBrandsMap={siteBrandsMap}
-            gscRows={project?.gscData?.[primarySite?.id] || []}
+            gscRows={(effSiteIds && effSiteIds.length ? effSiteIds : [primarySite?.id]).flatMap(sid => project?.gscData?.[sid] || [])}
             aliasMap={aliasMap}
             brand={brand} categories={categories} setCategories={setCategories}
             allResults={allResults.filter(r => effSiteIds.includes(r.site_id))}
