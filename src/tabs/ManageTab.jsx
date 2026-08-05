@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { C } from "../lib/constants";
 import { sbGetGeoResultsAll } from "../lib/supabase";
-import { getModelPricing } from "../components/GeoConfig";
-import { authLogin, authSignup, isSuperAdmin, sbGetProjectMembers, sbRemoveProjectMember, sbInviteMember } from "../lib/auth";
+import { getModelPricing, WEB_SEARCH_FEE } from "../components/GeoConfig";
+import { authLogin, authSignup, isSuperAdmin, sbGetProjectMembers, sbRemoveProjectMember, sbInviteMember, sbSetMemberRole } from "../lib/auth";
 
 function Section({ title, children }) {
   return (
@@ -107,7 +107,7 @@ function ProjectCosts({ project }) {
   const stats = useMemo(() => {
     const since = periodDays ? Date.now() - periodDays * 86400000 : 0;
     const byProvider = {};
-    let totalCost = 0, totalIn = 0, totalOut = 0, totalCalls = 0, withTokens = 0;
+    let totalCost = 0, totalIn = 0, totalOut = 0, totalCalls = 0, withTokens = 0, totalSearchCost = 0;
     rows.forEach(r => {
       const t = r.created_at ? new Date(r.created_at).getTime() : null;
       if (since && t != null && t < since) return;
@@ -115,17 +115,23 @@ function ProjectCosts({ project }) {
       const inTok = r.input_tokens || 0;
       const outTok = r.output_tokens || 0;
       const pricing = getModelPricing(providerId, modelId);
-      const cost = (inTok * pricing.in + outTok * pricing.out) / 1e6;
-      if (!byProvider[providerId]) byProvider[providerId] = { provider: providerId, calls: 0, inTok: 0, outTok: 0, cost: 0, models: {} };
+      const tokenCost = (inTok * pricing.in + outTok * pricing.out) / 1e6;
+      // Frais de recherche web (par appel) — oubliés dans l'ancien calcul.
+      // Nb de recherches réel si enregistré, sinon 1 par appel pour les providers qui cherchent.
+      const fee = WEB_SEARCH_FEE[providerId] || 0;
+      const searches = r.web_searches != null ? r.web_searches : (fee > 0 ? 1 : 0);
+      const searchCost = searches * fee;
+      const cost = tokenCost + searchCost;
+      if (!byProvider[providerId]) byProvider[providerId] = { provider: providerId, calls: 0, inTok: 0, outTok: 0, cost: 0, searchCost: 0, models: {} };
       const b = byProvider[providerId];
-      b.calls++; b.inTok += inTok; b.outTok += outTok; b.cost += cost;
+      b.calls++; b.inTok += inTok; b.outTok += outTok; b.cost += cost; b.searchCost += searchCost;
       const mk = modelId || "—";
       if (!b.models[mk]) b.models[mk] = { calls: 0, cost: 0 };
       b.models[mk].calls++; b.models[mk].cost += cost;
-      totalCost += cost; totalIn += inTok; totalOut += outTok; totalCalls++;
+      totalCost += cost; totalIn += inTok; totalOut += outTok; totalCalls++; totalSearchCost += searchCost;
       if (inTok || outTok) withTokens++;
     });
-    return { list: Object.values(byProvider).sort((a, b) => b.cost - a.cost), totalCost, totalIn, totalOut, totalCalls, withTokens };
+    return { list: Object.values(byProvider).sort((a, b) => b.cost - a.cost), totalCost, totalIn, totalOut, totalCalls, withTokens, totalSearchCost };
   }, [rows, periodDays]);
 
   const fmt$ = (n) => n < 0.01 ? `$${n.toFixed(4)}` : n < 1 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`;
@@ -135,7 +141,7 @@ function ProjectCosts({ project }) {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: C.textLight }}>
-          Coûts calculés sur les tokens réellement consommés, enregistrés à chaque interrogation.
+          Coûts = tokens réellement consommés + frais de recherche web par appel (OpenAI / Gemini / Perplexity). Les analyses reco/audit ne sont pas incluses.
         </div>
         <select value={periodDays} onChange={e => setPeriodDays(parseInt(e.target.value, 10))}
           style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, background: "#fff", cursor: "pointer" }}>
@@ -168,6 +174,12 @@ function ProjectCosts({ project }) {
               <div style={{ fontSize: 10, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.5 }}>Tokens (in / out)</div>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#1A3C2E", marginTop: 4 }}>{fmtTok(stats.totalIn)} / {fmtTok(stats.totalOut)}</div>
             </div>
+            {stats.totalSearchCost > 0 && (
+              <div>
+                <div style={{ fontSize: 10, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.5 }}>dont recherche web</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#C97820", marginTop: 4 }}>{fmt$(stats.totalSearchCost)}</div>
+              </div>
+            )}
           </div>
 
           {stats.withTokens < stats.totalCalls && (
@@ -187,6 +199,7 @@ function ProjectCosts({ project }) {
                 <div style={{ fontSize: 11, color: C.textLight, display: "flex", gap: 14, flexWrap: "wrap" }}>
                   <span>{b.calls} interrogation{b.calls > 1 ? "s" : ""}</span>
                   <span>{fmtTok(b.inTok)} in · {fmtTok(b.outTok)} out</span>
+                  {b.searchCost > 0 && <span style={{ color: "#C97820" }}>recherche web {fmt$(b.searchCost)}</span>}
                   <span>{Object.entries(b.models).map(([m, mv]) => `${m} (${fmt$(mv.cost)})`).join(" · ")}</span>
                 </div>
               </div>
@@ -252,6 +265,22 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
     setMembers(prev => prev.filter(m => m.user_email !== email));
   };
 
+  // Modifie le rôle d'un membre — réservé aux admins (canManage). Mise à jour
+  // optimiste + persistance ; rollback si la requête échoue.
+  const [roleSaving, setRoleSaving] = useState(null); // email en cours de MAJ
+  const changeRole = async (email, nextRole) => {
+    const prevRole = members.find(m => m.user_email === email)?.role;
+    if (!nextRole || nextRole === prevRole) return;
+    setRoleSaving(email);
+    setMembers(prev => prev.map(m => m.user_email === email ? { ...m, role: nextRole } : m));
+    const ok = await sbSetMemberRole(project.id, email, nextRole);
+    if (!ok) {
+      setMembers(prev => prev.map(m => m.user_email === email ? { ...m, role: prevRole } : m)); // rollback
+      setError("La modification du rôle a échoué.");
+    }
+    setRoleSaving(null);
+  };
+
   const roleBadge = (role) => {
     if (role === "reader") return { label: "👁 Lecture", color: "#D97706", bg: "#FFFBEB" };
     if (role === "admin")  return { label: "🛡 Admin",  color: "#1A3C2E", bg: "#EAF0EC" };
@@ -280,7 +309,20 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
             return (
               <div key={m.user_email} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: C.bg, borderRadius: 8, border: `1px solid ${C.border}` }}>
                 <span style={{ fontSize: 12, color: C.text, flex: 1 }}>{m.user_email}</span>
-                <span style={{ fontSize: 10, fontWeight: 700, color: badge.color, background: badge.bg, borderRadius: 5, padding: "2px 8px" }}>{badge.label}</span>
+                {canManage ? (
+                  <select
+                    value={m.role === "reader" || m.role === "admin" ? m.role : "member"}
+                    disabled={roleSaving === m.user_email}
+                    onChange={e => changeRole(m.user_email, e.target.value)}
+                    title="Modifier le niveau d'accès"
+                    style={{ fontSize: 10, fontWeight: 700, color: badge.color, background: badge.bg, border: `1px solid ${badge.color}22`, borderRadius: 5, padding: "2px 6px", cursor: "pointer", opacity: roleSaving === m.user_email ? 0.5 : 1 }}>
+                    <option value="member">✏️ Membre</option>
+                    <option value="admin">🛡 Admin</option>
+                    <option value="reader">👁 Lecture</option>
+                  </select>
+                ) : (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: badge.color, background: badge.bg, borderRadius: 5, padding: "2px 8px" }}>{badge.label}</span>
+                )}
                 {canManage && (
                   <button onClick={() => remove(m.user_email)} style={{ fontSize: 11, color: "#DC2626", background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>✕</button>
                 )}

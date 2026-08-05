@@ -167,6 +167,18 @@ export async function sbRemoveProjectMember(projectId, email) {
   return res.ok;
 }
 
+// Met à jour le rôle d'un membre (owner/admin uniquement, garanti côté UI + RLS).
+export async function sbSetMemberRole(projectId, email, role) {
+  const token = getToken();
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(
+    `/api/supabase/rest/v1/project_members?project_id=eq.${encodeURIComponent(projectId)}&user_email=eq.${encodeURIComponent(email)}`,
+    { method: "PATCH", headers, body: JSON.stringify({ role }) }
+  );
+  return res.ok;
+}
+
 export async function sbSetProjectOwner(projectId, ownerEmail) {
   await fetch(`/api/supabase/rest/v1/projects?id=eq.${encodeURIComponent(projectId)}`, {
     method: "PATCH",

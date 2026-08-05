@@ -896,6 +896,7 @@ export default function App() {
           {tab === "geo" && user && (
             <GeoTab
               sites={sites}
+              isReadOnly={!superAdmin && (currentProject?._myRole === "reader")}
               projectId={currentProjectId}
               project={currentProject}
               geoAxes={currentProject?.geo_axes || null}

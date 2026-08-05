@@ -3674,6 +3674,7 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
     return () => clearInterval(iv);
   }, [aioQueue.size, refreshAioQueue, onResultSaved]);
   const enqueueAio = (questionId) => {
+    if (isReadOnly) return; // lecture seule : aucun appel LLM / scrape
     if (!projectId || !site?.id || !questionId) return;
     setAioQueue(prev => new Map(prev).set(questionId, new Date().toISOString())); // feedback immédiat
     setAioNow(Date.now());
@@ -4296,6 +4297,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
   // Run a single provider on a single question
   const runProvider = useCallback(async (q, provider) => {
+    if (isReadOnly) return; // lecture seule : aucun appel LLM
     const pk = providerKeysRef.current[provider.id];
     if (!pk?.dec) { console.warn("No key for provider", provider.id); return; }
     setRunning(r => ({ ...r, [`${q.id}-${provider.id}`]: true }));
@@ -4418,7 +4420,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
       setTimeout(() => setProviderErrors(prev => { const n = {...prev}; delete n[`${q.id}-${provider.id}`]; return n; }), 30000);
     }
     setRunning(r => ({ ...r, [`${q.id}-${provider.id}`]: false }));
-  }, [brand, projectId, site?.id, providerKeys, onResultSaved]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [brand, projectId, site?.id, providerKeys, onResultSaved, isReadOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Per question: latest result (most recent by created_at)
   const latestResultByQ = useMemo(() => {
@@ -4591,6 +4593,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
   };
 
   const runAllQuestions = async () => {
+    if (isReadOnly) return; // lecture seule : aucun lancement
     const toRun = filtered
       .map(q => ({ q, providers: getProvidersToRun(q, false) }))
       .filter(({ providers }) => providers.length > 0);
@@ -4640,6 +4643,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
   // Re-passe detectBrand sur les réponses déjà stockées avec la liste de concurrents
   // actuelle, et met à jour competitors_mentioned / unknown_entities / positions.
   const recomputeDetection = async () => {
+    if (isReadOnly) return; // lecture seule : pas d'écriture
     if (recomputing) return;
     const rows = (results && results.length ? results : allResults) || [];
     const real = rows.filter(r => r && r.id && !String(r.id).startsWith("tmp-") && r.answer);
