@@ -1044,7 +1044,7 @@ export async function sbAddCalendarEntry(question_id, provider_id, brand_present
 // Upsert d'une entrée calendrier pour une DATE donnée (utilisé par le recalcul de
 // détection, qui doit mettre à jour le carré à la date d'origine du résultat, pas
 // à aujourd'hui). DELETE + INSERT pour garantir une seule ligne par (question, provider, date).
-export async function sbUpsertCalendarEntry(question_id, provider_id, test_date, brand_present, presType, mentionPos = null) {
+export async function sbUpsertCalendarEntry(question_id, provider_id, test_date, brand_present, presType, mentionPos = null, site_id = null) {
   if (!question_id || !provider_id || !test_date) return null;
   const present = brand_present === true || brand_present === 1;
   const fullBody = {
@@ -1056,8 +1056,9 @@ export async function sbUpsertCalendarEntry(question_id, provider_id, test_date,
     brand_evocation: presType === "evocation" ? 1 : 0,
     mention_position: presType === "mention" && mentionPos != null ? mentionPos : null,
     test_date,
+    ...(site_id != null ? { site_id } : {}),
   };
-  const baseBody = { question_id, provider_id, brand_present: present, test_date };
+  const baseBody = { question_id, provider_id, brand_present: present, test_date, ...(site_id != null ? { site_id } : {}) };
 
   const post = async (body) => fetchSupabase(`${PROXY}/rest/v1/geo_calendar_dates`, {
     method: "POST",
@@ -1070,7 +1071,7 @@ export async function sbUpsertCalendarEntry(question_id, provider_id, test_date,
     //    Scopé à site_id null : ne touche QUE l'entrée « marque principale » (legacy),
     //    jamais les entrées par marque (site_id renseigné) → l'historique par marque survit.
     await fetchSupabase(
-      `${PROXY}/rest/v1/geo_calendar_dates?question_id=eq.${encodeURIComponent(question_id)}&provider_id=eq.${encodeURIComponent(provider_id)}&test_date=eq.${encodeURIComponent(test_date)}&site_id=is.null`,
+      `${PROXY}/rest/v1/geo_calendar_dates?question_id=eq.${encodeURIComponent(question_id)}&provider_id=eq.${encodeURIComponent(provider_id)}&test_date=eq.${encodeURIComponent(test_date)}&site_id=${site_id != null ? "eq." + encodeURIComponent(site_id) : "is.null"}`,
       { method: "DELETE", headers: authHeaders() }
     );
     // 2) Réinsérer avec la détection à jour (payload complet, fallback colonnes de base)

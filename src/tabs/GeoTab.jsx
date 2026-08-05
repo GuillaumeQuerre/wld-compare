@@ -2900,7 +2900,7 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
             marque sélectionnée (filtrée). Multi-marques → rendu SOUS la ligne. */}
         {(singleSiteProject || brandSites.length <= 1) && (
           <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg}
-            siteId={singleSiteProject ? null : (brandSites[0]?.id || null)} seedEntries={calSeed} />
+            siteId={singleSiteProject ? null : (brandSites[0]?.id || null)} seedEntries={calSeed} hideProviderLabel />
         )}
 
         {/* Présence — 3 types calculés depuis les champs DB ─────── */}
@@ -4646,12 +4646,27 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     if (!real.length) { setRecomputeMsg("Aucun résultat à recalculer."); return; }
     const { brand_name = "", brand_aliases = [] } = brand || {};
     const comps = (competitors || []);
+    // Toutes les marques du projet (pour brand_presences) — depuis siteBrandsMap.
+    const brandList = Object.entries(siteBrandsMap || {}).map(([sid, b]) => ({ siteId: sid, brandName: b.brand_name, brandAliases: b.brand_aliases || [] }));
+    if (!brandList.length && brand_name) brandList.push({ siteId: site.id, brandName: brand_name, brandAliases: brand_aliases });
     setRecomputing(true);
     setRecomputeMsg(`Recalcul… 0/${real.length}`);
     let done = 0, errs = 0;
     for (const r of real) {
       try {
         const d = detectBrand(r.answer || "", r.sources || [], brand_name, brand_aliases, comps);
+        // Détection de TOUTES les marques → brand_presences (comme à l'interrogation).
+        const brand_presences = {};
+        for (const b of brandList) {
+          const db = detectBrand(r.answer || "", r.sources || [], b.brandName, b.brandAliases, comps);
+          brand_presences[b.siteId] = {
+            mentioned: !!db.brandMentioned,
+            mention_position:   db.mention?.position   ?? null,
+            evocation_position: db.evocation?.position ?? null,
+            citation_position:  db.citation?.position  ?? null,
+            in_sources: !!db.brandInSources,
+          };
+        }
         await sbSaveGeoResult({
           question_id: r.question_id, project_id: projectId, site_id: site.id,
           model: r.model,
@@ -4662,21 +4677,18 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           brand_mention_position:   d.mention?.position   || null,
           brand_evocation_position: d.evocation?.position || null,
           brand_citation_position:  d.citation?.position  || null,
+          brand_presences,
           input_tokens: r.input_tokens, output_tokens: r.output_tokens,
           web_searches: r.web_searches ?? null,
           created_at: r.created_at, // préserve la date d'origine
         });
-        // Met aussi à jour le « petit carré » (calendrier de présence) à la DATE d'origine
-        const provId   = getProviderId(r.model);
-        const presType = (d.mention?.position != null) ? "mention"
-                       : d.brandMentioned ? "evocation"
-                       : d.brandInSources ? "citation"
-                       : null;
-        const mentionPos = d.mention?.position != null ? d.mention.position : null;
+        // Carré PAR MARQUE à la date d'origine.
+        const provId  = getProviderId(r.model);
         const calDate = (r.created_at || new Date().toISOString()).slice(0, 10);
-        await sbUpsertCalendarEntry(r.question_id, provId, calDate, d.brandMentioned, presType, mentionPos);
-        // Rafraîchissement optimiste immédiat du carré
-        setNewCalEntries(prev => ({ ...prev, [`${r.question_id}|${provId}`]: { provider_id: provId, brand_present: d.brandMentioned, presType, mentionPos } }));
+        for (const [sid, pres] of Object.entries(brand_presences)) {
+          const pType = pres.mention_position != null ? "mention" : pres.evocation_position != null ? "evocation" : (pres.in_sources ? "citation" : null);
+          await sbUpsertCalendarEntry(r.question_id, provId, calDate, !!(pres.mentioned || pType === "citation"), pType, pres.mention_position ?? null, sid);
+        }
         done++;
       } catch (e) { errs++; console.error("recomputeDetection:", e); }
       setRecomputeMsg(`Recalcul… ${done + errs}/${real.length}`);
@@ -4787,7 +4799,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         {recomputeMsg && <span style={{ fontSize: 11, color: recomputing ? "#C97820" : "#1A7A4A" }}>{recomputeMsg}</span>}
         <button onClick={recomputeDetection} disabled={recomputing}
           className="gt-btn gt-btn--ghost" style={{ fontSize: 11, opacity: recomputing ? 0.5 : 1 }}
-          title="Re-détecte marque et concurrents sur les réponses déjà enregistrées (sans ré-interroger les modèles, donc sans coût)">
+          title="Re-détecte TOUTES les marques du projet et les concurrents sur les réponses déjà enregistrées (sans ré-interroger les modèles, donc sans coût). Remplit les carrés des marques ajoutées après coup.">
           {recomputing ? "Recalcul…" : "↻ Recalculer la détection"}
         </button>
       </div>
