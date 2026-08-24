@@ -1406,3 +1406,39 @@ export async function sbGetActivityByProject() {
     return res.json();
   } catch (e) { return []; }
 }
+
+// Journalise le coût réel d'une analyse (reco/audit) — tokens et frais renvoyés
+// par l'API, hors des interrogations (déjà dans geo_results). Best-effort.
+export async function sbLogCost(project_id, kind, model, input_tokens, output_tokens, web_searches, cost_usd) {
+  if (!project_id) return;
+  try {
+    await fetch(`${PROXY}/rest/v1/geo_cost_log`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json", "Prefer": "return=minimal" },
+      body: JSON.stringify({
+        project_id, kind: kind || "analysis", model: model || null,
+        input_tokens: input_tokens || 0, output_tokens: output_tokens || 0,
+        web_searches: web_searches || 0, cost_usd: cost_usd || 0,
+        created_at: new Date().toISOString(),
+      }),
+    });
+  } catch { /* ignore : journalisation non bloquante */ }
+}
+
+// Synthèse des dépenses réelles d'analyses (geo_cost_log) pour un projet, depuis
+// une date (défaut : début du mois courant). Renvoie total + détail par type.
+export async function sbGetCostSummary(project_id, sinceIso = null) {
+  if (!project_id) return { total: 0, byKind: {}, count: 0 };
+  const since = sinceIso || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+  try {
+    const res = await fetch(
+      `${PROXY}/rest/v1/geo_cost_log?project_id=eq.${encodeURIComponent(project_id)}&created_at=gte.${encodeURIComponent(since)}&select=kind,cost_usd`,
+      { headers: authHeaders() }
+    );
+    if (!res.ok) return { total: 0, byKind: {}, count: 0 };
+    const rows = await res.json();
+    const byKind = {}; let total = 0;
+    (rows || []).forEach(r => { const c = Number(r.cost_usd) || 0; total += c; byKind[r.kind] = (byKind[r.kind] || 0) + c; });
+    return { total, byKind, count: (rows || []).length, since };
+  } catch { return { total: 0, byKind: {}, count: 0 }; }
+}
