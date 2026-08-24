@@ -329,8 +329,9 @@ export default function HomeTab({ user, projects, currentProjectId, dbLoading, o
             <div style={{ width: 40, height: 40, background: "#1A3C2E", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <span style={{ color: "#F0EBE0", fontSize: 22, fontWeight: 900, fontStyle: "italic" }}>S</span>
             </div>
-            <span style={{ fontSize: 24, fontWeight: 900, color: "#1A3C2E", letterSpacing: -0.5 }}>Dashboard GEO <span style={{ fontStyle: "italic" }}>par Sonate</span></span>
+            <span style={{ fontSize: 30, fontWeight: 900, color: "#1A3C2E", letterSpacing: -0.5 }}>Echo</span>
           </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1A3C2E", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Dashboard GEO <span style={{ fontStyle: "italic" }}>par Sonate</span></div>
           <h1 style={{ fontSize: 20, fontWeight: 400, color: "#1A3C2E", margin: "0 0 6px", letterSpacing: 0.5 }}>Votre croissance est clé</h1>
           <div style={{ fontSize: 13, color: C.textLight }}>Plateforme GEO Intelligence</div>
         </div>
@@ -343,7 +344,7 @@ export default function HomeTab({ user, projects, currentProjectId, dbLoading, o
             <span style={{ color: "#F0EBE0", fontSize: 17, fontWeight: 900, fontStyle: "italic" }}>S</span>
           </div>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#1A3C2E", letterSpacing: 1, textTransform: "uppercase", marginBottom: 1 }}>Dashboard GEO par Sonate</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#1A3C2E", letterSpacing: 1, textTransform: "uppercase", marginBottom: 1 }}>Echo · Dashboard GEO par Sonate</div>
             <h1 style={{ fontSize: 20, fontWeight: 800, color: C.text, margin: 0 }}>Tableau de bord</h1>
           </div>
         </div>
@@ -391,7 +392,7 @@ export default function HomeTab({ user, projects, currentProjectId, dbLoading, o
       {/* Footer */}
       <div style={{ textAlign: "center", paddingTop: 28, marginTop: 36, borderTop: `1px solid ${C.border}` }}>
         <div style={{ fontSize: 11, color: C.textLight }}>
-          Dashboard GEO par Sonate · par <a href="mailto:guillaume@deux.io" style={{ color: GREEN }}>deux.io</a>
+          Echo · Dashboard GEO par Sonate · par <a href="mailto:guillaume@deux.io" style={{ color: GREEN }}>deux.io</a>
         </div>
       </div>
 

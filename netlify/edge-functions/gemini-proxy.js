@@ -21,8 +21,8 @@ export default async function handler(request, context) {
   }
 
   try {
-    const { model = "gemini-2.5-flash", prompt } = await request.json();
-    const SAFE_MODEL = "gemini-2.5-flash"; // modèle courant, compatible grounding
+    const { model = "gemini-3.5-flash", prompt } = await request.json();
+    const SAFE_MODEL = "gemini-3.5-flash"; // modèle courant, compatible grounding
     const SYSTEM = "Tu es un expert en recommandation d'entreprises et prestataires. Réponds directement et factuellement, sans mentionner les limites de tes connaissances.";
 
     const callGemini = async (m, useSearch) => {

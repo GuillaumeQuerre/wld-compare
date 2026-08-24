@@ -243,10 +243,10 @@ export default async function handler(req) {
       const emailPayload = existed
         ? {
             to:      emailClean,
-            subject: `[CorrelDash] Accès ajouté — ${projectLabel}`,
+            subject: `[Echo] Accès ajouté — ${projectLabel}`,
             body: `Bonjour,
 
-${inviterEmail || "Un administrateur"} vous a donné accès à « ${projectLabel} » sur CorrelDash GEO par Sonate.
+${inviterEmail || "Un administrateur"} vous a donné accès à « ${projectLabel} » sur Echo · Dashboard GEO par Sonate.
 
 Votre rôle : ${roleLabel}
 
@@ -254,14 +254,14 @@ Connectez-vous avec votre compte pour accéder au projet :
 ${appUrl}
 
 Bonne analyse,
-${inviterEmail || "L'équipe CorrelDash"}`,
+${inviterEmail || "L'équipe Echo"}`,
           }
         : {
             to:      emailClean,
-            subject: `[CorrelDash] Invitation — ${projectLabel}`,
+            subject: `[Echo] Invitation — ${projectLabel}`,
             body: `Bonjour,
 
-${inviterEmail || "Un administrateur"} vous invite à rejoindre « ${projectLabel} » sur CorrelDash GEO par Sonate.
+${inviterEmail || "Un administrateur"} vous invite à rejoindre « ${projectLabel} » sur Echo · Dashboard GEO par Sonate.
 
 Votre rôle : ${roleLabel}
 
@@ -271,7 +271,7 @@ ${appUrl}
 Une fois votre compte créé et connecté, le projet « ${projectLabel} » apparaîtra automatiquement dans vos projets.
 
 À bientôt,
-${inviterEmail || "L'équipe CorrelDash"}`,
+${inviterEmail || "L'équipe Echo"}`,
           };
 
       return json({

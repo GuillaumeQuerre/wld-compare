@@ -1,0 +1,8 @@
+2026/08/06-11:52:51.357 28d4 Reusing MANIFEST E:\correlation-dashboard\scripts\chrome-profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/08/06-11:52:51.389 28d4 Recovering log #3
+2026/08/06-11:52:51.389 28d4 Level-0 table #3: started
+2026/08/06-11:52:51.394 28d4 Level-0 table #3: 71591 bytes OK
+2026/08/06-11:52:51.399 28d4 Delete type=0 #3
+2026/08/06-11:53:51.411 2110 Level-0 table #6: started
+2026/08/06-11:53:51.415 2110 Level-0 table #6: 77129 bytes OK
+2026/08/06-11:53:51.418 2110 Delete type=0 #4

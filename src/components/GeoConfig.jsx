@@ -4,14 +4,14 @@
 
 import { useState, useEffect } from "react";
 import { C } from "../lib/constants";
-import { sbSaveProviderKeys, sbSaveProviderWebSearch, sbSaveBrand, sbGetBrand } from "../lib/supabase";
+import { sbSaveProviderKeys, sbSaveProviderWebSearch, sbSaveBrand, sbGetBrand, sbGetCostSummary } from "../lib/supabase";
 
 function encodeKey(k) { try { return btoa(k); } catch { return ""; } }
 function decodeKey(e) { try { return atob(e); } catch { return ""; } }
 
 const PROVIDERS = [
   { id: "openai",     label: "OpenAI",     icon: "🟢", color: "#059669", keyField: "openai_key_enc",     keyPrefix: "sk-",      keyPlaceholder: "sk-…",      model: "gpt-4o-mini" },
-  { id: "gemini",     label: "Gemini",     icon: "🔵", color: "#2563EB", keyField: "gemini_key_enc",     keyPrefix: "AIza",     keyPlaceholder: "AIza…",     model: "gemini-2.0-flash" },
+  { id: "gemini",     label: "Gemini",     icon: "🔵", color: "#2563EB", keyField: "gemini_key_enc",     keyPrefix: "AIza",     keyPlaceholder: "AIza…",     model: "gemini-3.5-flash" },
   { id: "perplexity", label: "Perplexity", icon: "🟣", color: "#7C3AED", keyField: "perplexity_key_enc", keyPrefix: "pplx-",    keyPlaceholder: "pplx-…",    model: "sonar" },
   { id: "claude",     label: "Claude",     icon: "🟠", color: "#D97706", keyField: "claude_geo_key_enc", keyPrefix: "sk-ant-",  keyPlaceholder: "sk-ant-…",  model: "claude-haiku-4-5-20251001" },
 ];
@@ -27,9 +27,9 @@ export const MODEL_CATALOG = {
     { id: "gpt-4o",       label: "GPT-4o",        in: 2.50, out: 10.00 },
   ],
   gemini: [
-    { id: "gemini-2.0-flash",      label: "Gemini 2.0 Flash",      in: 0.10, out: 0.40 },
-    { id: "gemini-2.5-flash",      label: "Gemini 2.5 Flash",      in: 0.30, out: 2.50 },
-    { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", in: 0.10, out: 0.40 },
+    { id: "gemini-3.5-flash",      label: "Gemini 3.5 Flash",      in: 0.30, out: 2.50 },
+    { id: "gemini-3.6-flash",      label: "Gemini 3.6 Flash",      in: 0.30, out: 2.50 },
+    { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash-Lite", in: 0.10, out: 0.40 },
   ],
   perplexity: [
     { id: "sonar",     label: "Sonar",     in: 1.00, out: 1.00 },
@@ -64,6 +64,17 @@ export const WEB_SEARCH_FEE = {
   claude:     0,
 };
 
+// ── Tokens d'ENTRÉE injectés par la recherche web (facturés au tarif input) ──
+// OpenAI facture le contenu de recherche comme un BLOC FIXE de 8 000 tokens
+// d'entrée par appel (doc officielle) — ils étaient oubliés dans l'estimation.
+// Gemini/Perplexity injectent aussi du contenu de recherche (estimation prudente).
+export const WEB_SEARCH_INPUT_TOKENS = {
+  openai:     8000,
+  gemini:     8000,
+  perplexity: 4000,
+  claude:     0,
+};
+
 // ── Modes d'interrogation ─────────────────────────────────────────
 // Chaque mode fait varier le nombre de tokens (et donc le coût) + le style.
 // estIn/estOut = estimation moyenne de tokens entrée/sortie PAR question.
@@ -88,7 +99,7 @@ export const DEFAULT_MODE = "standard";
 
 
 // ── ProviderConfigPanel ───────────────────────────────────────────
-export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderKeys }) {
+export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderKeys, canSeeCosts = false }) {
   const [open, setOpen]       = useState(false);
   const [keys, setKeys]       = useState(() => {
     const init = {};
@@ -110,6 +121,12 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
     try { return JSON.parse(localStorage.getItem(cfgKey) || "{}"); } catch { return {}; }
   });
   const [nQuestions, setNQuestions] = useState(25); // pour l'estimateur de coût
+  // Dépenses RÉELLES d'analyses ce mois (geo_cost_log) — visible aux rôles coûts.
+  const [costSummary, setCostSummary] = useState(null);
+  useEffect(() => {
+    if (!canSeeCosts || !projectId) { setCostSummary(null); return; }
+    sbGetCostSummary(projectId).then(setCostSummary).catch(() => setCostSummary(null));
+  }, [canSeeCosts, projectId]);
   const updateCfg = (pid, patch) => {
     setProviderCfg(prev => {
       const next = { ...prev, [pid]: { ...(prev[pid] || {}), ...patch } };
@@ -225,9 +242,12 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
                     const pricing = getModelPricing(p.id, modelId);
                     // Coût d'une réponse = tokens + frais de recherche web (si active)
                     const webFee = webSearchOn(p) ? (WEB_SEARCH_FEE[p.id] || 0) : 0;
-                    const costPerQ = (mode.estIn * pricing.in + mode.estOut * pricing.out) / 1e6 + webFee;
+                    // Tokens d'entrée du contenu de recherche web (bloc facturé en input).
+                    const searchTok = webSearchOn(p) ? (WEB_SEARCH_INPUT_TOKENS[p.id] || 0) : 0;
+                    const inTok = mode.estIn + searchTok;
+                    const costPerQ = (inTok * pricing.in + mode.estOut * pricing.out) / 1e6 + webFee;
                     const totalCost = costPerQ * nQuestions;
-                    const tokPerResp = mode.estIn + mode.estOut;
+                    const tokPerResp = inTok + mode.estOut;
                     const costPer1k = ((pricing.in + pricing.out) / 2) / 1000; // moyenne in/out par 1000 tok
                     return (
                       <div style={{ marginTop: 8, padding: "10px 12px", background: "#FAFAF8", border: "0.5px solid #1A3C2E0D", borderRadius: 8, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -305,12 +325,29 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
                     const mode = QUERY_MODES[modeIdFor(p)] || QUERY_MODES[DEFAULT_MODE];
                     const pr = getModelPricing(p.id, modelIdFor(p));
                     const webFee = webSearchOn(p) ? (WEB_SEARCH_FEE[p.id] || 0) : 0;
-                    return sum + (((mode.estIn * pr.in + mode.estOut * pr.out) / 1e6) + webFee) * nQuestions;
+                    const searchTok = webSearchOn(p) ? (WEB_SEARCH_INPUT_TOKENS[p.id] || 0) : 0;
+                    return sum + ((((mode.estIn + searchTok) * pr.in + mode.estOut * pr.out) / 1e6) + webFee) * nQuestions;
                   }, 0);
                   return (
-                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "0.5px solid #1A3C2E12", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                      <span style={{ fontSize: 11, color: "#1A3C2E" }}>Coût total estimé (tous providers)</span>
-                      <span style={{ fontSize: 16, fontWeight: 800, color: "#1A3C2E" }}>≈ ${grand.toFixed(grand < 1 ? 3 : 2)}</span>
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "0.5px solid #1A3C2E12", display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                        <span style={{ fontSize: 11, color: "#1A3C2E" }}>Coût total estimé (interrogations, tous providers)</span>
+                        <span style={{ fontSize: 16, fontWeight: 800, color: "#1A3C2E" }}>≈ ${grand.toFixed(grand < 1 ? 3 : 2)}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: "#94A3B8", lineHeight: 1.5 }}>
+                        Hors analyses : chaque « recommandation » ou audit tourne sur Claude Sonnet + recherche web
+                        (≈ <strong style={{ color: "#C97820" }}>$0.15</strong> par analyse), facturé à l'usage et non compté ci-dessus.
+                        Le coût réel d'une journée dépend donc surtout du nombre d'analyses lancées.
+                      </div>
+                      {canSeeCosts && costSummary && (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", paddingTop: 6, borderTop: "0.5px dashed #1A3C2E12" }}>
+                          <span style={{ fontSize: 11, color: "#1A3C2E" }}>
+                            Dépenses réelles d'analyses ce mois
+                            {costSummary.count > 0 && <span style={{ color: "#94A3B8" }}> · {costSummary.count} analyse{costSummary.count > 1 ? "s" : ""}</span>}
+                          </span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: "#C97820" }}>≈ ${(costSummary.total || 0).toFixed(2)}</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}

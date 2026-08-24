@@ -11,7 +11,7 @@ import {
   sbSaveKeywords, sbGetKeywords, sbUpdateKeywordStatus, sbDeleteKeyword, sbUpdateKeywordVolume,
   sbSaveQuestions, sbGetQuestions, sbUpdateQuestion, sbDeleteQuestion,
   sbSaveGeoResult, sbGetGeoResults, sbSaveHint, sbGetHints, sbSetKeywordTags,
-  sbUpsertPresenceDaily, sbGetPresenceDaily, sbEnqueueAioScrape, sbGetAioQueue, sbCancelAioScrape,
+  sbUpsertPresenceDaily, sbGetPresenceDaily, sbLogCost, sbEnqueueAioScrape, sbGetAioQueue, sbCancelAioScrape,
   sbGetSchedule, sbSaveSchedule, sbUpdateSchedule, sbTriggerScheduler,
   sbSaveProjectSettings,
   sbGetCategories, sbSaveCategory, sbDeleteCategory,
@@ -610,7 +610,7 @@ function buildFanoutPDF({ questions, results, hintsMap = {}, brandName, brandAli
 
   <!-- Pied de page -->
   <div style="margin-top:40px;padding-top:16px;border-top:1px solid #E2E8F0;font-size:10px;color:#94A3B8;text-align:center">
-    Rapport CorrelDash GEO · ${esc(projectName)} · ${dateStr}
+    Rapport Echo GEO · ${esc(projectName)} · ${dateStr}
   </div>
 
 </body>
@@ -858,7 +858,7 @@ export const PROVIDERS = [
     id: "gemini",
     label: "Gemini",
     icon: "🔵",
-    model: "gemini-2.0-flash",   // supports Google Search grounding (real-time web)
+    model: "gemini-3.5-flash",   // supports Google Search grounding (real-time web)
     keyField: "gemini_key_enc",
     keyPrefix: "AIza",
     keyPlaceholder: "AIzaSy…",
@@ -3207,6 +3207,16 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
       if (!jsonMatch) throw new Error("Aucun JSON dans la réponse");
       const parsed = JSON.parse(jsonMatch[0]);
 
+      // Journalisation du COÛT RÉEL de l'analyse (Sonnet + recherche web), à l'usage.
+      try {
+        const u = data?.usage || {};
+        const inTok  = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+        const outTok = u.output_tokens || 0;
+        const webReq = u.server_tool_use?.web_search_requests || 0;
+        const costUsd = (inTok * 3 + outTok * 15) / 1e6 + webReq * 0.010; // Sonnet 4.6 in/out + web
+        sbLogCost(projectId, "reco", RECO_MODEL_DEEP, inTok, outTok, webReq, costUsd).catch(() => {});
+      } catch { /* best-effort */ }
+
       // 2c + 3. Regrouper les recos par type d'action
       const itemsByType = {};
       (parsed.items || []).forEach(it => {
@@ -4650,8 +4660,13 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     if (!real.length) { setRecomputeMsg("Aucun résultat à recalculer."); return; }
     const { brand_name = "", brand_aliases = [] } = brand || {};
     const comps = (competitors || []);
-    // Toutes les marques du projet (pour brand_presences) — depuis siteBrandsMap.
-    const brandList = Object.entries(siteBrandsMap || {}).map(([sid, b]) => ({ siteId: sid, brandName: b.brand_name, brandAliases: b.brand_aliases || [] }));
+    // Toutes les marques du projet (pour brand_presences). On part de TOUS les sites
+    // du projet (allSites) et non de site_brand seul — souvent incomplet sur les
+    // anciens projets. Nom de marque : site_brand si présent, sinon le label du site.
+    const brandList = (allSites || []).map(s => {
+      const b = (siteBrandsMap || {})[s.id];
+      return { siteId: s.id, brandName: (b && b.brand_name) || s.label || "", brandAliases: (b && b.brand_aliases) || [] };
+    }).filter(b => b.siteId && b.brandName);
     if (!brandList.length && brand_name) brandList.push({ siteId: site.id, brandName: brand_name, brandAliases: brand_aliases });
     setRecomputing(true);
     setRecomputeMsg(`Recalcul… 0/${real.length}`);
@@ -6295,7 +6310,7 @@ function FanoutSetupPanel({
       {/* ── Gestion des providers et Clés API ── */}
       <SetupSection icon="🔑" title="Gestion des providers et Clés API" desc="Branchez les clés API des moteurs IA et choisissez ceux à interroger. Claude et OpenAI sont indispensables : Claude génère les questions, les analyses « Et maintenant ? » et l'audit, OpenAI interroge ChatGPT.">
         <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
-          <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} />
+          <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} canSeeCosts={canSeeCosts} />
         </div>
       </SetupSection>
 
@@ -6414,7 +6429,7 @@ function ScrollToTopButton() {
   );
 }
 
-export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes, onSaveProviderKeys, user,
+export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes, onSaveProviderKeys, user, canSeeCosts = false,
   // Props setup (nouvelles — passées depuis App.jsx)
   projects, currentProjectId, setCurrentProjectId, setProjects, ownerEmail,
   setSites, smData, setSmData, smOverview = {}, setSmOverview,

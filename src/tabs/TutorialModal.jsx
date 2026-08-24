@@ -24,7 +24,7 @@ const TRACKS = [
       {
         num: 2, icon: "🌐", title: "Ajoutez vos sites",
         desc: "Dans ⚙️ Setup, cliquez sur « + Site » pour ajouter les domaines à analyser.",
-        detail: "Chaque site peut recevoir ses propres imports CSV. Max 3 sites par projet.",
+        detail: "Chaque site peut recevoir ses propres imports CSV.",
         action: null,
         tip: "Renommez les sites avec des noms courts (ex : « Acme FR »)",
       },
@@ -120,7 +120,7 @@ export default function TutorialModal({ onClose, onNavigate }) {
             </div>
             <div>
               <div style={{ color: "#F0EBE0", fontSize: 9, fontWeight: 600, letterSpacing: 1.2, textTransform: "uppercase", opacity: 0.7 }}>
-                {track ? `${currentTrack.icon} ${currentTrack.label}` : "Dashboard GEO par Sonate"}
+                {track ? `${currentTrack.icon} ${currentTrack.label}` : "Echo — Dashboard GEO par Sonate"}
               </div>
               <div style={{ color: "#fff", fontSize: 13, fontWeight: 700 }}>
                 {track ? `Étape ${step + 1} / ${totalSteps}` : "Guide de démarrage"}

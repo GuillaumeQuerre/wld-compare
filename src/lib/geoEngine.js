@@ -15,7 +15,7 @@
 // Modèles par défaut par provider (alignés avec l'onglet Questions).
 export const PROVIDER_MODELS = {
   openai:     "gpt-4o-mini",
-  gemini:     "gemini-2.5-flash",
+  gemini:     "gemini-3.5-flash",
   perplexity: "sonar",
   claude:     "claude-haiku-4-5-20251001",
 };
@@ -383,6 +383,20 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
       current.push({ num: bl[1] ? parseInt(bl[1], 10) : null, text: name, ordinal: current.length + 1 });
       continue;
     }
+    // Puce SIMPLE NON INDENTÉE (colonne 0, sans numéro ni gras) : "- Nom" / "• Nom".
+    // Un top peut être présenté ainsi (AI Overviews) → item classé, pas évocation.
+    // Les puces INDENTÉES restent des détails (gérées plus bas par isDetailLine).
+    const pb = raw.match(/^[•\-*]\s+(.{2,80})$/);
+    if (pb) {
+      const name = pb[1].trim();
+      const isMeta = /^(site|description|source|adresse|t[ée]l|email|http)/i.test(name);
+      if (!isSectionTitle(name) && !isMeta) {
+        const continuesBullet = current && seqType === "bullet";
+        if (!continuesBullet) { current = []; sequences.push(current); seqType = "bullet"; prevNum = null; prevLevel = null; }
+        current.push({ num: null, text: name, ordinal: current.length + 1 });
+        continue;
+      }
+    }
     const head = matchHeading(raw);
     if (head && isSectionTitle(head.title)) continue; // titre de section : ignore, ne casse pas la sequence
     if (head) {
@@ -399,7 +413,7 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     if (isDetailLine(raw)) continue;
     // En mode "en-têtes", la prose entre items (localisation, description) ne casse PAS
     // la séquence : seuls les en-têtes ajoutent des items, le reste est ignoré.
-    if (seqType === "head" || seqType === "bold") continue;
+    if (seqType === "head" || seqType === "bold" || seqType === "bullet") continue;
     // Sinon (liste numérotée ou hors séquence), une ligne de prose termine la séquence.
     current = null; prevNum = null; seqType = null; prevLevel = null;
   }
@@ -418,6 +432,7 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     const stripped = line.trim();
     if (!stripped) continue;
     if (topItemRe.test(line)) continue;
+    if (/^[•\-*]\s+/.test(stripped)) continue; // items à puce = classés, pas du récit
     if (
       stripped.startsWith("http") || stripped.startsWith("[") ||
       stripped.startsWith("- Site") || stripped.startsWith("- Description") ||
