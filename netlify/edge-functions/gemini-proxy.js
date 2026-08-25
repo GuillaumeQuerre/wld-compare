@@ -50,9 +50,12 @@ export default async function handler(request, context) {
     //   1. modèle demandé + grounding
     //   2. modèle courant sûr + grounding (si le modèle demandé est retiré)
     //   3. modèle courant sûr SANS grounding (si l'outil de recherche échoue)
-    const models = model === SAFE_MODEL ? [SAFE_MODEL] : [model, SAFE_MODEL];
-    const attempts = models.map(m => ({ model: m, search: true }));
-    attempts.push({ model: SAFE_MODEL, search: false });
+    const FALLBACK_MODEL = "gemini-3.1-flash-lite"; // repli si MALFORMED_FUNCTION_CALL (bug Gemini 3.x, les modèles "lite" y sont moins sujets)
+    const primary = [...new Set([model, SAFE_MODEL])];
+    const attempts = primary.map(m => ({ model: m, search: true }));
+    attempts.push({ model: SAFE_MODEL, search: false });       // même modèle sans grounding
+    attempts.push({ model: FALLBACK_MODEL, search: true });    // repli lite + grounding
+    attempts.push({ model: FALLBACK_MODEL, search: false });   // repli lite sans grounding
 
     let result = null, grounded = true, lastStatus = 0, lastErr = "", lastData = null;
     const triedConfigs = new Set();
