@@ -897,7 +897,6 @@ export default function App() {
             <GeoTab
               sites={sites}
               isReadOnly={!superAdmin && (currentProject?._myRole === "reader")}
-              canSeeCosts={superAdmin || ["owner","admin"].includes(currentProject?._myRole)}
               projectId={currentProjectId}
               project={currentProject}
               geoAxes={currentProject?.geo_axes || null}

@@ -6300,7 +6300,7 @@ function FanoutSetupPanel({
       {/* ── Gestion des providers et Clés API ── */}
       <SetupSection icon="🔑" title="Gestion des providers et Clés API" desc="Branchez les clés API des moteurs IA et choisissez ceux à interroger. Claude et OpenAI sont indispensables : Claude génère les questions, les analyses « Et maintenant ? » et l'audit, OpenAI interroge ChatGPT.">
         <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
-          <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} canSeeCosts={canSeeCosts} />
+          <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} />
         </div>
       </SetupSection>
 
@@ -6419,7 +6419,7 @@ function ScrollToTopButton() {
   );
 }
 
-export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes, onSaveProviderKeys, user, canSeeCosts = false,
+export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes, onSaveProviderKeys, user,
   // Props setup (nouvelles — passées depuis App.jsx)
   projects, currentProjectId, setCurrentProjectId, setProjects, ownerEmail,
   setSites, smData, setSmData, smOverview = {}, setSmOverview,
