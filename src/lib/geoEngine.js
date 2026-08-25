@@ -256,7 +256,10 @@ export async function callProvider(provider, apiKey, prompt, maxTokens = 2000, b
       throw new Error(msg + hint);
     }
     const text = data.choices?.[0]?.message?.content || "";
-    if (!text) throw new Error("Réponse Gemini vide — vérifiez la clé API ou réessayez");
+    if (!text) {
+      const diag = typeof data.error === "string" ? data.error : (data?.error?.message || "");
+      throw new Error(diag ? `Gemini vide — ${diag}` : "Réponse Gemini vide — vérifiez la clé API ou réessayez");
+    }
     const groundingSources = data._sources || []; // real URLs from Google Search
     const _g = parseTextResponse(text, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0, groundingSources);
     _g._web_searches = data._web_searches != null ? data._web_searches : (groundingSources.length ? 1 : 0);

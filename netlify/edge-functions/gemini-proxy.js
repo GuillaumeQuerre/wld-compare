@@ -33,7 +33,7 @@ export default async function handler(request, context) {
       const body = {
         system_instruction: { parts: [{ text: SYSTEM }] },
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 16384 },
       };
       if (useSearch) body.tools = [{ google_search: {} }]; // Google Search grounding — temps réel
       const upstream = await fetch(url, {
@@ -70,7 +70,9 @@ export default async function handler(request, context) {
         // (typiquement le même modèle sans grounding).
         const txt = r.data?.candidates?.[0]?.content?.parts?.filter(p => p.text)?.map(p => p.text)?.join("") || "";
         if (txt) { result = r.data; grounded = a.search; break; }
-        lastStatus = 200; lastErr = "réponse vide (candidat sans texte)"; lastData = r.data;
+        const fr = r.data?.candidates?.[0]?.finishReason || "?";
+        const np = (r.data?.candidates?.[0]?.content?.parts || []).length;
+        lastStatus = 200; lastErr = `réponse vide · finishReason=${fr} · parts=${np} · modèle=${a.model} · search=${a.search}`; lastData = r.data;
         continue;
       }
       lastStatus = r.status;
