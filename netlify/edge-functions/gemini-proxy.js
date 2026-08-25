@@ -21,8 +21,11 @@ export default async function handler(request, context) {
   }
 
   try {
-    const { model = "gemini-3.5-flash", prompt } = await request.json();
+    let { model = "gemini-3.5-flash", prompt } = await request.json();
     const SAFE_MODEL = "gemini-3.5-flash"; // modèle courant, compatible grounding
+    // Remappe tout modèle Gemini périmé (1.x / 2.x) vers le modèle courant : les
+    // anciens projets ont encore "gemini-2.x" enregistré → évite l'erreur "no longer available".
+    if (/^(models\/)?gemini-(1|2)\./.test(model)) model = SAFE_MODEL;
     const SYSTEM = "Tu es un expert en recommandation d'entreprises et prestataires. Réponds directement et factuellement, sans mentionner les limites de tes connaissances.";
 
     const callGemini = async (m, useSearch) => {
@@ -61,7 +64,15 @@ export default async function handler(request, context) {
       if (triedConfigs.has(key)) continue;
       triedConfigs.add(key);
       const r = await callGemini(a.model, a.search);
-      if (r.ok) { result = r.data; grounded = a.search; break; }
+      if (r.ok) {
+        // 200 mais candidat SANS texte (fréquent quand le grounding ne renvoie que
+        // des métadonnées) → on ne s'arrête pas, on tente la config suivante
+        // (typiquement le même modèle sans grounding).
+        const txt = r.data?.candidates?.[0]?.content?.parts?.filter(p => p.text)?.map(p => p.text)?.join("") || "";
+        if (txt) { result = r.data; grounded = a.search; break; }
+        lastStatus = 200; lastErr = "réponse vide (candidat sans texte)"; lastData = r.data;
+        continue;
+      }
       lastStatus = r.status;
       lastErr = r.data?.error?.message || "";
       lastData = r.data;
