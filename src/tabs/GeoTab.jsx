@@ -11,7 +11,7 @@ import {
   sbSaveKeywords, sbGetKeywords, sbUpdateKeywordStatus, sbDeleteKeyword, sbUpdateKeywordVolume,
   sbSaveQuestions, sbGetQuestions, sbUpdateQuestion, sbDeleteQuestion,
   sbSaveGeoResult, sbGetGeoResults, sbSaveHint, sbGetHints, sbSetKeywordTags,
-  sbUpsertPresenceDaily, sbGetPresenceDaily, sbLogCost, sbEnqueueAioScrape, sbGetAioQueue, sbCancelAioScrape,
+  sbUpsertPresenceDaily, sbGetPresenceDaily, sbEnqueueAioScrape, sbGetAioQueue, sbCancelAioScrape,
   sbGetSchedule, sbSaveSchedule, sbUpdateSchedule, sbTriggerScheduler,
   sbSaveProjectSettings,
   sbGetCategories, sbSaveCategory, sbDeleteCategory,
@@ -3206,16 +3206,6 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("Aucun JSON dans la réponse");
       const parsed = JSON.parse(jsonMatch[0]);
-
-      // Journalisation du COÛT RÉEL de l'analyse (Sonnet + recherche web), à l'usage.
-      try {
-        const u = data?.usage || {};
-        const inTok  = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-        const outTok = u.output_tokens || 0;
-        const webReq = u.server_tool_use?.web_search_requests || 0;
-        const costUsd = (inTok * 3 + outTok * 15) / 1e6 + webReq * 0.010; // Sonnet 4.6 in/out + web
-        sbLogCost(projectId, "reco", RECO_MODEL_DEEP, inTok, outTok, webReq, costUsd).catch(() => {});
-      } catch { /* best-effort */ }
 
       // 2c + 3. Regrouper les recos par type d'action
       const itemsByType = {};
