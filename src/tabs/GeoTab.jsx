@@ -6390,7 +6390,6 @@ function FanoutSetupPanel({
   );
 }
 
-
 // ── Bouton « remonter en haut » — sticky, discret, bas à droite ──
 function ScrollToTopButton() {
   const [show, setShow] = useState(false);
