@@ -3639,7 +3639,12 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   // ici : même donnée, déjà en mémoire et rafraîchie après chaque interrogation
   // → zéro requête dupliquée, et le calendrier se met à jour après un lancement.
   // Repli sur allResults si le parent ne fournit pas la version complète.
-  const calResults = (allResultsAllSites != null ? allResultsAllSites : allResults) || [];
+  // useMemo pour garder une référence stable (sinon les useMemo dépendants
+  // recalculent à chaque render).
+  const calResults = useMemo(
+    () => (allResultsAllSites != null ? allResultsAllSites : allResults) || [],
+    [allResultsAllSites, allResults]
+  );
   const calResultsByQ = useMemo(() => {
     const m = {};
     calResults.forEach(r => { if (!m[r.question_id]) m[r.question_id] = []; m[r.question_id].push(r); });
