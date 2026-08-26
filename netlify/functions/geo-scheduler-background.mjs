@@ -19,11 +19,14 @@ const MAIL_FROM      = process.env.SCHEDULER_MAIL_FROM || "Dashboard GEO | Sonat
 
 
 // ── Supabase helpers ──────────────────────────────────────────────
-// Lecture : clé anon (respecte les RLS publiques)
+// Lecture : clé service role — le scheduler est un job de confiance sans session
+// utilisateur ; depuis le verrouillage RLS, l'anon ne peut plus rien lire, donc
+// les lectures DOIVENT passer en service_role pour bypasser les RLS.
 function sbReadHeaders() {
+  const key = SUPABASE_SERVICE || SUPABASE_ANON;
   return {
-    "apikey":        SUPABASE_ANON,
-    "Authorization": `Bearer ${SUPABASE_ANON}`,
+    "apikey":        key,
+    "Authorization": `Bearer ${key}`,
     "Content-Type":  "application/json",
   };
 }
@@ -83,7 +86,7 @@ function decodeKey(enc) {
 // ── Provider definitions ──────────────────────────────────────────
 const PROVIDERS = {
   openai:     { model: "gpt-4o-mini",              keyField: "openai_key_enc" },
-  gemini:     { model: "gemini-2.0-flash",          keyField: "gemini_key_enc" },
+  gemini:     { model: "gemini-3.5-flash",          keyField: "gemini_key_enc" },
   perplexity: { model: "sonar",                    keyField: "perplexity_key_enc" },
   claude:     { model: "claude-haiku-4-5-20251001", keyField: "claude_geo_key_enc" },
 };
@@ -101,7 +104,7 @@ function throttleProvider(providerId) {
 }
 
 // ── Process one schedule ──────────────────────────────────────────
-async function processSchedule(schedule, project, brand, site, secondBrand = null) {
+async function processSchedule(schedule, project, brand, site, secondBrand = null, brandsMap = {}) {
   const providerIds = schedule.providers || ["openai"];
   const maxQ        = schedule.max_questions || 10;
 
@@ -155,6 +158,28 @@ async function processSchedule(schedule, project, brand, site, secondBrand = nul
         const detected = detectBrand(answer, sources, brandName, brandAliases, competitors);
         const brandMentioned = detected.brandMentioned;
 
+        // ── Temps 2 : présence par marque associée (même réponse, détections locales) ──
+        const _assoc = Array.isArray(q.associated_sites) ? q.associated_sites : [];
+        const brand_presences = {};
+        if (_assoc.length) {
+          const _toPres = (d) => ({
+            mentioned: !!d.brandMentioned,
+            mention_position:   d.mention?.position   ?? null,
+            evocation_position: d.evocation?.position ?? null,
+            citation_position:  d.citation?.position  ?? null,
+            in_sources: !!d.brandInSources,
+          });
+          brand_presences[schedule.site_id] = _toPres(detected);
+          for (const sid of _assoc) {
+            if (sid === schedule.site_id) continue;
+            const sb = brandsMap[`${schedule.project_id}__${sid}`];
+            const bn = sb?.brand_name?.trim();
+            if (!bn) continue;
+            const d = detectBrand(answer, sources, bn, sb.brand_aliases || [], []);
+            brand_presences[sid] = _toPres(d);
+          }
+        }
+
         // Type de présence + position pour le calendrier (moteur partagé — identique au manuel)
         const { presType: presTypeForCal, mentionPos: mentionPosForCal } = calendarPresence(detected);
 
@@ -177,6 +202,7 @@ async function processSchedule(schedule, project, brand, site, secondBrand = nul
           brand_mention_position:   detected.mention?.position   || null,
           brand_evocation_position: detected.evocation?.position || null,
           brand_citation_position:  detected.citation?.position  || null,
+          ...(Object.keys(brand_presences).length ? { brand_presences } : {}),
           input_tokens:             parsed._input_tokens || 0,
           output_tokens:            parsed._output_tokens || 0,
           created_at:               now,
@@ -192,15 +218,23 @@ async function processSchedule(schedule, project, brand, site, secondBrand = nul
           );
         } catch {}
 
-        // Insert avec fallback : si une colonne brand_*_position manque, retry sans
+        // Insert avec repli robuste : si une colonne « détail » manque en base
+        // (migration non passée), on réessaie sans ces colonnes plutôt que de tout perdre.
         try {
           await sbPost("geo_results", record);
         } catch(insErr) {
-          if (/column|PGRST204|schema|400/i.test(insErr.message)) {
-            const { brand_mention_position, brand_evocation_position, brand_citation_position, ...base } = record;
+          console.warn(`[scheduler] geo_results insert principal échoué (${insErr.message}) — repli sans colonnes détail`);
+          try {
+            const {
+              brand_mention_position, brand_evocation_position, brand_citation_position,
+              brand_presences, unknown_entities, source_types, answer_type, intent_type,
+              ...base
+            } = record;
             await sbPost("geo_results", base);
-          } else {
-            throw insErr;
+            console.warn(`[scheduler] geo_results sauvegardé via repli — pense à passer les migrations pour stocker les colonnes détail`);
+          } catch(insErr2) {
+            console.error(`[scheduler] geo_results ÉCHEC même après repli: ${insErr2.message}`);
+            throw insErr2;
           }
         }
 
@@ -218,7 +252,12 @@ async function processSchedule(schedule, project, brand, site, secondBrand = nul
             test_date:       today,
           });
         } catch(calErr) {
-          console.warn(`[scheduler] calendar insert failed: ${calErr.message}`);
+          // Repli : si les colonnes ventilées (M/É/C + position) manquent, garder l'essentiel (carré présent/absent)
+          try {
+            await sbPost("geo_calendar_dates", { question_id: q.id, provider_id: providerId, brand_present: brandMentioned === true, test_date: today });
+          } catch(calErr2) {
+            console.warn(`[scheduler] calendar insert failed: ${calErr2.message}`);
+          }
         }
 
         // ── 3. Mettre à jour le cache de la question (last_date, has_result) ──
@@ -355,7 +394,7 @@ async function runScheduler({ forceRun = false, site = "", target = {} } = {}) {
 
     let count = 0;
     try {
-      count = await processSchedule(schedule, project, brand, SITE, secondBrand);
+      count = await processSchedule(schedule, project, brand, SITE, secondBrand, brandsMap);
     } catch(e) {
       console.error(`[scheduler] Schedule ${schedule.id} failed:`, e.message);
     }
