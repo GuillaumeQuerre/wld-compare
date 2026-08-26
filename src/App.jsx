@@ -4,7 +4,7 @@ import { emptyDataMap, makeInitialProject, parseCSV, parseSemrushCSV } from "./l
 import { extractSF, extractGSC, extractGA, extractBing, extractSemrush, parseSemrush, filterByMode } from "./lib/parsers";
 import { parseSemrushOverview } from "./lib/compareEngine";
 import { buildUrlMaps, buildSfPageVectors, intraCorrFast, smIntraCorr } from "./lib/correlations";
-import { sbSaveProject, sbDeleteProject, sbGetHistory, sbGetLatest, sbDownload, sbGetPageTypes, sbSaveGeoAxes, sbGetGeoResultsAll, sbGetUrlIndex, sbRecordActivity } from "./lib/supabase";
+import { sbSaveProject, sbDeleteProject, sbGetHistory, sbGetLatest, sbDownload, sbGetPageTypes, sbSaveGeoAxes, sbGetUrlIndex, sbRecordActivity } from "./lib/supabase";
 
 import AnalyseTab from "./tabs/AnalyseTab";
 import ImportTab from "./tabs/ImportTab";
@@ -271,7 +271,6 @@ export default function App() {
   // ── Supabase ─────────────────────────────────────────────────────
   const [dbHistory, setDbHistory]   = useState([]);
   const [dbLoading, setDbLoading]   = useState(true);
-  const [geoResults, setGeoResults]   = useState([]);
   const [geoUrlIndex, setGeoUrlIndex] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -426,7 +425,6 @@ export default function App() {
   // Lazy load GEO — uniquement quand l'onglet geo ou geo_audit est actif
   useEffect(() => {
     if (!currentProjectId || (tab !== "geo" && tab !== "geo_audit")) return;
-    sbGetGeoResultsAll(currentProjectId).then(setGeoResults).catch(() => setGeoResults([]));
     sbGetUrlIndex(currentProjectId).then(setGeoUrlIndex).catch(() => setGeoUrlIndex([]));
   }, [currentProjectId, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -443,31 +441,6 @@ export default function App() {
         clearSession();
       }
     }, REFRESH_INTERVAL);
-    return () => clearInterval(interval);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Refresh périodique du token (toutes les 50 min) ────────────
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      const user = await getOrRefreshSession();
-      if (!user && getCurrentUser()) {
-        console.warn('[App] Session expirée — déconnexion');
-        setUser(null); clearSession();
-      }
-    }, 50 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Refresh périodique du token (toutes les 50 min) ────────────
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      const user = await getOrRefreshSession();
-      if (!user && getCurrentUser()) {
-        console.warn("[App] Session expirée — déconnexion");
-        setUser(null);
-        clearSession();
-      }
-    }, 50 * 60 * 1000);
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -815,7 +788,6 @@ export default function App() {
               templateFilter={templateFilter}
               setTemplateFilter={setTemplateFilter}
               pageTypes={pageTypes}
-              geoResults={geoResults}
               geoQuestions={[]}
             />
           )}
@@ -854,7 +826,6 @@ export default function App() {
               bingData={bingData}
               smData={smData}
               pageTypes={pageTypes}
-              geoResults={geoResults}
               geoUrlIndex={geoUrlIndex}
             />
           )}
@@ -872,7 +843,6 @@ export default function App() {
               pageTypes={pageTypes}
               templateFilter={templateFilter}
               setTemplateFilter={setTemplateFilter}
-              geoResults={geoResults}
               geoUrlIndex={geoUrlIndex}
             />
           )}
@@ -897,6 +867,7 @@ export default function App() {
             <GeoTab
               sites={sites}
               isReadOnly={!superAdmin && (currentProject?._myRole === "reader")}
+              canSeeCosts={superAdmin || ["owner","admin"].includes(currentProject?._myRole)}
               projectId={currentProjectId}
               project={currentProject}
               geoAxes={currentProject?.geo_axes || null}

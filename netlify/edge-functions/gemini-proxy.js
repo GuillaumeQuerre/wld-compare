@@ -33,7 +33,7 @@ export default async function handler(request, context) {
       const body = {
         system_instruction: { parts: [{ text: SYSTEM }] },
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 16384 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 8192 }, // marge pour le "thinking" Gemini 3.x + réponse GEO, sans plafond excessif
       };
       if (useSearch) body.tools = [{ google_search: {} }]; // Google Search grounding — temps réel
       const upstream = await fetch(url, {
@@ -52,10 +52,15 @@ export default async function handler(request, context) {
     //   3. modèle courant sûr SANS grounding (si l'outil de recherche échoue)
     const FALLBACK_MODEL = "gemini-3.1-flash-lite"; // repli si MALFORMED_FUNCTION_CALL (bug Gemini 3.x, les modèles "lite" y sont moins sujets)
     const primary = [...new Set([model, SAFE_MODEL])];
-    const attempts = primary.map(m => ({ model: m, search: true }));
-    attempts.push({ model: SAFE_MODEL, search: false });       // même modèle sans grounding
-    attempts.push({ model: FALLBACK_MODEL, search: true });    // repli lite + grounding
-    attempts.push({ model: FALLBACK_MODEL, search: false });   // repli lite sans grounding
+    // Ordre : GROUNDED d'abord (le GEO veut des réponses issues du web), en
+    // basculant vite sur le lite si le modèle complet renvoie MALFORMED — le cas
+    // fréquent se résout alors dès le 2e appel, groundé, sans gaspiller d'appel
+    // "sans grounding". Les configs sans grounding ne servent que de dernier recours.
+    const attempts = [];
+    for (const m of primary) attempts.push({ model: m, search: true });   // 3.5 + grounding
+    attempts.push({ model: FALLBACK_MODEL, search: true });               // lite + grounding
+    for (const m of primary) attempts.push({ model: m, search: false });  // 3.5 sans grounding (recours)
+    attempts.push({ model: FALLBACK_MODEL, search: false });              // lite sans grounding (dernier recours)
 
     let result = null, grounded = true, lastStatus = 0, lastErr = "", lastData = null;
     const triedConfigs = new Set();

@@ -4,7 +4,7 @@ import TourGuide from "./TourGuide";
 import { sbGetBrand, sbGetQuestions, sbGetGeoResults, sbGetUrlIndex,
   sbSaveProject, sbDeleteProject, sbDownload,
   sbGetCalendarEntriesBatch, sbGetKeywords, sbGetCategories, sbGetCompetitors, sbGetAliases,
-  sbSaveGeoAnalysis, sbGetGeoAnalyses, sbGetCompareSettings } from "../lib/supabase";
+  sbSaveGeoAnalysis, sbGetGeoAnalyses, sbGetCompareSettings, sbLogCost } from "../lib/supabase";
 import {
   urlPath, sfRowMetrics, gscRowMetrics, gaRowMetrics,
   computePagesToUnblock, computeCitabilityScores, computeOrphanCited,
@@ -2234,6 +2234,14 @@ RÈGLES : Commence DIRECTEMENT par ## ÉTAT DES LIEUX. Recommandations concrète
       if (raw.trimStart().startsWith("<")) throw new Error("Proxy claude-geo introuvable");
       const data = JSON.parse(raw);
       if (!res.ok) throw new Error(data.error?.message || `Claude ${res.status}`);
+      // Coût réel de l'analyse d'audit (Haiku 4.5, sans recherche web) — journalisé à l'usage.
+      try {
+        const u = data?.usage || {};
+        const inTok  = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+        const outTok = u.output_tokens || 0;
+        const costUsd = (inTok * 1 + outTok * 5) / 1e6; // Haiku 4.5 in/out $/1M
+        sbLogCost(projectId, "audit", "claude-haiku-4-5", inTok, outTok, 0, costUsd).catch(() => {});
+      } catch { /* best-effort */ }
       const text = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       const parsed = text.split(/^## /m).filter(Boolean).map(s => {
         const idx = s.indexOf("\n");

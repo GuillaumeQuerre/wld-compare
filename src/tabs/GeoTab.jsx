@@ -11,7 +11,7 @@ import {
   sbSaveKeywords, sbGetKeywords, sbUpdateKeywordStatus, sbDeleteKeyword, sbUpdateKeywordVolume,
   sbSaveQuestions, sbGetQuestions, sbUpdateQuestion, sbDeleteQuestion,
   sbSaveGeoResult, sbGetGeoResults, sbSaveHint, sbGetHints, sbSetKeywordTags,
-  sbUpsertPresenceDaily, sbGetPresenceDaily, sbEnqueueAioScrape, sbGetAioQueue, sbCancelAioScrape,
+  sbUpsertPresenceDaily, sbGetPresenceDaily, sbLogCost, sbEnqueueAioScrape, sbGetAioQueue, sbCancelAioScrape,
   sbGetSchedule, sbSaveSchedule, sbUpdateSchedule, sbTriggerScheduler,
   sbSaveProjectSettings,
   sbGetCategories, sbSaveCategory, sbDeleteCategory,
@@ -3206,6 +3206,15 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("Aucun JSON dans la réponse");
       const parsed = JSON.parse(jsonMatch[0]);
+      // Journalisation du COÛT RÉEL de l'analyse (Sonnet + recherche web), à l'usage.
+      try {
+        const u = data?.usage || {};
+        const inTok  = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+        const outTok = u.output_tokens || 0;
+        const webReq = u.server_tool_use?.web_search_requests || 0;
+        const costUsd = (inTok * 3 + outTok * 15) / 1e6 + webReq * 0.010; // Sonnet 4.6 in/out + web
+        sbLogCost(projectId, "reco", RECO_MODEL_DEEP, inTok, outTok, webReq, costUsd).catch(() => {});
+      } catch { /* best-effort */ }
 
       // 2c + 3. Regrouper les recos par type d'action
       const itemsByType = {};
@@ -3619,22 +3628,18 @@ function SiteMultiSelect({ sites = [], value = [], onChange }) {
   );
 }
 
-function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, categories, setCategories, allResults, allSites = [], readSiteIds = null, siteBrandsMap = {}, gscRows = [], aliasMap = {}, onResultSaved, activeProviders = ["openai"], providerKeys = {}, runMode = "parallel", keywordsOrder = [], refreshTrigger = 0, competitors = [], setCompetitors = null, onSaveKey = null, isReadOnly = false, webSearchSettings = {} }) {
+function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, categories, setCategories, allResults, allResultsAllSites = null, allSites = [], readSiteIds = null, siteBrandsMap = {}, gscRows = [], aliasMap = {}, onResultSaved, activeProviders = ["openai"], providerKeys = {}, runMode = "parallel", keywordsOrder = [], refreshTrigger = 0, competitors = [], setCompetitors = null, onSaveKey = null, isReadOnly = false, webSearchSettings = {} }) {
   const [questions, setQuestions]   = useState([]);
   const [results, setResults]       = useState(allResults || []);
   // Résultats de TOUS les sites du projet, réservés au CALENDRIER. Un résultat
   // porte brand_presences de toutes les marques mais n'est stocké que sous UN
   // site : le calendrier doit donc voir tous les sites, quelle que soit la
   // sélection (sinon désélectionner un site fait disparaître ses carrés colorés).
-  const [calResults, setCalResults] = useState([]);
-  const _allSiteIdsKey = (allSites || []).map(s => s.id).join(",");
-  useEffect(() => {
-    if (!projectId) return;
-    const ids = (allSites || []).map(s => s.id).filter(Boolean);
-    if (!ids.length) return;
-    Promise.all(ids.map(sid => sbGetGeoResults(projectId, sid).catch(() => [])))
-      .then(a => setCalResults(a.flat())).catch(() => {});
-  }, [projectId, _allSiteIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Fournis par le parent (allResultsAllSites, NON filtré) plutôt que rechargés
+  // ici : même donnée, déjà en mémoire et rafraîchie après chaque interrogation
+  // → zéro requête dupliquée, et le calendrier se met à jour après un lancement.
+  // Repli sur allResults si le parent ne fournit pas la version complète.
+  const calResults = (allResultsAllSites != null ? allResultsAllSites : allResults) || [];
   const calResultsByQ = useMemo(() => {
     const m = {};
     calResults.forEach(r => { if (!m[r.question_id]) m[r.question_id] = []; m[r.question_id].push(r); });
@@ -6180,7 +6185,7 @@ function FanoutSetupPanel({
   sites, setSites, smData, setSmData, smOverview = {}, setSmOverview,
   sfData, setSfData, gscData, setGscData, gaData, setGaData, bingData, setBingData,
   dbHistory, dbLoading, refreshHistory, confirmModal, setConfirmModal,
-  project, projectId, onSaveProviderKeys,
+  project, projectId, onSaveProviderKeys, canSeeCosts = false,
   axes, onSaveAxes, onAxesChange,
   onSemrushVolumes,
 }) {
@@ -6300,7 +6305,7 @@ function FanoutSetupPanel({
       {/* ── Gestion des providers et Clés API ── */}
       <SetupSection icon="🔑" title="Gestion des providers et Clés API" desc="Branchez les clés API des moteurs IA et choisissez ceux à interroger. Claude et OpenAI sont indispensables : Claude génère les questions, les analyses « Et maintenant ? » et l'audit, OpenAI interroge ChatGPT.">
         <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
-          <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} />
+          <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} canSeeCosts={canSeeCosts} />
         </div>
       </SetupSection>
 
@@ -6390,6 +6395,7 @@ function FanoutSetupPanel({
   );
 }
 
+
 // ── Bouton « remonter en haut » — sticky, discret, bas à droite ──
 function ScrollToTopButton() {
   const [show, setShow] = useState(false);
@@ -6418,7 +6424,7 @@ function ScrollToTopButton() {
   );
 }
 
-export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes, onSaveProviderKeys, user,
+export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes, onSaveProviderKeys, user, canSeeCosts = false,
   // Props setup (nouvelles — passées depuis App.jsx)
   projects, currentProjectId, setCurrentProjectId, setProjects, ownerEmail,
   setSites, smData, setSmData, smOverview = {}, setSmOverview,
@@ -6741,6 +6747,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
       {/* ── Configuration ── */}
       {subTab === "setup" && (
         <FanoutSetupPanel
+          canSeeCosts={canSeeCosts}
           projects={projects}
           currentProjectId={currentProjectId}
           setCurrentProjectId={setCurrentProjectId}
@@ -6833,6 +6840,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
             aliasMap={aliasMap}
             brand={brand} categories={categories} setCategories={setCategories}
             allResults={allResults.filter(r => effSiteIds.includes(r.site_id))}
+            allResultsAllSites={allResults}
             onResultSaved={() => Promise.all((Array.isArray(sites) ? sites : []).map(s => sbGetGeoResults(projectId, s.id).catch(() => []))).then(a => setAllResults(a.flat()))}
             activeProviders={activeProviders} providerKeys={providerKeys}
             runMode={runMode} keywordsOrder={keywords.map(k => k.id)}

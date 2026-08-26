@@ -4,7 +4,7 @@
 
 import { useState, useEffect } from "react";
 import { C } from "../lib/constants";
-import { sbSaveProviderKeys, sbSaveProviderWebSearch, sbSaveBrand, sbGetBrand } from "../lib/supabase";
+import { sbSaveProviderKeys, sbSaveProviderWebSearch, sbSaveBrand, sbGetBrand, sbGetCostSummary } from "../lib/supabase";
 
 function encodeKey(k) { try { return btoa(k); } catch { return ""; } }
 function decodeKey(e) { try { return atob(e); } catch { return ""; } }
@@ -99,7 +99,7 @@ export const DEFAULT_MODE = "standard";
 
 
 // ── ProviderConfigPanel ───────────────────────────────────────────
-export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderKeys }) {
+export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderKeys, canSeeCosts = false }) {
   const [open, setOpen]       = useState(false);
   const [keys, setKeys]       = useState(() => {
     const init = {};
@@ -121,6 +121,12 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
     try { return JSON.parse(localStorage.getItem(cfgKey) || "{}"); } catch { return {}; }
   });
   const [nQuestions, setNQuestions] = useState(25); // pour l'estimateur de coût
+  // Dépenses RÉELLES d'analyses ce mois (geo_cost_log) — visible aux rôles coûts.
+  const [costSummary, setCostSummary] = useState(null);
+  useEffect(() => {
+    if (!canSeeCosts || !projectId) { setCostSummary(null); return; }
+    sbGetCostSummary(projectId).then(setCostSummary).catch(() => setCostSummary(null));
+  }, [canSeeCosts, projectId]);
   const updateCfg = (pid, patch) => {
     setProviderCfg(prev => {
       const next = { ...prev, [pid]: { ...(prev[pid] || {}), ...patch } };
@@ -333,6 +339,15 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
                         (≈ <strong style={{ color: "#C97820" }}>$0.15</strong> par analyse), facturé à l'usage et non compté ci-dessus.
                         Le coût réel d'une journée dépend donc surtout du nombre d'analyses lancées.
                       </div>
+                      {canSeeCosts && costSummary && (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", paddingTop: 6, borderTop: "0.5px dashed #1A3C2E12" }}>
+                          <span style={{ fontSize: 11, color: "#1A3C2E" }}>
+                            Dépenses réelles d'analyses ce mois
+                            {costSummary.count > 0 && <span style={{ color: "#94A3B8" }}> · {costSummary.count} analyse{costSummary.count > 1 ? "s" : ""}</span>}
+                          </span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: "#C97820" }}>≈ ${(costSummary.total || 0).toFixed(2)}</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
