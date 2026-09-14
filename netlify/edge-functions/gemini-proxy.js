@@ -76,7 +76,7 @@ export default async function handler(request, context) {
         // 200 mais candidat SANS texte (fréquent quand le grounding ne renvoie que
         // des métadonnées) → on ne s'arrête pas, on tente la config suivante
         // (typiquement le même modèle sans grounding).
-        const txt = r.data?.candidates?.[0]?.content?.parts?.filter(p => p.text)?.map(p => p.text)?.join("") || "";
+        const txt = r.data?.candidates?.[0]?.content?.parts?.filter(p => p.text && p.thought !== true)?.map(p => p.text)?.join("") || "";
         if (txt) { result = r.data; grounded = a.search; break; }
         const fr = r.data?.candidates?.[0]?.finishReason || "?";
         const np = (r.data?.candidates?.[0]?.content?.parts || []).length;
@@ -106,8 +106,12 @@ export default async function handler(request, context) {
     }
 
     // Texte (potentiellement en plusieurs parts)
+    // ⚠️ Gemini 3.x est un modèle « thinking » : il renvoie des parts de
+    // RAISONNEMENT (thought: true) en plus de la réponse. Les inclure polluait
+    // le texte analysé (le raisonnement contient ses propres listes) et faussait
+    // les POSITIONS détectées. On ne garde que les parts de réponse.
     const text = result?.candidates?.[0]?.content?.parts
-      ?.filter(p => p.text)
+      ?.filter(p => p.text && p.thought !== true)
       ?.map(p => p.text)
       ?.join("") || "";
 

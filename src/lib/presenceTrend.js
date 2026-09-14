@@ -105,8 +105,14 @@ export function classifyResultForBrand(r, siteId) {
   if (bp && siteId && bp[siteId]) {
     const p = bp[siteId];
     const isMention = p.mention_position != null;
-    const isPresent = isMention || !!p.mentioned || p.evocation_position != null;
-    return { mention: isMention, evocation: !isMention && isPresent, citation: !!p.in_sources };
+    // ÉVOCATION comptée INDÉPENDAMMENT de la mention — comme la citation.
+    // Avant, elle était exclusive (« présent mais pas mentionné ») : comme les
+    // réponses GEO sont surtout des tops classés, il y avait presque toujours une
+    // mention, donc l'évocation tombait toujours à 0 alors que evocation_position
+    // était bien renseignée. Repli : ancien comportement pour les données
+    // historiques qui n'ont que `mentioned` sans positions.
+    const isEvocation = p.evocation_position != null || (!isMention && !!p.mentioned);
+    return { mention: isMention, evocation: isEvocation, citation: !!p.in_sources };
   }
   return classifyResult(r);
 }
@@ -169,10 +175,24 @@ function calMecDaily(calendarEntries = []) {
 export function buildPresenceSeries({ results = [], calendarEntries = [], dailyRows = null, mode = "response", from, to, siteIds = null }) {
   const perBrand = Array.isArray(siteIds) && siteIds.length;
   const toMap = (arr) => { const m = {}; (arr || []).forEach(r => { if (r && r.date) m[r.date] = r; }); return m; };
-  // Par marque (sélection) : on calcule tout depuis les résultats via
-  // classification par marque ; dailyRows/calendrier (non ventilés par marque)
-  // sont ignorés pour ne pas fausser le cumulé.
-  const fromTable   = perBrand ? {} : toMap(dailyRows);
+  // Agrège les lignes quotidiennes (une par site_id × date) sur les sites demandés :
+  // en mode par marque on ne garde que les sites sélectionnés, et on SOMME les
+  // compteurs des marques retenues pour la même date.
+  const CNT = ["questions_count","responses_count","mentions_resp","evocations_resp","citations_resp","mentions_q","evocations_q","citations_q"];
+  const sumDaily = (arr, ids) => {
+    const m = {};
+    (arr || []).forEach(r => {
+      if (!r || !r.date) return;
+      if (ids && r.site_id != null && !ids.includes(r.site_id)) return; // hors sélection
+      if (!m[r.date]) { m[r.date] = { date: r.date }; CNT.forEach(c => { m[r.date][c] = 0; }); }
+      CNT.forEach(c => { m[r.date][c] += Number(r[c]) || 0; });
+    });
+    return m;
+  };
+  // dailyRows = historique PERSISTANT (au-delà de la fenêtre des résultats récents).
+  // Il est désormais utilisé AUSSI par marque : l'ignorer faisait disparaître les
+  // points dès que les anciens résultats sortaient de la fenêtre chargée.
+  const fromTable   = sumDaily(dailyRows, perBrand ? siteIds : null);
   const fromResults = toMap(computeMecDaily(results, perBrand ? siteIds : null));
   const fromCal     = perBrand ? {} : toMap(calMecDaily(calendarEntries));
 
@@ -182,11 +202,16 @@ export function buildPresenceSeries({ results = [], calendarEntries = [], dailyR
 
   const suf = mode === "question" ? "_q" : "_resp";
   return allDates.map(date => {
-    const r = fromTable[date] || fromResults[date] || fromCal[date];
+    // Le recalcul depuis les résultats prime quand il est AU MOINS aussi complet
+    // que la ligne stockée (interrogation du jour) ; sinon on garde l'historique.
+    const t = fromTable[date], f = fromResults[date];
+    const tCount = t ? (mode === "question" ? (t.questions_count || 0) : (t.responses_count || 0)) : -1;
+    const fCount = f ? (mode === "question" ? (f.questions_count || 0) : (f.responses_count || 0)) : -1;
+    const r = (f && fCount >= tCount) ? f : (t || f || fromCal[date]);
     const tested = mode === "question" ? (r.questions_count || 0) : (r.responses_count || 0);
     const mentions = r["mentions" + suf] || 0, evocations = r["evocations" + suf] || 0, citations = r["citations" + suf] || 0;
     const present = mentions + evocations;
-    const source = fromTable[date] ? "daily" : (fromResults[date] ? "results" : "calendar");
+    const source = (r === f) ? "results" : (r === t ? "daily" : "calendar");
     return { date, tested, mentions, evocations, citations, present,
       rate: tested > 0 ? Math.round((present / tested) * 100) : null, source };
   });
@@ -331,7 +356,7 @@ function Curves({ series, width = 900, height = 240, keys = ["citations", "evoca
 export function PresenceTrendChart({
   results = [], calendarEntries = [], dailyRows = null, minDate, title = "Chronologie de la présence",
   defaultDays = 30, compact = false, onRangeChange = null, defaultMode = "response", chartHeight = null,
-  mode: modeProp = null, onModeChange = null, siteIds = null, view = "cumule", brands = [],
+  mode: modeProp = null, onModeChange = null, siteIds = null, view = "cumule", brands = [], compareMetric = "mentions", onCompareMetricChange = null,
 }) {
   const today = dayKeyOf(new Date());
   const floor = minDate || addDays(today, -365);
@@ -354,7 +379,7 @@ export function PresenceTrendChart({
     const f = from < floor ? floor : from;
     const per = brands.map(b => ({ b, s: buildPresenceSeries({ results, mode, from: f, to, siteIds: [b.id] }) }));
     const byBD = {}; const dates = new Set();
-    per.forEach(({ b, s }) => { byBD[b.id] = {}; s.forEach(d => { byBD[b.id][d.date] = d.mentions; dates.add(d.date); }); });
+    per.forEach(({ b, s }) => { byBD[b.id] = {}; s.forEach(d => { byBD[b.id][d.date] = d[compareMetric] ?? 0; dates.add(d.date); }); });
     const pts = [...dates].sort().map(date => {
       const row = { date, tested: 0 };
       brands.forEach(b => { row[b.id] = byBD[b.id][date] || 0; });
@@ -364,7 +389,7 @@ export function PresenceTrendChart({
     const colors = {}; const labels = {};
     brands.forEach((b, i) => { colors[b.id] = b.color || BRAND_PALETTE[i % BRAND_PALETTE.length]; labels[b.id] = b.label; });
     return { pts, keys, colors, labels };
-  }, [view, brands, results, mode, from, to, floor]);
+  }, [view, brands, results, mode, from, to, floor, compareMetric]);
 
   // Remontee au parent APRES le rendu (jamais pendant) : evite un setState
   // sur le parent au milieu du rendu de l'enfant.
@@ -399,6 +424,19 @@ export function PresenceTrendChart({
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          {/* Métrique tracée — uniquement en mode Comparaison (une courbe par marque) */}
+          {view === "compare" && Array.isArray(brands) && brands.length > 1 && (
+            <span style={{ display: "inline-flex", border: "0.5px solid #1A3C2E18", borderRadius: 20, overflow: "hidden", marginRight: 4 }}>
+              {[["mentions", "Mentions"], ["evocations", "Évocations"], ["citations", "Citations"]].map(([m, lbl]) => (
+                <button key={m} onClick={() => { if (onCompareMetricChange) onCompareMetricChange(m); }}
+                  style={{ padding: "3px 9px", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
+                    background: compareMetric === m ? `${MEC_COLORS[m]}18` : "transparent", color: compareMetric === m ? MEC_COLORS[m] : "#94A3B8" }}
+                  title={`Tracer les ${lbl.toLowerCase()} par marque`}>
+                  {lbl}
+                </button>
+              ))}
+            </span>
+          )}
           {/* Switch mode de comptage : par réponse / par question */}
           <span style={{ display: "inline-flex", border: "0.5px solid #1A3C2E18", borderRadius: 20, overflow: "hidden", marginRight: 4 }}>
             {[["response", "par réponse"], ["question", "par question"]].map(([m, lbl]) => (

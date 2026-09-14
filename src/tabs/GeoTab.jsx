@@ -3706,28 +3706,33 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   // GARDE-FOU : on n'upsert PAS un jour dont le recalcul compte MOINS de réponses
   // que la ligne déjà stockée — sinon la fenêtre des 2000 résultats récents
   // écraserait un vieux jour complet par un sous-comptage.
+  // ⚠️ La clé est (site_id, date) — comme en base : indexer par date SEULE faisait
+  // s'écraser les marques entre elles (une marque comparée au total d'une autre),
+  // ce qui vidait des points et faisait « sauter » la courbe à chaque interrogation.
   useEffect(() => {
     if (!projectId || !site?.id || !results.length) return;
-    const fresh = computeMecDaily(results);
-    if (!fresh.length) return;
-    const storedByDate = {};
-    (dailyRows || []).forEach(r => { storedByDate[r.date] = r; });
-    const toUpsert = fresh.filter(r => {
-      const prev = storedByDate[r.date];
-      return !prev || (r.responses_count || 0) >= (prev.responses_count || 0);
-    });
+    const sids = (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site.id]).filter(Boolean);
+    const k = (sid, date) => `${sid}|${date}`;
+    const storedByKey = {};
+    (dailyRows || []).forEach(r => { storedByKey[k(r.site_id, r.date)] = r; });
     // Matérialisation quotidienne PAR MARQUE sélectionnée (chaque site stocke sa
     // propre présence, cohérent avec le calcul par marque des courbes).
-    (Array.isArray(readSiteIds) && readSiteIds.length ? readSiteIds : [site.id]).forEach(sid => {
+    const merged = [];
+    sids.forEach(sid => {
       const freshSid = computeMecDaily(results, [sid]);
-      const toUp = freshSid.filter(r => { const prev = storedByDate[r.date]; return !prev || (r.responses_count || 0) >= (prev.responses_count || 0); });
+      const toUp = freshSid.filter(r => {
+        const prev = storedByKey[k(sid, r.date)];
+        return !prev || (r.responses_count || 0) >= (prev.responses_count || 0);
+      });
+      toUp.forEach(r => merged.push({ ...r, site_id: sid }));
       if (toUp.length) sbUpsertPresenceDaily(projectId, sid, toUp).catch(() => {});
     });
+    if (!merged.length) return;
     setDailyRows(prev => {
-      const byDate = {};
-      (prev || []).forEach(r => { byDate[r.date] = r; });
-      toUpsert.forEach(r => { byDate[r.date] = { ...byDate[r.date], ...r }; });
-      return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+      const byKey = {};
+      (prev || []).forEach(r => { byKey[k(r.site_id, r.date)] = r; });
+      merged.forEach(r => { byKey[k(r.site_id, r.date)] = { ...byKey[k(r.site_id, r.date)], ...r }; });
+      return Object.values(byKey).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
     });
   }, [projectId, site?.id, results]); // eslint-disable-line react-hooks/exhaustive-deps
   const [recomputing, setRecomputing]   = useState(false);
