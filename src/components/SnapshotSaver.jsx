@@ -161,17 +161,3 @@ export function SnapshotModal({ source, rows, filename, projectId, siteId, onClo
     </div>
   );
 }
-
-// ── Legacy inline export (kept for compatibility) ─────────────────
-export default function SnapshotSaver(props) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button onClick={() => setOpen(true)}
-        style={{ fontSize: 11, padding: "4px 10px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.textMid, cursor: "pointer" }}>
-        📌 Snapshot
-      </button>
-      {open && <SnapshotModal {...props} onClose={() => setOpen(false)} />}
-    </>
-  );
-}

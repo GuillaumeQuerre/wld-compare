@@ -19,7 +19,7 @@ const PROVIDERS = [
 // ── Catalogue de modèles par provider (avec tarifs API, USD / 1M tokens) ──
 // Prix vérifiés juin 2026 — input/output par million de tokens.
 // Modifiables ici si les tarifs évoluent.
-export const MODEL_CATALOG = {
+const MODEL_CATALOG = {
   openai: [
     { id: "gpt-4o-mini",  label: "GPT-4o mini",  in: 0.15, out: 0.60 },
     { id: "gpt-4.1-mini", label: "GPT-4.1 mini", in: 0.40, out: 1.60 },
@@ -68,7 +68,7 @@ export const WEB_SEARCH_FEE = {
 // OpenAI facture le contenu de recherche comme un BLOC FIXE de 8 000 tokens
 // d'entrée par appel (doc officielle) — ils étaient oubliés dans l'estimation.
 // Gemini/Perplexity injectent aussi du contenu de recherche (estimation prudente).
-export const WEB_SEARCH_INPUT_TOKENS = {
+const WEB_SEARCH_INPUT_TOKENS = {
   openai:     8000,
   gemini:     8000,
   perplexity: 4000,
@@ -78,7 +78,7 @@ export const WEB_SEARCH_INPUT_TOKENS = {
 // ── Modes d'interrogation ─────────────────────────────────────────
 // Chaque mode fait varier le nombre de tokens (et donc le coût) + le style.
 // estIn/estOut = estimation moyenne de tokens entrée/sortie PAR question.
-export const QUERY_MODES = {
+const QUERY_MODES = {
   standard: {
     id: "standard", label: "Standard", icon: "◎",
     desc: "Mode actuel — réponse directe, favorise listes et citations.",
@@ -95,7 +95,7 @@ export const QUERY_MODES = {
     estIn: 1400, estOut: 1800, maxTokens: 3072,
   },
 };
-export const DEFAULT_MODE = "standard";
+const DEFAULT_MODE = "standard";
 
 
 // ── ProviderConfigPanel ───────────────────────────────────────────

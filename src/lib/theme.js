@@ -82,46 +82,5 @@ export const FONT = {
   mono:    "ui-monospace, SFMono-Regular, Menlo, monospace",
 };
 
-// Titre de section : PETITES CAPITALES espacées, précédées du losange orange ◆
-export const sectionTitle = {
-  fontFamily: FONT.body,
-  fontSize: 11,
-  fontWeight: 700,
-  letterSpacing: 1.1,
-  textTransform: "uppercase",
-  color: T.text,
-};
-
-// Libellé de carte sombre (ex. « CA PRÉVISIONNEL / AN »)
-export const cardLabel = {
-  fontFamily: FONT.body,
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: 1,
-  textTransform: "uppercase",
-  color: T.textMutedOnDark,
-};
-
-// Chiffre clé (ex. « 10 150 € »)
-export const kpiValue = {
-  fontFamily: FONT.body,
-  fontSize: 34,
-  fontWeight: 800,
-  letterSpacing: -0.5,
-  color: T.accent,
-};
-
 // Le marqueur ◆ qui précède les titres de section dans le simulateur
 export const DIAMOND = "◆";
-
-
-// ── Couleurs de DONNÉES (les 3 indicateurs GEO) ──
-// Triade lisible et cohérente avec la charte : vert Sonate / orange Sonate /
-// teal profond (remplace le bleu #2563EB, hors charte).
-export const DATA = {
-  mention:   "#2E5E3A", // vert Sonate
-  evocation: "#E8541A", // orange Sonate
-  citation:  "#1F6F6B", // teal profond — distinct des deux autres
-};
-
-export default T;

@@ -36,7 +36,7 @@ export const COMPARE_ROWS = [
   { id: "sm_top_page_traffic", group: "semrush", label: "Trafic de la top page",       better: "high", needs: "semrush" },
 ];
 
-export const COMPARE_GROUPS = [
+const COMPARE_GROUPS = [
   { id: "llm",     label: "Résultats des moteurs IA", tool: null },
   { id: "sf",      label: "Analyse technique — Screaming Frog", tool: "Screaming Frog" },
   { id: "semrush", label: "Visibilité SEO — Semrush", tool: "Semrush" },
@@ -107,7 +107,7 @@ export function getSitePerimeter(site) {
 
 // ── Import outils par entité (marque/concurrent) : parse + calcul agrégats ────
 // Parseur CSV autonome (virgules, guillemets, BOM). Renvoie un tableau d'objets.
-export function parseCsvRows(text) {
+function parseCsvRows(text) {
   if (!text || typeof text !== "string") return [];
   const clean = text.replace(/^\uFEFF/, "");
   const rows = []; let cur = [], val = "", inQ = false;
@@ -184,7 +184,7 @@ export function entityUrlStats(results, name, domain) {
 // rows : sfData[site.id] (lignes CSV brutes de l'export « internal_all »).
 // Renvoie { sf_pages200, sf_images, sf_h1multi, sf_titleLong } ou null si vide.
 // Clé d'URL normalisée (hôte sans www + chemin sans slash final), pour le croisement pages citées.
-export function urlKey(u) {
+function urlKey(u) {
   try { const x = new URL(u); return (x.hostname.replace(/^www\./, "") + x.pathname).toLowerCase().replace(/\/+$/, ""); }
   catch { return String(u || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[?#]/)[0].replace(/\/+$/, ""); }
 }
@@ -268,7 +268,7 @@ export function sfCompareStats(rows, citedUrls = null) {
 // rows : smData[site.id] (lignes de l'export top pages Semrush).
 // sm_keywords = somme des mots-clés par page ; sm_traffic = somme du trafic.
 // Renvoie une métrique à null si sa colonne est absente (jamais un faux chiffre).
-export function smCompareStats(rows) {
+function smCompareStats(rows) {
   if (!Array.isArray(rows) || !rows.length) return null;
   const norm = (s) => (s || "").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   const F = (row, ...keys) => {
@@ -343,7 +343,7 @@ export function resolveSmStats(overview, pagesRows) {
 }
 
 // ── Détermine la meilleure cellule d'une ligne (pour la bordure) ─────────────
-export function bestColKey(rowDef, rowData) {
+function bestColKey(rowDef, rowData) {
   if (!rowDef.better || !rowData) return null;
   let best = null, bestVal = null;
   Object.entries(rowData).forEach(([k, v]) => {

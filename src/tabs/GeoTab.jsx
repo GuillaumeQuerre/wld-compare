@@ -846,7 +846,7 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
 // ── OpenAI call helpers ───────────────────────────────────────────
 
 
-export const PROVIDERS = [
+const PROVIDERS = [
   {
     id: "openai",
     label: "OpenAI",

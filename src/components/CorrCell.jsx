@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
-import { C, SF_DIM_TOOLTIPS, KPI_TOOLTIPS } from "../lib/constants";
-import { corrColor } from "../lib/helpers";
+import { C, SF_DIM_TOOLTIPS } from "../lib/constants";
 
 function useTooltip(enabled) {
   const [rect, setRect] = useState(null);
@@ -20,137 +19,12 @@ function tooltipStyle(rect, w, h, gap = 10) {
   return { position: "fixed", top, left, zIndex: 9999, pointerEvents: "none" };
 }
 
-function corrInterpret(r) {
-  if (r === null) return null;
-  if (r >= 0.25)  return { label: "Corrélation positive forte",  color: "#86EFAC" };
-  if (r >= 0.05)  return { label: "Corrélation positive faible", color: "#BBF7D0" };
-  if (r > -0.05)  return { label: "Pas de corrélation nette",    color: "#CBD5E1" };
-  if (r > -0.25)  return { label: "Corrélation négative faible", color: "#FECACA" };
-  return               { label: "Corrélation négative forte",    color: "#FCA5A5" };
-}
-
 // Shared dark tooltip shell
 function DarkTooltip({ style, children }) {
   return (
     <div style={{ ...style, background: "#1E1E2E", color: "#fff", borderRadius: 10, padding: "13px 15px", fontSize: 12, boxShadow: "0 6px 20px rgba(0,0,0,0.3)", lineHeight: 1.7, wordWrap: "break-word", overflowWrap: "break-word", whiteSpace: "normal" }}>
       {children}
     </div>
-  );
-}
-
-function fmtR(v) {
-  if (v === null || v === undefined) return "—";
-  return (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
-}
-
-function Sep() {
-  return <div style={{ borderTop: "1px solid #ffffff22", margin: "8px 0" }} />;
-}
-
-// ── CorrCell ────────────────────────────────────────────────────
-export function CorrCell({ kpi, value, n, dim, base, delta, showDelta, tooltipEnabled }) {
-  const { rect, onEnter, onLeave } = useTooltip(tooltipEnabled);
-  const col    = corrColor(value);
-  const interp = corrInterpret(value);
-  const W = 260, H = value !== null ? (showDelta && delta !== null ? 310 : 250) : 110;
-  const ts = tooltipEnabled ? tooltipStyle(rect, W, H) : null;
-
-  return (
-    <td
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      style={{ padding: "8px 6px", textAlign: "center", borderRight: `1px solid ${C.borderLight}`, borderBottom: `1px solid ${C.borderLight}`, cursor: tooltipEnabled ? "help" : "default", position: "relative" }}
-    >
-      <div style={{ background: col.bg, color: col.text, border: `1px solid ${col.border}`, borderRadius: 7, padding: "5px 6px", fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-        {fmtR(value)}
-      </div>
-      {showDelta && delta !== null && (
-        <div style={{ fontSize: 10, fontWeight: 600, marginTop: 2, color: delta > 0 ? "#16A34A" : delta < 0 ? "#DC2626" : C.textLight, display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
-          {delta > 0 ? "▲" : delta < 0 ? "▼" : "="}{delta !== 0 ? (delta > 0 ? "+" : "") + Math.round(delta * 100) + "%" : "="}
-        </div>
-      )}
-      {n > 0 && <div style={{ fontSize: 9, color: C.textLight, marginTop: 1 }}>{n}p</div>}
-      {ts && rect && (
-        <DarkTooltip style={{ ...ts, width: W }}>
-          {value !== null ? (<>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ fontSize: 16, fontWeight: 800 }}>{fmtR(value)}</span>
-              <span style={{ fontSize: 10, fontWeight: 600, background: interp.color, color: "#1E1E2E", borderRadius: 4, padding: "2px 7px" }}>{interp.label}</span>
-            </div>
-            <div style={{ fontSize: 12, color: "#CBD5E1", lineHeight: 1.6 }}>
-              Les pages avec <b style={{ color: "#E2E8F0" }}>{dim.label}</b> élevé
-              {value >= 0.05
-                ? <> tendent à avoir <b style={{ color: "#86EFAC" }}>plus de {kpi.label}</b>.</>
-                : value <= -0.05
-                  ? <> tendent à avoir <b style={{ color: "#FCA5A5" }}>moins de {kpi.label}</b>.</>
-                  : <> n'ont <b style={{ color: "#94A3B8" }}>pas de lien clair</b> avec {kpi.label}.</>}
-            </div>
-            {showDelta && delta !== null && (<>
-              <Sep />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                <span style={{ color: "#94A3B8" }}>Toutes les pages :</span>
-                <span style={{ fontWeight: 600 }}>{base !== null ? fmtR(base) : "—"}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                <span style={{ color: "#94A3B8" }}>Ce filtre :</span>
-                <span style={{ fontWeight: 600 }}>{fmtR(value)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 2 }}>
-                <span style={{ color: "#94A3B8" }}>Écart :</span>
-                <span style={{ fontWeight: 700, color: delta > 0 ? "#86EFAC" : delta < 0 ? "#FCA5A5" : "#94A3B8" }}>
-                  {delta > 0 ? "▲ +" : delta < 0 ? "▼ " : "= "}{Math.round(delta * 100)}%
-                </span>
-              </div>
-            </>)}
-            <div style={{ borderTop: "1px solid #ffffff22", paddingTop: 7, marginTop: 8, fontSize: 10, color: "#64748B" }}>
-              {n} pages analysées · Pearson r
-            </div>
-          </>) : (<>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Données insuffisantes</div>
-            <div style={{ fontSize: 11, color: "#94A3B8" }}>
-              Seulement {n} page{n > 1 ? "s" : ""} avec URL présente dans les deux sources.
-              Minimum 5 requis pour calculer une corrélation fiable.
-            </div>
-          </>)}
-        </DarkTooltip>
-      )}
-    </td>
-  );
-}
-
-// ── KpiHeaderCell ───────────────────────────────────────────────
-export function KpiHeaderCell({ kpi, sortState, onSort, tooltipEnabled }) {
-  const { rect, onEnter, onLeave } = useTooltip(tooltipEnabled);
-  const tip = KPI_TOOLTIPS[kpi.label];
-  const W = 260, H = 160;
-  const ts = tooltipEnabled ? tooltipStyle(rect, W, H) : null;
-  const ICONS = { null: "⇅", asc: "↑", desc: "↓" };
-
-  return (
-    <th
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      onClick={onSort}
-      style={{
-        padding: "12px 10px", fontSize: 11, fontWeight: 600, textAlign: "center",
-        textTransform: "uppercase", letterSpacing: 0.8, borderBottom: `1px solid ${C.border}`,
-        whiteSpace: "nowrap", cursor: "pointer", position: "relative", userSelect: "none",
-        color: sortState ? C.blue : C.textLight,
-        background: sortState ? C.blueLight : "transparent",
-      }}
-    >
-      <span>{kpi.label}</span>
-      <span style={{ marginLeft: 4, fontSize: 10, opacity: sortState ? 1 : 0.4 }}>{ICONS[sortState] ?? "⇅"}</span>
-      {ts && rect && (
-        <DarkTooltip style={{ ...ts, width: W }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#E2E8F0" }}>{kpi.label}</div>
-          {tip && <div style={{ fontSize: 11, color: "#CBD5E1", marginBottom: 6 }}>{tip}</div>}
-          <div style={{ fontSize: 10, color: "#64748B" }}>
-            {sortState ? (sortState === "desc" ? "↓ Tri décroissant actif" : "↑ Tri croissant actif") : "Cliquer pour trier"}
-          </div>
-        </DarkTooltip>
-      )}
-    </th>
   );
 }
 

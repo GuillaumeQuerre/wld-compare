@@ -913,7 +913,7 @@ function normalizeUrl(raw) {
 // toutes les marques détectées (brand_presences). Permet à tous les panneaux
 // de l'audit de considérer « au moins une marque positionnée » plutôt que la
 // seule marque du site 1.
-export function projectAnyBrand(rows) {
+function projectAnyBrand(rows) {
   return (rows || []).map(r => {
     const bp = r && r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences : null;
     if (!bp || !Object.keys(bp).length) return r;

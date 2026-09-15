@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // ════════════════════════════════════════════════════════════════════════
 //  Chronologie Mentions / Évocations / Citations — source UNIQUE
@@ -14,8 +14,8 @@ import React, { useState, useMemo, useEffect } from "react";
 //  ne comptait que comme mention, ce qui sous-évaluait structurellement les citations.
 // ════════════════════════════════════════════════════════════════════════
 
-export const MEC_COLORS = { mentions: "#1A7A4A", evocations: "#E8541A", citations: "#3B4FA8" };
-export const MEC_LABELS = { mentions: "Mentions", evocations: "Évocations", citations: "Citations" };
+const MEC_COLORS = { mentions: "#1A7A4A", evocations: "#E8541A", citations: "#3B4FA8" };
+const MEC_LABELS = { mentions: "Mentions", evocations: "Évocations", citations: "Citations" };
 // Palette pour le mode Comparaison (une couleur par marque, repli si la marque n'a pas la sienne).
 export const BRAND_PALETTE = ["#2E5E3A", "#3B4FA8", "#E8541A", "#7C3AED", "#DB2777", "#0891B2", "#B45309", "#4B5563"];
 
@@ -62,20 +62,20 @@ function smoothPathD(coords) {
   return d;
 }
 
-export function dayKeyOf(d) {
+function dayKeyOf(d) {
   const x = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(x.getTime())) return null;
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
 }
 
-export function addDays(dateStr, n) {
+function addDays(dateStr, n) {
   const d = new Date(dateStr + "T00:00:00");
   d.setDate(d.getDate() + n);
   return dayKeyOf(d);
 }
 
 // Liste continue de jours entre from et to inclus (axe régulier, sans trou).
-export function daysBetween(from, to) {
+function daysBetween(from, to) {
   const out = [];
   if (!from || !to || from > to) return out;
   let cur = from;
@@ -100,7 +100,7 @@ export function classifyResult(r) {
 // Classification PAR MARQUE : lit brand_presences[siteId] du résultat (détection
 // propre à cette marque), indépendamment du site de stockage. Repli sur les
 // champs « marque principale » si brand_presences absent ou marque non couverte.
-export function classifyResultForBrand(r, siteId) {
+function classifyResultForBrand(r, siteId) {
   const bp = r && r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences : null;
   if (bp && siteId && bp[siteId]) {
     const p = bp[siteId];

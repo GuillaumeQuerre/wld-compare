@@ -12,13 +12,6 @@
 // passe une base absolue (origine du déploiement).
 // ════════════════════════════════════════════════════════════════════
 
-// Modèles par défaut par provider (alignés avec l'onglet Questions).
-export const PROVIDER_MODELS = {
-  openai:     "gpt-4o-mini",
-  gemini:     "gemini-3.5-flash",
-  perplexity: "sonar",
-  claude:     "claude-haiku-4-5-20251001",
-};
 export const PROVIDER_LABEL = { openai: "OpenAI", gemini: "Gemini", perplexity: "Perplexity", claude: "Claude" };
 
 // ── Construction des prompts — IDENTIQUE à runProvider (onglet Questions) ──
@@ -62,7 +55,7 @@ export function getProviderId(model) {
   return "other";
 }
 
-export function extractOpenAIUrls(data) {
+function extractOpenAIUrls(data) {
   // Extract real URLs from annotations (url_citation type) in Responses API
   const urls = [];
   const seen = new Set();
@@ -81,7 +74,7 @@ export function extractOpenAIUrls(data) {
   return urls;
 }
 
-export function parseOpenAIResponse(data, endpoint = "responses") {
+function parseOpenAIResponse(data, endpoint = "responses") {
   const usage = data.usage || {};
   const inTok = usage.input_tokens || usage.prompt_tokens || 0;
   const outTok = usage.output_tokens || usage.completion_tokens || 0;
@@ -145,7 +138,7 @@ export function parseOpenAIResponse(data, endpoint = "responses") {
   return parsed;
 }
 
-export function parseTextResponse(text, inTok, outTok, extraSources = []) {
+function parseTextResponse(text, inTok, outTok, extraSources = []) {
   // Try to extract JSON if model returned it
   const s = text.lastIndexOf("{"); const e = text.lastIndexOf("}");
   if (s !== -1 && e > s) {
@@ -309,162 +302,196 @@ export async function callProvider(provider, apiKey, prompt, maxTokens = 2000, b
   throw new Error(`Provider inconnu: ${provider.id}`);
 }
 
+// ════════════════════════════════════════════════════════════════════
+// DÉTECTION DES PRÉSENCES — qualification PAR OCCURRENCE
+//
+// Refonte : on ne reconstruit plus une « séquence globale » de la réponse.
+// Chaque LIGNE est qualifiée par sa MISE EN FORME — titre numéroté, titre (#),
+// amorce en gras, ligne-lien, puce, prose — et la position d'une entité est son
+// rang PARMI LES LIGNES DE MÊME FORME (et de même niveau d'imbrication).
+//   • forme structurée (numéroté / titre / gras / lien / puce) ⇒ MENTION
+//   • prose (et lignes de détail imbriquées)                   ⇒ ÉVOCATION
+//
+// Deux conséquences voulues :
+//  • un top en gras (Gemini/Perplexity) n'est plus décalé par les titres (#)
+//    ou les puces qui l'entourent : chaque forme se classe séparément, et un
+//    changement de forme ne « redémarre » plus le classement à 1 ;
+//  • les lignes de MÉTADONNÉES répétitives des fiches type Google Business
+//    (« **Fermé · Ouvre à 09:00 · 4,6 (131 avis)** », « Site web : … »,
+//    téléphones, adresses, horaires) sont écartées : elles avaient la forme
+//    d'un item en gras et décalaient tous les rangs d'un cran par fiche.
+// ════════════════════════════════════════════════════════════════════
 export function detectBrand(answer, sources, brandName, brandAliases = [], competitors = []) {
   // Normalisation casse + accents : « ÉLÉAS » et « Eleas » doivent matcher.
-  const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
   // Noms connus (marque + alias + concurrents configures) : un en-tete qui correspond
   // a une entite mesuree ne doit JAMAIS etre ecarte par le filtre "titre de section"
-  // (ex. une societe nommee "Comment ca marche SARL" perdrait sinon son classement).
+  // ni par le filtre "metadonnees repetitives".
   const knownEntityTerms = [brandName, ...(brandAliases || []),
     ...(competitors || []).filter(Boolean).map(c => (typeof c === "string" ? c : c && c.name))]
     .filter(Boolean).map(norm).filter(t => t.length >= 3);
 
   // Les titres peuvent être des LIENS markdown : "**[Linconyl Angers : …](url)**".
-  // Les crochets empêchaient la reconnaissance du titre en gras → l'entité
-  // n'entrait dans aucune liste classée et retombait sur une position #1 fausse.
-  // On remplace donc "[texte](url)" par "texte" avant l'analyse structurelle.
-  const lines = (answer || "")
-    .replace(/\[([^\]]+)\]\((?:[^)]*)\)/g, "$1")
-    .split("\n");
-  // Pattern d'item de top : "1. Titre", "2) Titre", "• 3. Titre"
-  const topItemRe = /^\s*(?:[•\-*]\s*)?(\d+)[.)]\s*(.+)/;
+  // On travaille sur la version « sans lien » pour l'analyse textuelle, tout en
+  // gardant la ligne brute pour reconnaître la forme « ligne-lien ».
+  const MD_LINK_RE = /\[([^\]]+)\]\((?:[^)]*)\)/g;
+  const stripLinks = (s) => String(s || "").replace(MD_LINK_RE, "$1");
+  const rawLines = String(answer || "").split("\n");
 
-  // ── Reconstruction des séquences de liste classées (fiabilité du "Top") ──
-  // On ne se fie PAS au numéro littéral écrit par le LLM (sous-listes, redémarrages…).
-  // On prend la position ORDINALE réelle dans la séquence contiguë la plus longue.
-  const subBulletRe = /^\s*[•\-*]\s+\S/;
-  // Item de top "en-tête" SANS numéro : lien markdown (option. gras) ou titre gras / heading.
-  // Couvre le format type "[Nom](url)", "**[Nom](url)**", "**Nom**", "### Nom".
-  const headingLinkRe = /^\s*(?:[•\-*]\s*)?\*{0,2}\[([^\]]{2,90})\]\([^)]*\)\*{0,2}\s*(?:[—:-].*)?$/;
-  // Amorce en GRAS (format fréquent de Gemini/Perplexity) : "* **Marque** : …",
-  // "- **Marque** — …", "**2. Marque** : …" ou "**Marque**" seul. Le numéro éventuel
-  // à l'intérieur du gras est capturé pour repli, mais la position vient de l'ordre.
-  const boldLeadRe = /^\s*(?:[•\-*]\s+)?\*\*\s*(?:(\d+)[.)]\s*)?([^*\n]{2,60}?)\s*\*\*\s*(?:[:：—-].*)?$/;
-  const headingBoldRe = /^\s*(?:#{1,4}\s*)?\*\*([^*\n]{2,90})\*\*\s*:?\s*$/;
-  const headingPlainRe = /^\s*#{1,4}\s*([^\n]{2,90})$/;
-  const matchHeading = (s) => {
-    const lvl = (s.match(/^\s*(#{1,4})/)?.[1] || "").length;
-    let m = s.match(headingLinkRe); if (m) return { title: m[1].replace(/\*/g, "").trim(), level: lvl };
-    m = s.match(headingBoldRe);    if (m) return { title: m[1].trim(), level: lvl };
-    m = s.match(headingPlainRe);   if (m) return { title: m[1].replace(/[[\]]|\(.*\)/g, "").replace(/\*/g, "").trim(), level: lvl };
-    return null;
-  };
-  // Un titre de SECTION n'est pas une marque classée : l'inclure décalait le rang
+  // ── Formes reconnues (une regex par forme) ──
+  const topItemRe      = /^\s*(?:[•\-*]\s*)?(\d+)[.)]\s*(.+)/;                                        // "1. Titre" / "2) Titre"
+  const headingPlainRe = /^\s*#{1,4}\s*([^\n]{2,90})$/;                                               // "### Titre"
+  const headingBoldRe  = /^\s*#{1,4}\s*\*\*([^*\n]{2,90})\*\*\s*:?\s*$/;                              // "### **Titre**"
+  const boldLeadRe     = /^\s*(?:[•\-*]\s+)?\*\*\s*(?:(\d+)[.)]\s*)?([^*\n]{2,80}?)\s*\*\*\s*(?:[:：—–-].*)?$/; // "**Marque** : …"
+  const linkLineRe     = /^\s*(?:[•\-*]\s*)?\[([^\]]{2,90})\]\([^)]*\)\s*(?:[—–:-].*)?$/;             // "[Marque](url) — …"
+  const bulletRe       = /^[•\-*]\s+(.{2,80})$/;                                                      // "- Marque" (colonne 0)
+
+  // Un titre de SECTION n'est pas une entité classée : l'inclure décalait le rang
   // (ex. "Comment choisir" + "Les criteres" avant les marques => 3e affiche #5).
   const sectionTitleRe = /^(comment|pourquoi|quel|quelle|quels|quelles|quand|combien|conclusion|en resume|en bref|faq|foire aux questions|sommaire|introduction|methodologie|notre methode|criteres|les criteres|a retenir|pour aller plus loin|sources|references|avant de choisir|notre selection|notre avis)\b/;
   const isKnownEntity = (title) => { const t = norm(title); return knownEntityTerms.some(k => t.includes(k)); };
   const isSectionTitle = (title) => { const t = norm(title); return (t.endsWith("?") || sectionTitleRe.test(t)) && !isKnownEntity(title); };
-  const isDetailLine = (s) => {
-    const t = s.trim();
-    if (!t) return true;
-    if (subBulletRe.test(t) && !topItemRe.test(t)) return true;
-    if (/^\s{2,}\S/.test(s)) return true;
-    if (/^[A-Za-zÀ-ÿ' ]{2,20}\s*:/.test(t) && t.length < 80) return true;
-    if (/^_.*_$/.test(t)) return true; // ligne en italique (ex. "_Le Mans, France_")
-    return false;
-  };
-  const sequences = [];
-  let current = null, prevNum = null, seqType = null, prevLevel = null; // seqType: "num" | "head" | null
-  let lastNumSeq = null, lastNumVal = null; // survivent à la prose, pour reprendre une liste coupée
-  for (const raw of lines) {
-    const m = raw.match(topItemRe);
-    if (m) {
-      const num = parseInt(m[1], 10);
-      let continues = current && seqType === "num" && prevNum != null && (num === prevNum + 1 || num === prevNum);
-      // Reprise : "3." après un paragraphe de prose prolonge la liste 1..2 au lieu
-      // d'ouvrir une nouvelle séquence (qui remettait la position à 1).
-      if (!continues && lastNumSeq && lastNumVal != null && num === lastNumVal + 1) {
-        current = lastNumSeq; seqType = "num"; continues = true;
-      }
-      if (!continues) { current = []; sequences.push(current); seqType = "num"; }
-      current.push({ num, text: m[2], ordinal: current.length + 1 });
-      prevNum = num; lastNumSeq = current; lastNumVal = num;
-      continue;
-    }
-    // Puce/ligne à amorce en gras = item classé (Gemini/Perplexity).
-    const bl = raw.match(boldLeadRe);
-    if (bl) {
-      const name = bl[2].trim();
-      if (isSectionTitle(name)) continue; // "**Notre sélection**" etc. : pas une marque
-      const continuesBold = current && seqType === "bold";
-      if (!continuesBold) { current = []; sequences.push(current); seqType = "bold"; prevNum = null; prevLevel = null; }
-      current.push({ num: bl[1] ? parseInt(bl[1], 10) : null, text: name, ordinal: current.length + 1 });
-      continue;
-    }
-    // Puce SIMPLE NON INDENTÉE (colonne 0, sans numéro ni gras) : "- Nom" / "• Nom".
-    // Un top peut être présenté ainsi (AI Overviews) → item classé, pas évocation.
-    // Les puces INDENTÉES restent des détails (gérées plus bas par isDetailLine).
-    const pb = raw.match(/^[•\-*]\s+(.{2,80})$/);
-    if (pb) {
-      const name = pb[1].trim();
-      const isMeta = /^(site|description|source|adresse|t[ée]l|email|http)/i.test(name);
-      if (!isSectionTitle(name) && !isMeta) {
-        const continuesBullet = current && seqType === "bullet";
-        if (!continuesBullet) { current = []; sequences.push(current); seqType = "bullet"; prevNum = null; prevLevel = null; }
-        current.push({ num: null, text: name, ordinal: current.length + 1 });
-        continue;
-      }
-    }
-    const head = matchHeading(raw);
-    if (head && isSectionTitle(head.title)) continue; // titre de section : ignore, ne casse pas la sequence
-    if (head) {
-      // Segmentation par NIVEAU : les H2 (titres de section) ne se mélangent pas avec
-      // les H3 (souvent les marques classées). Un changement de niveau ouvre une nouvelle
-      // séquence, pour que les marques en H3 soient classées entre elles et comptées
-      // comme des mentions même quand les H2 ne sont pas des marques.
-      const continues = current && seqType === "head" && prevLevel === head.level;
-      if (!continues) { current = []; sequences.push(current); seqType = "head"; prevNum = null; }
-      current.push({ num: null, text: head.title, ordinal: current.length + 1, level: head.level });
-      prevLevel = head.level;
-      continue;
-    }
-    if (isDetailLine(raw)) continue;
-    // En mode "en-têtes", la prose entre items (localisation, description) ne casse PAS
-    // la séquence : seuls les en-têtes ajoutent des items, le reste est ignoré.
-    if (seqType === "head" || seqType === "bold" || seqType === "bullet") continue;
-    // Sinon (liste numérotée ou hors séquence), une ligne de prose termine la séquence.
-    current = null; prevNum = null; seqType = null; prevLevel = null;
-  }
-  // La (les) vraie(s) liste(s) classée(s) = séquences d'au moins 2 items, plus longue d'abord.
-  // ORDRE DU DOCUMENT (et non "la plus longue d'abord") : la position affichée doit
-  // refléter le PREMIER classement de la réponse où l'entité apparaît — c'est ce que lit
-  // l'utilisateur. Trier par longueur faisait primer une liste secondaire plus longue.
-  const ranked = sequences.filter(s => s.length >= 2);
-  // On cherche d'abord dans les listes classées (positions fiables), puis en repli dans
-  // les items isolés (ex. une marque seule sous une catégorie) pour ne rien manquer.
-  const searchSeqs = ranked.length ? [...ranked, ...sequences.filter(s => s.length < 2)] : sequences;
 
-  // Lignes narratives (hors items de top et hors métadonnées) — pour l'évocation.
-  const narrativeLines = [];
-  for (const line of lines) {
-    const stripped = line.trim();
-    if (!stripped) continue;
-    if (topItemRe.test(line)) continue;
-    if (/^[•\-*]\s+/.test(stripped)) continue; // items à puce = classés, pas du récit
-    if (
-      stripped.startsWith("http") || stripped.startsWith("[") ||
-      stripped.startsWith("- Site") || stripped.startsWith("- Description") ||
-      stripped.startsWith("Source") || stripped.match(/^\d+\.\s*https?:/)
-    ) continue;
-    narrativeLines.push(stripped);
+  // ── MÉTADONNÉES : jamais classées, jamais narratives ──
+  // Les fiches locales (AI Overviews / Gemini / Perplexity) répètent, sous chaque
+  // établissement, un bloc « Fermé · Ouvre à 09:00 · 4,6 (131 avis) », un numéro,
+  // une adresse, des horaires. Ces lignes ont la forme d'items (gras, puce) et
+  // faussaient à la fois le comptage des rangs et la détection d'évocation.
+  const META_FRAGMENT_RES = [
+    /^(?:ferme|fermee|fermes|ouvert|ouverte|ouvre|closed|open|opens|closes)\b/,        // statut d'ouverture
+    /\b\d+[.,]\d+\s*\(\s*[\d\s.,]+\s*(?:avis|reviews?|notes?)\s*\)/,       // "4,6 (131 avis)"
+    /^\d+[.,]\d+\s*(?:\/\s*5)?$/,                                                      // "4,6" / "4,6/5"
+    /^[\d\s.,]+\s*(?:avis|reviews?|notes?)$/,                              // "131 avis"
+    /^(?:site(?:\s*(?:web|internet))?|website|adresse|address|itineraire|directions|appeler|tel|telephone|phone|mobile|fax|email|e-mail|mail|horaires?|ouverture|prix|tarifs?|note|avis|rating|source|description|categorie|type|reserver|commander)\s*[:：]/,
+    /^\+?\d[\d\s().-]{7,}$/,                                               // numéro de téléphone seul
+    /^https?:\/\//,
+    /^\d{1,4}(?:\s*(?:bis|ter))?\s+(?:rue|av|ave|avenue|bd|boulevard|place|chemin|route|impasse|allee|quai|cours|square|zone|za|zi)\b/, // adresse postale
+    /^\d{5}\s+\S/,                                                                      // code postal + ville
+    /^(?:lun|mar|mer|jeu|ven|sam|dim|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/,
+    /^(?:\d{1,2}\s*[h:]\s*\d{0,2})(?:\s*[–—-]\s*\d{1,2}\s*[h:]\s*\d{0,2})?$/,           // "09:00 – 18:00"
+  ];
+  const isMetaFragment = (t) => !!t && META_FRAGMENT_RES.some(re => re.test(t));
+  // Ligne de métadonnées = la ligne entière est un fragment meta, OU elle est faite
+  // exclusivement de fragments meta séparés par « · » / « | » / « • ».
+  const isMetaLine = (text) => {
+    const t = norm(String(text).replace(/\*+/g, "").replace(/^\s*[•\-*]\s+/, ""));
+    if (!t) return false;
+    if (isMetaFragment(t)) return true;
+    const parts = t.split(/\s*[·•|]\s*/).map(p => p.trim()).filter(Boolean);
+    return parts.length >= 2 && parts.every(isMetaFragment);
+  };
+
+  // Répétition : même « squelette » (chiffres neutralisés) vu 3 fois ou plus dans la
+  // réponse ⇒ gabarit de métadonnées, même s'il n'est pas dans la liste ci-dessus.
+  const metaSignature = (t) => norm(String(t).replace(/\*+/g, "")).replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
+  const sigCount = new Map();
+  for (const raw of rawLines) {
+    const sig = metaSignature(stripLinks(raw).trim());
+    if (sig) sigCount.set(sig, (sigCount.get(sig) || 0) + 1);
   }
+  const isRepetitiveMeta = (text) => {
+    const sig = metaSignature(text);
+    if (!sig || (sigCount.get(sig) || 0) < 3) return false;
+    if (isKnownEntity(text)) return false;
+    // Un gabarit de métadonnées porte PLUSIEURS valeurs variables (note, horaire,
+    // compteur d'avis) ou des champs séparés — pas un simple nom répété qui
+    // contiendrait un chiffre (« Studio 54 », « Groupe 3F »).
+    const parts = sig.split(/\s*[·•|]\s*/).filter(Boolean).length;
+    const digitGroups = (sig.match(/#/g) || []).length;
+    return parts >= 2 || (digitGroups >= 2 && sig.length >= 12);
+  };
+
+  // ── PASSE UNIQUE : qualification de chaque ligne par sa forme ──
+  // items  : toutes les lignes retenues, dans l'ordre du document.
+  // buckets: un classement PAR FORME (et par niveau) — c'est lui qui donne le rang.
+  const items = [];
+  const buckets = new Map();
+  const push = (form, bucket, text, lineIndex) => {
+    let arr = buckets.get(bucket);
+    if (!arr) { arr = []; buckets.set(bucket, arr); }
+    const item = { form, bucket, text, lineIndex, ordinal: arr.length + 1 };
+    arr.push(item);
+    items.push(item);
+  };
+
+  rawLines.forEach((raw, lineIndex) => {
+    const plain = stripLinks(raw);
+    const trimmed = plain.trim();
+    if (!trimmed) return;
+    // Métadonnées : écartées du classement ET du récit.
+    if (isMetaLine(trimmed) || isRepetitiveMeta(trimmed)) return;
+
+    // Niveau d'imbrication : une sous-liste ne se classe pas avec la liste mère.
+    const indent = (plain.match(/^[ \t]*/)?.[0] || "").replace(/\t/g, "  ").length;
+    const nested = indent >= 2;
+
+    // 1. Titre NUMÉROTÉ — classement explicite du modèle, valable même imbriqué.
+    const num = plain.match(topItemRe);
+    if (num) { push("numbered", `numbered@${Math.min(Math.floor(indent / 2), 3)}`, num[2].trim(), lineIndex); return; }
+
+    // Au-delà du premier niveau, seules les listes numérotées restent des rangs :
+    // gras/lien/puce imbriqués sont des détails de fiche ⇒ prose (évocation).
+    if (!nested) {
+      // 2. TITRE markdown (#) — un classement par niveau de titre (H2 ≠ H3).
+      const level = (plain.match(/^(#{1,4})\s/)?.[1] || "").length;
+      if (level) {
+        const h = plain.match(headingBoldRe) || plain.match(headingPlainRe);
+        if (h) {
+          const title = h[1].replace(/[*[\]]/g, "").trim();
+          if (isSectionTitle(title)) return;
+          push("heading", `heading@${level}`, title, lineIndex); return;
+        }
+      }
+
+      // 3. Amorce en GRAS — "**Marque** : …", "* **Marque** — …", "**2. Marque**".
+      const bold = plain.match(boldLeadRe);
+      if (bold) {
+        const title = bold[2].trim();
+        if (isSectionTitle(title)) return;
+        push("bold", "bold@0", title, lineIndex); return;
+      }
+
+      // 4. LIGNE-LIEN — "[Marque](url)" seule sur sa ligne (fréquent en AI Overviews).
+      const link = raw.match(linkLineRe);
+      if (link) {
+        const title = link[1].replace(/\*/g, "").trim();
+        if (isSectionTitle(title)) return;
+        push("link", "link@0", title, lineIndex); return;
+      }
+
+      // 5. PUCE simple en colonne 0 — un top peut être présenté ainsi.
+      const bul = plain.match(bulletRe);
+      if (bul) {
+        const title = bul[1].trim();
+        if (isSectionTitle(title)) return;
+        push("bullet", "bullet@0", title, lineIndex); return;
+      }
+    }
+
+    // 6. Tout le reste = PROSE (récit, descriptions, lignes de détail imbriquées).
+    //    Une occurrence ici ne vaut jamais mention : c'est une ÉVOCATION.
+    push("prose", "prose", trimmed, lineIndex);
+  });
+
+  // Formes structurées réellement « classantes » : celles qui contiennent au moins
+  // deux items. Un item isolé reste exploitable (repli) mais ne fabrique pas un top.
+  const rankedBuckets = new Set([...buckets.entries()].filter(([k, v]) => k !== "prose" && v.length >= 2).map(([k]) => k));
 
   // Sources = sources fournies + URLs extraites du texte.
   const urlRe = /https?:\/\/[^\s),'"\]]+/g;
-  const textUrls = [...(answer || "").matchAll(urlRe)].map(m => m[0].replace(/[.,;:]+$/, ""));
+  const textUrls = [...String(answer || "").matchAll(urlRe)].map(m => m[0].replace(/[.,;:]+$/, ""));
   const allSources = [...new Set([...(Array.isArray(sources) ? sources : []), ...textUrls])];
   const normSources = allSources.map(s => norm(s).replace(/^www\./, "").replace(/https?:\/\//, ""));
 
   // ── MOTEUR UNIQUE de détection M/É/C pour une entité (marque OU concurrent) ──
   // terms : liste de noms/alias normalisés à chercher.
-  // Renvoie { mentionPosition, evocationPosition, citationPosition }.
+  // Renvoie { mentionPosition, mentionForm, evocationPosition, citationPosition }.
   function detectEntity(terms) {
     const T = terms.filter(Boolean);
-    if (!T.length) return { mentionPosition: null, evocationPosition: null, citationPosition: null };
+    if (!T.length) return { mentionPosition: null, mentionForm: null, evocationPosition: null, citationPosition: null };
     // Match sur LIMITES DE MOTS pour éviter les faux positifs par sous-chaîne
     // (ex. « Eleas » ne doit pas matcher « Eleastic »). Insensible casse+accents.
-    // Une frontière = début/fin de chaîne ou caractère non alphanumérique.
     const wordHit = (haystack, term) => {
       if (!term) return false;
       const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -474,22 +501,19 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     };
     const hit = (text) => { const t = norm(text); return T.some(term => wordHit(t, term)); };
 
-    // MENTION — position ordinale réelle dans la 1ère séquence où l'entité apparaît.
-    let mentionPosition = null;
-    for (const seq of searchSeqs) {
-      for (const item of seq) {
-        if (hit(item.text)) { mentionPosition = item.ordinal; break; }
-      }
-      if (mentionPosition !== null) break;
+    // Première occurrence STRUCTURÉE (⇒ mention) et première occurrence en PROSE
+    // (⇒ évocation), dans l'ordre du document. La position est le rang de l'item
+    // DANS SON PROPRE CLASSEMENT (lignes de même forme et même niveau).
+    let mention = null, fallbackMention = null, evocation = null;
+    for (const it of items) {
+      if (!hit(it.text)) continue;
+      if (it.form === "prose") { if (!evocation) evocation = it; continue; }
+      if (rankedBuckets.has(it.bucket)) { if (!mention) mention = it; }
+      else if (!fallbackMention) fallbackMention = it;
+      if (mention && evocation) break;
     }
-
-    // ÉVOCATION — 1ère ligne narrative qui cite l'entité (rang dans le récit).
-    let evocationPosition = null;
-    let narrativeCount = 0;
-    for (const nl of narrativeLines) {
-      narrativeCount++;
-      if (hit(nl) && evocationPosition === null) { evocationPosition = narrativeCount; break; }
-    }
+    // Repli : entité seule sous sa forme (ex. une marque isolée sous une catégorie).
+    if (!mention) mention = fallbackMention;
 
     // CITATION — 1ère source où le nom apparaît comme SEGMENT délimité de l'URL
     // (entre début/fin, /, ., -, _). Évite les faux positifs (« aw » ∈ « lawfirm »).
@@ -503,7 +527,12 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
       if (domainTerms.some(d => segHit(normSources[i], d))) { citationPosition = i + 1; break; }
     }
 
-    return { mentionPosition, evocationPosition, citationPosition };
+    return {
+      mentionPosition:   mention ? mention.ordinal : null,
+      mentionForm:       mention ? mention.form : null,
+      evocationPosition: evocation ? evocation.ordinal : null,
+      citationPosition,
+    };
   }
 
   // ── MARQUE ──
@@ -533,6 +562,7 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
         // position = position de MENTION (top). null si pas dans un top classé.
         position: d.mentionPosition,
         mention_position:   d.mentionPosition,
+        mention_form:       d.mentionForm,
         evocation_position: d.evocationPosition,
         citation_position:  d.citationPosition,
         in_sources: d.citationPosition !== null,
@@ -541,38 +571,45 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     .filter(c => c.mentioned || c.in_sources);
 
   // ── Autres entités présentes dans les tops (à identifier) ──
-  // On parcourt TOUTES les séquences classées (pas seulement la plus longue) et on
-  // calcule pour chaque entité inconnue son triplet M/É/C via le même moteur fiable,
-  // afin qu'elles apparaissent correctement dans Top mentions / évocations / citations.
+  // On parcourt tous les items STRUCTURÉS (toutes formes confondues) et on calcule
+  // pour chaque entité inconnue son triplet M/É/C via le même moteur fiable.
   const knownTerms = [brandName, ...(brandAliases || []), ...allCompetitorNames].map(norm).filter(Boolean);
   const seenUnknown = new Set();
   const unknownEntities = [];
-  for (const seq of (ranked.length ? ranked : sequences)) {
-    for (const item of seq) {
-      const txt = (item.text || "").trim();
-      if (!txt) continue;
-      let nameRaw = txt.split(/[:–\-(]/)[0].trim().replace(/\*\*/g, "").replace(/[.,;]+$/, "").trim();
-      if (nameRaw.length < 2 || nameRaw.length > 40 || nameRaw.split(/\s+/).length > 5) continue;
-      const low = norm(nameRaw);
-      if (!low) continue;
-      if (knownTerms.some(t => low.includes(t) || t.includes(low))) continue; // marque/concurrent connu
-      if (seenUnknown.has(low)) continue;
-      seenUnknown.add(low);
-      const d = detectEntity([low]);
-      unknownEntities.push({
-        name: nameRaw,
-        position: d.mentionPosition != null ? d.mentionPosition : item.ordinal,
-        mention_position:   d.mentionPosition,
-        evocation_position: d.evocationPosition,
-        citation_position:  d.citationPosition,
-        in_sources: d.citationPosition !== null,
-      });
-    }
+  // Une puce descriptive ("Un artisan local", "Devis gratuit") a la même forme
+  // qu'un item de top : on écarte les amorces qui ne peuvent pas ouvrir un nom
+  // d'entreprise. « Le / La / Les / De » restent admis (La Poste, Le Bon Coin…).
+  const notAnEntityRe = /^(?:un|une|des|du|ce|cet|cette|ces|mon|ma|mes|ton|ta|tes|son|sa|ses|notre|nos|votre|vos|leur|leurs|je|tu|il|elle|on|nous|vous|ils|elles|et|ou|mais|donc|car|si|pour|par|avec|sans|sur|sous|dans|chez|vers|entre|plus|moins|tres|aussi|egalement|environ|selon|idem|devis|tarif|tarifs|prix|note|avis|contact|horaire|horaires|adresse|disponible|disponibilite|intervention|interventions|garantie|delai|delais|paiement|livraison)\s+\S/;
+  const structured = items.filter(it => it.form !== "prose");
+  const scanned = structured.some(it => rankedBuckets.has(it.bucket))
+    ? structured.filter(it => rankedBuckets.has(it.bucket))
+    : structured;
+  for (const item of scanned) {
+    const txt = (item.text || "").trim();
+    if (!txt) continue;
+    let nameRaw = txt.split(/[:–\-(]/)[0].trim().replace(/\*\*/g, "").replace(/[.,;]+$/, "").trim();
+    if (nameRaw.length < 2 || nameRaw.length > 40 || nameRaw.split(/\s+/).length > 5) continue;
+    const low = norm(nameRaw);
+    if (!low) continue;
+    if (notAnEntityRe.test(low)) continue; // puce descriptive, pas une entité
+    if (knownTerms.some(t => low.includes(t) || t.includes(low))) continue; // marque/concurrent connu
+    if (seenUnknown.has(low)) continue;
+    seenUnknown.add(low);
+    const d = detectEntity([low]);
+    unknownEntities.push({
+      name: nameRaw,
+      position: d.mentionPosition != null ? d.mentionPosition : item.ordinal,
+      mention_position:   d.mentionPosition,
+      mention_form:       d.mentionForm,
+      evocation_position: d.evocationPosition,
+      citation_position:  d.citationPosition,
+      in_sources: d.citationPosition !== null,
+    });
   }
 
   return {
     // Champs structurés
-    mention:   { present: mentionPosition !== null,   position: mentionPosition },
+    mention:   { present: mentionPosition !== null,   position: mentionPosition, form: b.mentionForm },
     evocation: { present: evocationPosition !== null, position: evocationPosition },
     citation:  { present: citationPosition !== null,  position: citationPosition },
 

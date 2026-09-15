@@ -29,7 +29,7 @@ export function toUrlPath(raw) {
   catch { return s.replace(/\/+$/, "") || "/"; }
 }
 
-export function splitCSVLine(line, sep) {
+function splitCSVLine(line, sep) {
   const fields = [];
   let cur = "", inQ = false;
   for (let i = 0; i < line.length; i++) {
@@ -117,7 +117,7 @@ export function isSemrushCSV(text) {
 }
 
 // Détecte le sous-format Semrush
-export function semrushFormat(text) {
+function semrushFormat(text) {
   const t = text.trimStart();
   if (t.startsWith("-----")) return "position_tracking";
   const firstLine = t.split(/\r?\n/)[0].toLowerCase().replace(/"/g, "").trim();

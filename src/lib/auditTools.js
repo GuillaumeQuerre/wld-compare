@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════
 
 // ── Helpers de normalisation d'URL / nombres ─────────────────────
-export function tNum(v) {
+function tNum(v) {
   if (v == null) return 0;
   const n = parseFloat(String(v).replace(/[%\s]/g, "").replace(",", "."));
   return Number.isFinite(n) ? n : 0;
@@ -33,7 +33,7 @@ function field(row, ...keys) {
 }
 
 // ── Indexer les lignes outil par chemin d'URL ────────────────────
-export function indexByPath(rows, ...urlKeys) {
+function indexByPath(rows, ...urlKeys) {
   const map = {};
   (rows || []).forEach(r => {
     const raw = field(r, ...urlKeys);
@@ -90,7 +90,7 @@ function fieldCI(row, ...keys) {
 }
 
 // GSC complet — query + page + position (gère dimension Requêtes seule OU Pages+Requêtes)
-export function gscRowFull(r) {
+function gscRowFull(r) {
   return {
     query:       (fieldCI(r, "requêtes les plus fréquentes", "requête", "requete", "query", "queries", "mot-clé", "mot clé", "keyword", "search query") || "").toString().trim(),
     url:         fieldCI(r, "pages les plus populaires", "page", "url", "adresse", "address", "landing page") || "",

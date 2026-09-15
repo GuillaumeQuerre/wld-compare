@@ -13,7 +13,7 @@ function findCol(row, fragments) {
   return key ? (row[key] || "").trim() : "";
 }
 
-export function detectSignals(sfRows) {
+function detectSignals(sfRows) {
   if (!sfRows?.length) return { jsonLd: false, breadcrumb: false, bodyClass: false, mainContent: false };
   const keys = Object.keys(sfRows[0]).map(k => k.toLowerCase());
   return {

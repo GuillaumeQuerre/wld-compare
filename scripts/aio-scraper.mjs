@@ -46,7 +46,7 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 // ⚠️ Chemin vers le moteur de l'app — adapte-le si tu déplaces le script.
 //    On réutilise la MÊME détection que l'app (aucune divergence possible).
-import { detectBrand, getProviderId, calendarPresence } from "../src/lib/geoEngine.js";
+import { detectBrand, getProviderId } from "../src/lib/geoEngine.js";
 
 // ── Chargement de .env (sans dépendance) — ne surcharge pas l'existant ────
 (function loadDotEnv() {
@@ -488,70 +488,6 @@ async function watchLoopGlobal() {
       } catch (e) {
         await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "error", error: e.message.slice(0, 200), done_at: new Date().toISOString() } }).catch(() => {});
         console.warn(`  ⚠️  ${q.question?.slice(0, 55)} — ${e.message.slice(0, 80)}`);
-      }
-      await sleep(jitter());
-    }
-  }
-  await browser.close();
-  console.log("✔ Veille terminée.");
-}
-
-// Boucle de VEILLE : interroge la file geo_scrape_queue et traite les demandes
-// lancées depuis l'app (bouton ▶). Reste ouvert jusqu'à Ctrl-C.
-async function watchLoop(ctx0) {
-  console.log(`👁  Mode veille — projet ${CFG.projectId}, site « ${ctx0.siteName} ». En attente de demandes (Ctrl-C pour arrêter)…`);
-  const { browser, page } = await launchBrowser();
-  await page.goto(`https://www.${CFG.googleDomain}/`, { waitUntil: "domcontentloaded" });
-  await handleConsent(page);
-  const qById = {}; (ctx0.questions || []).forEach(q => { qById[q.id] = q; });
-
-  let stop = false;
-  process.on("SIGINT", () => { stop = true; console.log("\n⏹  Arrêt demandé…"); });
-
-  const brandCache = { [ctx0.siteId]: { brandName: ctx0.brandName, brandAliases: ctx0.brandAliases, competitors: ctx0.competitors } };
-  const resolveCtxForSite = async (sid) => {
-    if (!sid || sid === ctx0.siteId) return ctx0;
-    if (!brandCache[sid]) {
-      try {
-        const b = await sb(`site_brand?project_id=eq.${enc(CFG.projectId)}&site_id=eq.${enc(sid)}&limit=1`);
-        const row = b?.[0];
-        brandCache[sid] = row && row.brand_name
-          ? { brandName: row.brand_name, brandAliases: Array.isArray(row.brand_aliases) ? row.brand_aliases : [], competitors: ctx0.competitors }
-          : { brandName: ctx0.brandName, brandAliases: ctx0.brandAliases, competitors: ctx0.competitors };
-      } catch { brandCache[sid] = { brandName: ctx0.brandName, brandAliases: ctx0.brandAliases, competitors: ctx0.competitors }; }
-    }
-    return { ...ctx0, siteId: sid, ...brandCache[sid] };
-  };
-
-  while (!stop) {
-    let pending = [];
-    try {
-      // Toutes les marques du projet (pas de filtre site_id) → plus de mismatch.
-      pending = await sb(`geo_scrape_queue?project_id=eq.${enc(CFG.projectId)}&status=eq.pending&order=requested_at.asc&limit=5`);
-    } catch { pending = []; }
-
-    if (!pending || !pending.length) { await sleep(CFG.pollMs); continue; }
-
-    for (const item of pending) {
-      if (stop) break;
-      const q = qById[item.question_id] || { id: item.question_id, question: item.question_text };
-      if (!q.question) { // repli : relire le libellé de la question
-        try { const qq = await sb(`geo_questions?id=eq.${enc(item.question_id)}&select=id,question`); if (qq?.[0]) q.question = qq[0].question; } catch { /* ignore */ }
-      }
-      await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "running" } }).catch(() => {});
-      try {
-        const itemCtx = await resolveCtxForSite(item.site_id);
-        const r = await scrapeOne(page, q, itemCtx);
-        if (r?.captcha) {
-          console.error("⛔ CAPTCHA — remise en attente et pause 60s.");
-          await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "pending" } }).catch(() => {});
-          await sleep(60000); continue;
-        }
-        await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "done", done_at: new Date().toISOString() } }).catch(() => {});
-        console.log(`  ✅ ${q.question?.slice(0, 60)} — ${r.found ? (r.position ? "top #" + r.position : r.mentioned ? "présent" : "absent") : "pas d'AIO"}`);
-      } catch (e) {
-        await sb(`geo_scrape_queue?id=eq.${item.id}`, { method: "PATCH", body: { status: "error", error: e.message.slice(0, 200), done_at: new Date().toISOString() } }).catch(() => {});
-        console.warn(`  ⚠️  ${q.question?.slice(0, 60)} — ${e.message.slice(0, 80)}`);
       }
       await sleep(jitter());
     }

@@ -64,7 +64,7 @@ const catLabel = (c) => c.volume > 0 ? `${c.name} · ${fmtVol(c.volume)} rech./m
 const scoreVerdict = (r) => r >= 70 ? ["Excellente présence", "1A7A4A"] : r >= 50 ? ["Bonne présence", C.green] : r >= 30 ? ["Potentiel à développer", "C97820"] : ["Potentiel à exploiter", "C97820"];
 
 // Construit le modèle commun (liste de slides) depuis l'audit.
-export function buildAuditDeck(audit, brand, site, roadmapData, categories = [], sentiment = null) {
+function buildAuditDeck(audit, brand, site, roadmapData, categories = [], sentiment = null) {
   const a = audit || {};
   const brandName = brand?.brand_name || "Marque";
   const catName = {}; (categories || []).forEach(c => { catName[c.id] = c.name; });

@@ -42,7 +42,7 @@ export function filterByMode(rows, mode, bingRows, gscRows = []) {
 }
 
 // ── DETECT SCHEMA TYPES ─────────────────────────────────────────
-export function detectSchemas(jsonStr) {
+function detectSchemas(jsonStr) {
   if (!jsonStr) return [];
   const lower = jsonStr.toLowerCase();
   return SCHEMA_TYPES.filter(type =>

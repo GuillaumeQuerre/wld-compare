@@ -6,7 +6,7 @@
 // Les deux onglets lisent/écrivent la même analyse persistée (kind="roadmap").
 // ════════════════════════════════════════════════════════════════════
 
-export const RECO_MODEL_DEEP = "claude-sonnet-4-6";
+const RECO_MODEL_DEEP = "claude-sonnet-4-6";
 const webSearchTool = (maxUses = 5) => ({ type: "web_search_20250305", name: "web_search", max_uses: maxUses });
 
 function claudeFinalText(content) {
