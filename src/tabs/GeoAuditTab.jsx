@@ -408,8 +408,8 @@ Sois direct, concis, actionnable. Pas de généralités.`;
   };
 
   // Couleur de présence
-  const pctColor = (p) => p === null ? C.textLight : p >= 60 ? "#2E5E3A" : p >= 30 ? "#D97706" : "#C0352A";
-  const pctBg    = (p) => p === null ? C.bg : p >= 60 ? "#ECFDF5" : p >= 30 ? "#FFFBEB" : "#FEF2F2";
+  const pctColor = (p) => p === null ? C.textLight : p >= 30 ? "#2E5E3A" : p >= 15 ? "#1F6F6B" : p > 0 ? "#E8541A" : "#C0352A";
+  const pctBg    = (p) => p === null ? C.bg : p >= 30 ? "#ECF5EF" : p >= 15 ? "#EAF2F1" : p > 0 ? "#FBE9E0" : "#FBE9E7";
 
   return (
     <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden", marginBottom: 16 }}>
@@ -794,12 +794,15 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
   // dans une réponse sur dix est déjà un signal — l'ancienne échelle basculait
   // tout ce qui était sous 30 % en orange « à exploiter », ce qui sous-estimait
   // une présence réelle et naissante.
-  const level = score >= 60 ? { label: "Excellente visibilité",  color: "#2E5E3A", bar: "#2E5E3A" }
-              : score >= 40 ? { label: "Bonne présence",         color: "#2E5E3A", bar: "#2E5E3A" }
-              : score >= 25 ? { label: "Présence établie",       color: "#1A3C2E", bar: "#1A3C2E" }
-              : score >= 10 ? { label: "Présence émergente",     color: "#1A3C2E", bar: "#1F6F6B" }
-              : score >   0 ? { label: "Premiers signaux",       color: "#E8541A", bar: "#E8541A" }
-              :               { label: "À conquérir",            color: "#E8541A", bar: "#E8541A" };
+  // Échelle GEO : être cité par une IA est difficile. 30 % = bon score,
+  // 50 % = très bon. On valorise donc dès les premiers paliers.
+  const level = score >= 70 ? { label: "Visibilité exceptionnelle", color: "#2E5E3A", bar: "#2E5E3A" }
+              : score >= 50 ? { label: "Très bonne visibilité",     color: "#2E5E3A", bar: "#2E5E3A" }
+              : score >= 30 ? { label: "Bonne visibilité",          color: "#2E5E3A", bar: "#2E5E3A" }
+              : score >= 15 ? { label: "Présence solide",           color: "#1A3C2E", bar: "#1A3C2E" }
+              : score >=  5 ? { label: "Présence émergente",        color: "#1F6F6B", bar: "#1F6F6B" }
+              : score >   0 ? { label: "Premiers signaux",          color: "#1F6F6B", bar: "#1F6F6B" }
+              :               { label: "À conquérir",               color: "#E8541A", bar: "#E8541A" };
   return (
     <div style={{ background: "#fff", border: "0.5px solid #1A3C2E0D", borderRadius: 12, padding: "24px 28px", marginBottom: 18 }}>
       <div className="audit-banner-inner">
@@ -814,8 +817,9 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
             <div style={{ height: "100%", width: `${score}%`, background: level.bar, borderRadius: 3, transition: "width 0.5s" }} />
           </div>
           <div style={{ marginTop: 6, fontSize: 12.5, color: level.color, fontWeight: 600 }}>{level.label}</div>
-          {/* Score favoris en parallèle */}
-          {favScore != null && (
+          {/* Score favoris en parallèle — MASQUÉ (bloc conservé pour réactivation :
+              remplacer `false &&` par `favScore != null &&`). */}
+          {false && favScore != null && (
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid #1A3C2E0C" }}>
               <div style={{ fontSize: 9, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#E8541A", marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ color: "#E8541A" }}>★</span> Favoris
@@ -1434,7 +1438,7 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     why: "Votre marque est presque absente des réponses IA : sans contenu ciblé, les moteurs génératifs n'ont rien à citer sur vous face aux questions de vos prospects.",
     how: "Produisez des pages qui répondent frontalement aux questions sans présence, structurées en listes comparatives explicites (« meilleurs X », « X ou Y ») que les LLMs reprennent facilement.",
     howMuch: "Ciblez d'abord les 10 à 15 questions à plus fort volume sans mention, une page ou section dédiée par groupe de questions." });
-  if (presenceRate >= 30 && presenceRate < 50) leads.push({ priority: "🟠 À améliorer", label: `Présence ${presenceRate}%`, reco: "Enrichir les pages existantes",
+  if (presenceRate >= 30 && presenceRate < 50) leads.push({ priority: "🟢 Bon niveau", label: `Présence ${presenceRate}%`, reco: "Enrichir les pages existantes pour consolider",
     why: "Votre présence est partielle : les pages existent mais ne répondent pas assez directement aux questions fan-out pour être citées de façon régulière.",
     how: "Ajoutez sur vos pages des sections dédiées aux comparatifs et aux questions précises, avec une réponse claire dès le premier paragraphe.",
     howMuch: "Reprenez en priorité les pages déjà proches du top 3, une dizaine à retravailler pour commencer." });
@@ -3094,7 +3098,7 @@ export default function GeoAuditTab({
                 <div className="audit-providers-row">
                   {Object.entries(audit.providerStats).map(([pid, s]) => {
                     const rate = pct(s.withBrand, s.total);
-                    const color = rate >= 50 ? "#2E5E3A" : rate > 0 ? "#E8541A" : "#1A3C2E33";
+                    const color = rate >= 30 ? "#2E5E3A" : rate >= 15 ? "#1F6F6B" : rate > 0 ? "#E8541A" : "#1A3C2E33";
                     return (
                       <div key={pid} style={{ padding: "11px 16px", border: "0.5px solid #1A3C2E12", borderRadius: 8, background: "#fff", minWidth: 100 }}>
                         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#1A3C2E99", marginBottom: 5 }}>{pid}</div>
