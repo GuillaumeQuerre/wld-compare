@@ -1442,3 +1442,17 @@ export async function sbGetCostSummary(project_id, sinceIso = null) {
     return { total, byKind, count: (rows || []).length, since };
   } catch { return { total: 0, byKind: {}, count: 0 }; }
 }
+
+// Questions au niveau PROJET (tous sites) — nécessaire pour connaître les marques
+// taguées (associated_sites) et filtrer concurrents/sources par marque sélectionnée.
+export async function sbGetProjectQuestions(project_id) {
+  if (!project_id) return [];
+  try {
+    const res = await fetch(
+      `${PROXY}/rest/v1/geo_questions?project_id=eq.${encodeURIComponent(project_id)}&order=created_at.asc&select=id,question,associated_sites,is_favorite,sort_order`,
+      { headers: authHeaders() }
+    );
+    if (!res.ok) return [];
+    return res.json();
+  } catch { return []; }
+}

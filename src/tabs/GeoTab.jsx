@@ -9,7 +9,7 @@ import { generateRoadmap, RoadmapView } from "../lib/roadmapShared";
 import {
   sbGetBrand,
   sbSaveKeywords, sbGetKeywords, sbUpdateKeywordStatus, sbDeleteKeyword, sbUpdateKeywordVolume,
-  sbSaveQuestions, sbGetQuestions, sbUpdateQuestion, sbDeleteQuestion,
+  sbSaveQuestions, sbGetQuestions, sbGetProjectQuestions, sbUpdateQuestion, sbDeleteQuestion,
   sbSaveGeoResult, sbGetGeoResults, sbSaveHint, sbGetHints, sbSetKeywordTags,
   sbUpsertPresenceDaily, sbGetPresenceDaily, sbLogCost, sbEnqueueAioScrape, sbGetAioQueue, sbCancelAioScrape,
   sbGetSchedule, sbSaveSchedule, sbUpdateSchedule, sbTriggerScheduler,
@@ -86,8 +86,8 @@ function SiteBrandSelect({ value = [], sites = [], onChange }) {
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button type="button" onClick={() => setOpen(o => !o)} title="Marques associées à cette question"
         style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
-          border: `0.5px solid ${sel.length ? "#1F6F6B44" : "#1A3C2E18"}`, background: sel.length ? "#1F6F6B10" : "transparent", color: sel.length ? "#1F6F6B" : "#5B6B63" }}>
-        {selectedSites.length > 0 && <span style={{ display: "inline-flex", gap: 2 }}>{selectedSites.slice(0, 3).map(s => <span key={s.id} style={{ width: 7, height: 7, borderRadius: "50%", background: s.color || "#1F6F6B" }} />)}</span>}
+          border: `0.5px solid ${sel.length ? "#3B4FA844" : "#1A3C2E18"}`, background: sel.length ? "#3B4FA810" : "transparent", color: sel.length ? "#3B4FA8" : "#5B6B63" }}>
+        {selectedSites.length > 0 && <span style={{ display: "inline-flex", gap: 2 }}>{selectedSites.slice(0, 3).map(s => <span key={s.id} style={{ width: 7, height: 7, borderRadius: "50%", background: s.color || "#3B4FA8" }} />)}</span>}
         {label}
         <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
       </button>
@@ -97,8 +97,8 @@ function SiteBrandSelect({ value = [], sites = [], onChange }) {
             const on = sel.includes(s.id);
             return (
               <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 9px", fontSize: 11, color: "#1A3C2E", cursor: "pointer", borderRadius: 4 }}>
-                <input type="checkbox" checked={on} onChange={() => toggle(s.id)} style={{ cursor: "pointer", accentColor: s.color || "#1F6F6B" }} />
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color || "#1F6F6B", flexShrink: 0 }} />
+                <input type="checkbox" checked={on} onChange={() => toggle(s.id)} style={{ cursor: "pointer", accentColor: s.color || "#3B4FA8" }} />
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color || "#3B4FA8", flexShrink: 0 }} />
                 <span>{s.label}</span>
               </label>
             );
@@ -271,7 +271,7 @@ function renderInline(text) {
 
 // ── renderMarkdownHighlighted — surligne marque (vert) et concurrents ──
 // eslint-disable-next-line no-unused-vars
-function renderMarkdownHighlighted(text, brandTerms = [], competitorMap = {}) {
+function renderMarkdownHighlighted(text, brandTerms = [], competitorMap = {}, evocation = false) {
   if (!text) return null;
   const hasHighlights = brandTerms.length > 0 || Object.keys(competitorMap).length > 0;
   if (!hasHighlights) return renderMarkdown(text);
@@ -288,7 +288,11 @@ function renderMarkdownHighlighted(text, brandTerms = [], competitorMap = {}) {
     return parts.map((part, i) => {
       const lower = part.toLowerCase();
       if (brandTerms.some(t => t.toLowerCase() === lower))
-        return <mark key={i} style={{ background: "#DCFCE7", color: "#166534", borderRadius: 3, padding: "0 2px", fontWeight: 600 }}>{part}</mark>;
+        // Évocation (marque citée dans le texte, hors top classé) → surlignage
+        // JAUNE CLAIR pour la distinguer d'une mention en top (vert).
+        return <mark key={i} style={evocation
+          ? { background: "#FEF3C7", color: "#8A5A00", borderRadius: 3, padding: "0 2px", fontWeight: 600, boxShadow: "inset 0 -2px 0 #F5C84C" }
+          : { background: "#DCFCE7", color: "#166534", borderRadius: 3, padding: "0 2px", fontWeight: 600 }}>{part}</mark>;
       if (competitorMap[lower]) {
         const cat = competitorMap[lower];
         const bg = cat.category === "direct" ? "#FEE2E2" : cat.category === "geo" ? "#FEF3C7" : "#F3F4F6";
@@ -523,7 +527,7 @@ function buildFanoutPDF({ questions, results, hintsMap = {}, brandName, brandAli
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${(comps||sources.length||hint) ? "10px":"0"}">
         ${kw ? badge("#6366F1","#EEF2FF",`🔑 ${kw}`) : ""}
         ${latest?.brand_position ? badge("#2E5E3A","#ECFDF5",`Position #${latest.brand_position}`) : ""}
-        ${latest?.brand_in_sources ? badge("#1F6F6B","#EFF6FF","🔗 Dans les sources") : ""}
+        ${latest?.brand_in_sources ? badge("#3B4FA8","#EFF6FF","🔗 Dans les sources") : ""}
         ${showDate && dateLabel ? badge("#4A5A52","#FAF7F0",`Dernière parution : ${dateLabel}`) : ""}
       </div>
       ${comps ? `<div style="font-size:11px;color:#4A5A52;margin-bottom:6px">Concurrents cités : <strong>${esc(comps)}</strong></div>` : ""}
@@ -572,7 +576,7 @@ function buildFanoutPDF({ questions, results, hintsMap = {}, brandName, brandAli
     ${[
       { label:"Présence marque", value: presence+"%", sub:`${withBrand}/${totalRes} réponses`, color: presence>=50?"#2E5E3A":presence>0?"#D97706":"#C0352A" },
       { label:"Position moyenne", value: avgPos ? "#"+avgPos : "—", sub:"dans les fan-outs", color:"#6366F1" },
-      { label:"Dans les sources", value: withSources, sub:"questions citées", color:"#1F6F6B" },
+      { label:"Dans les sources", value: withSources, sub:"questions citées", color:"#3B4FA8" },
       { label:"Questions analysées", value: questions.length, sub:`${presentQs.length} positionnées`, color:"#0F172A" },
     ].map(k=>`<div style="padding:16px;border:1px solid #EDE7D9;border-radius:12px;text-align:center">
       <div style="font-size:10px;font-weight:700;color:#5B6B63;text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">${esc(k.label)}</div>
@@ -688,7 +692,7 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
     }, 0);
   };
 
-  const providerColors = { openai:"#2E5E3A", gemini:"#1F6F6B", perplexity:"#7C3AED", claude:"#D97706", other:"#4A5A52" };
+  const providerColors = { openai:"#2E5E3A", gemini:"#3B4FA8", perplexity:"#7C3AED", claude:"#D97706", other:"#4A5A52" };
   const providerIcons  = { openai:"🟢", gemini:"🔵", perplexity:"🟣", claude:"🟠", other:"⚪" };
   const providerLabels = { openai:"OpenAI", gemini:"Gemini", perplexity:"Perplexity", claude:"Claude", other:"Autre" };
 
@@ -863,7 +867,7 @@ export const PROVIDERS = [
     keyPrefix: "AIza",
     keyPlaceholder: "AIzaSy…",
     proxyPath: "/api/gemini",
-    color: "#1F6F6B",
+    color: "#3B4FA8",
   },
   {
     id: "perplexity",
@@ -1060,7 +1064,9 @@ function TopBarChart({ title, glyph, data, accent = "#1A3C2E", onBarClick = null
           <div style={{ position: "relative", height: 150, display: "flex", alignItems: "flex-end", gap, padding: "18px 0 0", marginTop: 6 }}>
             {rows.map((d, i) => {
               const h = max ? Math.max((d.count / max) * 100, 4) : 4;
-              const c = (TOP_COLORS[d.kind] || TOP_COLORS.other).color;
+              // Couleur propre de la marque si définie (sites secondaires
+              // reconnaissables), sinon couleur par type d'entité.
+              const c = d.brandColor || (TOP_COLORS[d.kind] || TOP_COLORS.other).color;
               const isHover = hover === i;
               const clickable = !!onBarClick;
               return (
@@ -1342,11 +1348,14 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
     // ── MARQUE(S) du projet ──
     // Cumulé : une entrée « Votre marque » (champs du résultat).
     // Comparaison : une entrée PAR MARQUE sélectionnée (depuis brand_presences).
-    const _compareTops = view === "compare" && Array.isArray(statBrands) && statBrands.length > 1;
-    const brandEntries = _compareTops
-      ? statBrands.map(b => ({ label: b.label, pres: (r.brand_presences && r.brand_presences[b.id]) || null }))
-      : [{ label: brandName, pres: null }];
-    brandEntries.forEach(({ label, pres }) => {
+    // Une entrée PAR MARQUE dès qu'il y en a plusieurs — quel que soit le mode.
+    // Avant, hors « Par marque » on créait UNE seule entrée au nom du site 1 :
+    // les mentions de toutes les marques lui étaient attribuées (tops faux).
+    const _multiBrands = Array.isArray(statBrands) && statBrands.length > 1;
+    const brandEntries = _multiBrands
+      ? statBrands.map(b => ({ label: b.label, siteId: b.id, color: b.color, pres: (r.brand_presences && r.brand_presences[b.id]) || null }))
+      : [{ label: brandName, siteId: null, color: null, pres: null }];
+    brandEntries.forEach(({ label, pres, color }) => {
       if (!label) return;
       let mPos, isEvoc, isCit, citPos;
       // Hors comparaison, les colonnes détaillées (brand_*_position) sont souvent
@@ -1377,7 +1386,8 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
         isCit = (r.brand_in_sources === true || r.brand_in_sources === 1);
         citPos = r.brand_citation_position ?? null;
       }
-      const e = ensure(label); if (e) e.kind = "brand"; // couleur « votre marque » forcée
+      const e = ensure(label);
+      if (e) { e.kind = "brand"; if (color) e.brandColor = color; } // couleur propre de la marque
       if (mPos != null && mPos > 0) addMent(label, mPos);
       if (isEvoc) addEvoc(label);
       if (isCit) addCit(label, citPos);
@@ -1412,15 +1422,15 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
   const aggList = Object.values(agg);
   // Top mentions : tri par meilleure position puis count
   const topMentions = aggList.filter(e => e.ment.count > 0)
-    .map(e => ({ name: e.name, count: e.ment.count, bestPos: e.ment.bestPos, kind: e.kind }))
+    .map(e => ({ name: e.name, count: e.ment.count, bestPos: e.ment.bestPos, kind: e.kind, brandColor: e.brandColor || null }))
     .sort((a, b) => { if (b.count !== a.count) return b.count - a.count; return (a.bestPos ?? 9999) - (b.bestPos ?? 9999); });
   // Top évocations : tri par count
   const topEvocations = aggList.filter(e => e.evoc.count > 0)
-    .map(e => ({ name: e.name, count: e.evoc.count, kind: e.kind }))
+    .map(e => ({ name: e.name, count: e.evoc.count, kind: e.kind, brandColor: e.brandColor || null }))
     .sort((a, b) => b.count - a.count);
   // Top citations : marques citées en source, tri par count puis meilleure position
   const topCitations = aggList.filter(e => e.cit.count > 0)
-    .map(e => ({ name: e.name, count: e.cit.count, bestPos: e.cit.bestPos, kind: e.kind }))
+    .map(e => ({ name: e.name, count: e.cit.count, bestPos: e.cit.bestPos, kind: e.kind, brandColor: e.brandColor || null }))
     .sort((a, b) => { if (b.count !== a.count) return b.count - a.count; const pa = a.bestPos ?? 9999, pb = b.bestPos ?? 9999; return pa - pb; });
   // (Top sources par domaine retiré de l'affichage — remplacé par Top citations par marque)
 
@@ -1466,7 +1476,7 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
                 </span>
                 <span style={{ textAlign: "center", fontWeight: 700, color: "#2E5E3A" }}>{pct(a["mentions" + _suf])}%<span style={{ fontSize: 9, color: "#5B6B63", fontWeight: 400 }}> · {a["mentions" + _suf]}</span></span>
                 <span style={{ textAlign: "center", fontWeight: 700, color: "#E8541A" }}>{pct(a["evocations" + _suf])}%<span style={{ fontSize: 9, color: "#5B6B63", fontWeight: 400 }}> · {a["evocations" + _suf]}</span></span>
-                <span style={{ textAlign: "center", fontWeight: 700, color: "#1F6F6B" }}>{pct(a["citations" + _suf])}%<span style={{ fontSize: 9, color: "#5B6B63", fontWeight: 400 }}> · {a["citations" + _suf]}</span></span>
+                <span style={{ textAlign: "center", fontWeight: 700, color: "#3B4FA8" }}>{pct(a["citations" + _suf])}%<span style={{ fontSize: 9, color: "#5B6B63", fontWeight: 400 }}> · {a["citations" + _suf]}</span></span>
               </div>
             );
           })}
@@ -1567,7 +1577,7 @@ const COMP_CATEGORIES = [
   { key: "direct",      label: "Concurrent direct",  color: "#C0352A", bg: "#FEF2F2" },
   { key: "geo",         label: "Concurrent GEO",      color: "#D97706", bg: "#FFFBEB" },
   { key: "partner",     label: "Partenaire",           color: "#2E5E3A", bg: "#ECFDF5" },
-  { key: "second_site", label: "2nd site suivi",       color: "#1F6F6B", bg: "#EFF6FF" },
+  { key: "second_site", label: "2nd site suivi",       color: "#3B4FA8", bg: "#EFF6FF" },
   { key: "other",       label: "Autre",                color: "#4A5A52", bg: "#F1F5F9" },
 ];
 
@@ -2068,7 +2078,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
 
 // ── Category Manager ─────────────────────────────────────────────
 
-const CAT_COLORS = ["#1F6F6B","#2E5E3A","#7C3AED","#D97706","#C0352A","#0891B2","#EA580C","#4A5A52"];
+const CAT_COLORS = ["#3B4FA8","#2E5E3A","#7C3AED","#D97706","#C0352A","#0891B2","#EA580C","#4A5A52"];
 
 function CategoryManager({ projectId, categories, setCategories, compact }) {
   const [newName, setNewName] = useState("");
@@ -2137,7 +2147,7 @@ function TagSelect({ values = [], categories, onChange, placeholder = "Tags…" 
   const label = selected.length === 0 ? placeholder
     : selected.length === 1 ? selected[0].name
     : `${selected.length} catégories`;
-  const accent = selected[0]?.color || "#1F6F6B";
+  const accent = selected[0]?.color || "#3B4FA8";
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button type="button" onClick={() => setOpen(o => !o)} title={placeholder.replace("…", "")}
@@ -2538,12 +2548,12 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
           <div className="geo-volume-toolbar-actions" style={{ gap: 6 }}>
             <input ref={fileVolRef} type="file" accept=".csv" style={{ display: "none" }} onChange={enrichFromCsv} />
             <button onClick={() => setShowVolModal(true)}
-              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", border: "1px solid #BFDBFE", borderRadius: 7, background: "#fff", color: "#1F6F6B", cursor: "pointer" }}>
+              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", border: "1px solid #BFDBFE", borderRadius: 7, background: "#fff", color: "#3B4FA8", cursor: "pointer" }}>
               🔍 Enrichir avec des volumes de recherche
             </button>
             <button onClick={enrichFromApi} disabled={enriching || !semrushKey}
               title={!semrushKey ? "Clé API Semrush non configurée — ajoutez-la dans ⚙️ Gestion des Providers" : "Récupérer les volumes depuis l'API Semrush (1 crédit/mot-clé)"}
-              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", border: "1px solid #BFDBFE", borderRadius: 7, background: semrushKey ? "#1F6F6B" : C.bg, color: semrushKey ? "#fff" : C.textLight, cursor: semrushKey ? "pointer" : "not-allowed", opacity: semrushKey ? 1 : 0.6 }}>
+              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", border: "1px solid #BFDBFE", borderRadius: 7, background: semrushKey ? "#3B4FA8" : C.bg, color: semrushKey ? "#fff" : C.textLight, cursor: semrushKey ? "pointer" : "not-allowed", opacity: semrushKey ? 1 : 0.6 }}>
               {enriching ? "⏳ Enrichissement…" : "⚡ API Semrush"}
             </button>
           </div>
@@ -2694,7 +2704,7 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
                   <div style={{ display: "flex", gap: 6, marginTop: 3, alignItems: "center", flexWrap: "wrap" }}>
                     <StatusBadge status={kw.status} />
                     {kw.search_volume > 0 && (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#1F6F6B", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "1px 8px" }}
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#3B4FA8", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "1px 8px" }}
                         title={`Volume de recherche mensuel${kw.volume_source ? " (" + kw.volume_source + ")" : ""}`}>
                         🔍 {kw.search_volume >= 1000 ? (kw.search_volume / 1000).toFixed(1) + "k" : kw.search_volume}
                       </span>
@@ -2767,7 +2777,7 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", borderTop: "0.5px solid #1A3C2E11", paddingTop: 14 }}>
               <button onClick={() => setShowVolModal(false)} style={{ fontSize: 12, padding: "8px 14px", border: "0.5px solid #1A3C2E22", borderRadius: 8, background: "transparent", color: "#1A3C2E", cursor: "pointer" }}>Annuler</button>
               <button onClick={() => { fileVolRef.current?.click(); setShowVolModal(false); }}
-                style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", border: "none", borderRadius: 8, background: "#1F6F6B", color: "#fff", cursor: "pointer" }}>
+                style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", border: "none", borderRadius: 8, background: "#3B4FA8", color: "#fff", cursor: "pointer" }}>
                 📄 Importer le fichier .csv
               </button>
             </div>
@@ -3049,7 +3059,13 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
           <ChatAnswer
             providerId={getProviderId(result.model || p.label)}
             modelLabel={result.model || p.label}
-            answerNode={renderMarkdown(result.answer || "")}
+            answerNode={renderMarkdownHighlighted(
+              result.answer || "",
+              brandTerms,
+              competitorMap,
+              // évocation = marque présente dans le texte sans position de top
+              !!(result.brand_evocation_position != null && result.brand_mention_position == null)
+            )}
           />
           {sources.length > 0 && (
             <div style={{ marginTop: 10 }}>
@@ -4546,6 +4562,28 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     return out;
   }, [resultsByQ, questions]);
 
+  // Marques concernées par une question : celles taguées (associated_sites),
+  // à défaut les marques sélectionnées, à défaut celles détectées sur le résultat.
+  const _qBrandIds = useCallback((q) => {
+    const tagged = Array.isArray(q?.associated_sites) ? q.associated_sites.filter(Boolean) : [];
+    if (tagged.length) return tagged;
+    if (Array.isArray(readSiteIds) && readSiteIds.length) return readSiteIds;
+    return null; // null = toutes les marques présentes sur le résultat
+  }, [readSiteIds]);
+  // Présence d'AU MOINS UNE marque concernée sur un résultat donné.
+  const _anyBrandPresent = useCallback((r, ids) => {
+    if (!r) return false;
+    const bp = r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences : null;
+    if (bp && Object.keys(bp).length) {
+      const sids = ids && ids.length ? ids : Object.keys(bp);
+      return sids.some(sid => {
+        const p = bp[sid];
+        return !!p && (p.mentioned || p.mention_position != null || p.evocation_position != null || p.in_sources);
+      });
+    }
+    return r.brand_mentioned === true || r.brand_mentioned === 1;
+  }, []);
+
   // Per question: était positionnée dans les 30 derniers jours (carré vert calendrier)
   // mais absente du dernier résultat → "Positionnée précédemment"
   const lostByQ = useMemo(() => {
@@ -4568,7 +4606,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     allQIds.forEach(qId => {
       // Condition 1 : marque absente du dernier résultat connu
       const latest = latestResultByQ[qId];
-      const latestAbsent = !latest || !(latest.brand_mentioned === true || latest.brand_mentioned === 1);
+      const _q = (questions || []).find(x => String(x.id) === String(qId));
+      const latestAbsent = !_anyBrandPresent(latest, _qBrandIds(_q));
       if (!latestAbsent) return; // encore positionnée → pas "perdue"
 
       // Condition 2 : au moins un carré vert dans les 30 derniers jours
@@ -4583,7 +4622,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     });
 
     return out;
-  }, [calendarEntries, resultsByQ, latestResultByQ]);
+  }, [calendarEntries, resultsByQ, latestResultByQ, questions, _qBrandIds, _anyBrandPresent]);
 
   const filtered = useMemo(() => { const bn = brand?.brand_name || ""; const base = sortedQuestions.filter(q => {
     // Filtres cumulatifs (ET)
@@ -4629,7 +4668,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
     // Positionné ET/OU Positionné précédemment — condition OU non-exclusif si les deux sont actifs
     if (filterPositioned || filterLost) {
       const latest = latestResultByQ[q.id];
-      const isPositioned = !!(latest && (latest.brand_mentioned === true || latest.brand_mentioned === 1));
+      const isPositioned = _anyBrandPresent(latest, _qBrandIds(q));
       const isLost = !!lostByQ[q.id];
       // OU non-exclusif : la question doit matcher au moins un des filtres actifs
       const matchPositioned = filterPositioned && isPositioned;
@@ -4934,7 +4973,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                 {[
                   ["1", "Question", "le texte de la question (obligatoire)", "#2E5E3A"],
                   ["2", "Favori", "vrai/true/oui/1/⭐ → marquée favorite ; sinon non", "#E8541A"],
-                  ["3", "Catégorie", "nom de catégorie ; vide = ignorée ; créée si inconnue", "#1F6F6B"],
+                  ["3", "Catégorie", "nom de catégorie ; vide = ignorée ; créée si inconnue", "#3B4FA8"],
                   ["4", "Intention", "transactionnelle / informationnelle / notoriété ; vide = ignorée", "#7C3AED"],
                   ["5", "Marques concernées", "noms séparés par des virgules ; vide = toutes les marques du projet ; marque inconnue = ignorée", "#0891B2"],
                 ].map(([n, title, desc, color]) => (
@@ -5241,9 +5280,9 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                           value={editingQ.text}
                           onChange={e => setEditingQ(prev => ({ ...prev, text: e.target.value }))}
                           onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditingQ(null); }}
-                          style={{ flex: 1, padding: "5px 10px", border: `1px solid #1F6F6B`, borderRadius: 7, fontSize: 13, fontWeight: 600, color: C.text }}
+                          style={{ flex: 1, padding: "5px 10px", border: `1px solid #3B4FA8`, borderRadius: 7, fontSize: 13, fontWeight: 600, color: C.text }}
                         />
-                        <button onClick={saveEdit} style={{ padding: "4px 10px", background: "#1F6F6B", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>✓</button>
+                        <button onClick={saveEdit} style={{ padding: "4px 10px", background: "#3B4FA8", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>✓</button>
                         <button onClick={() => setEditingQ(null)} style={{ padding: "4px 8px", background: "#FAFAF8", color: C.textLight, border: "0.5px solid #1A3C2E0D", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>✕</button>
                       </div>
                     ) : (
@@ -6409,7 +6448,7 @@ function FanoutSetupPanel({
               </div>
             ))}
             <button onClick={() => onAxesChange?.([...safeAxes, ""])}
-              style={{ fontSize: 11, color: "#1F6F6B", background: "none", border: "1px dashed #EDE7D9", borderRadius: 7, padding: "5px 12px", cursor: "pointer", textAlign: "left", marginTop: 2 }}>
+              style={{ fontSize: 11, color: "#3B4FA8", background: "none", border: "1px dashed #EDE7D9", borderRadius: 7, padding: "5px 12px", cursor: "pointer", textAlign: "left", marginTop: 2 }}>
               + Ajouter un axe
             </button>
           </div>
@@ -6623,6 +6662,39 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
     setSelectedSiteIds((Array.isArray(sites) ? sites : []).map(s => s.id));
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
   const effSiteIds   = selectedSiteIds.length ? selectedSiteIds : (Array.isArray(sites) ? sites : []).map(s => s.id);
+
+  // ── Filtrage par MARQUES SÉLECTIONNÉES ────────────────────────────────────
+  // Les concurrents et les sources doivent refléter les questions où les marques
+  // choisies sont TAGUÉES (associated_sites), et non les résultats simplement
+  // stockés sous ces site_id — ce qui donnait les données du site 1.
+  const [projQuestions, setProjQuestions] = useState([]);
+  useEffect(() => {
+    if (!projectId) { setProjQuestions([]); return; }
+    sbGetProjectQuestions(projectId).then(qs => setProjQuestions(qs || [])).catch(() => setProjQuestions([]));
+  }, [projectId, questionsKey]);
+  // question_id → marques taguées
+  const _qTags = useMemo(() => {
+    const m = {};
+    (projQuestions || []).forEach(q => {
+      m[q.id] = Array.isArray(q.associated_sites) ? q.associated_sites.filter(Boolean) : [];
+    });
+    return m;
+  }, [projQuestions]);
+  // Résultats retenus pour les marques sélectionnées :
+  //  1) question taguée avec au moins une marque sélectionnée, sinon
+  //  2) présence détectée pour une marque sélectionnée, sinon
+  //  3) repli historique sur le site_id du résultat.
+  const brandScopedResults = useMemo(() => {
+    const ids = effSiteIds || [];
+    if (!ids.length) return allResults;
+    return (allResults || []).filter(r => {
+      const tags = _qTags[r.question_id];
+      if (tags && tags.length) return tags.some(t => ids.includes(t));
+      const bp = r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences : null;
+      if (bp && Object.keys(bp).length) return ids.some(id => bp[id]);
+      return ids.includes(r.site_id);
+    });
+  }, [allResults, effSiteIds, _qTags]);
   const activeSites  = (Array.isArray(sites) ? sites : []).filter(s => effSiteIds.includes(s.id));
   const primarySite  = activeSites[0] || site;
   const isMultiSite  = activeSites.length > 1;
@@ -6700,7 +6772,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
       const key = name.toLowerCase();
       if (seen.has(key)) return;
       seen.add(key);
-      virtuals.push({ id: `__site_${key}__`, name, category: "second_site", color: b._siteColor || def?.color || "#1F6F6B", enabled: true, _virtual: true });
+      virtuals.push({ id: `__site_${key}__`, name, category: "second_site", color: b._siteColor || def?.color || "#3B4FA8", enabled: true, _virtual: true });
     });
     return virtuals.length ? [...virtuals, ...base] : base;
   }, [competitors, otherSiteBrands]);
@@ -6952,7 +7024,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
             </div>
             <CompetitorManager
               projectId={projectId} siteId={site?.id}
-              allResults={allResults.filter(r => effSiteIds.includes(r.site_id))}
+              allResults={brandScopedResults}
               competitors={competitorsView} setCompetitors={setCompetitors}
               brandLabel={brand?.brand_name || site?.name || "Votre marque"}
               aliasMap={aliasMap}
