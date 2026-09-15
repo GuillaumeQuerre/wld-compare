@@ -1351,8 +1351,12 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
     // Une entrée PAR MARQUE dès qu'il y en a plusieurs — quel que soit le mode.
     // Avant, hors « Par marque » on créait UNE seule entrée au nom du site 1 :
     // les mentions de toutes les marques lui étaient attribuées (tops faux).
-    const _multiBrands = Array.isArray(statBrands) && statBrands.length > 1;
-    const brandEntries = _multiBrands
+    // Dès qu'UNE marque est sélectionnée, on prend SON libellé et SA présence.
+    // Avec `> 1`, sélectionner Topaze seule retombait sur le nom du site 1
+    // (Sofia.dev) : Topaze disparaissait des tops, puis réapparaissait dès
+    // qu'une 2e marque était cochée. D'où l'incohérence constatée.
+    const _hasBrands = Array.isArray(statBrands) && statBrands.length > 0;
+    const brandEntries = _hasBrands
       ? statBrands.map(b => ({ label: b.label, siteId: b.id, color: b.color, pres: (r.brand_presences && r.brand_presences[b.id]) || null }))
       : [{ label: brandName, siteId: null, color: null, pres: null }];
     brandEntries.forEach(({ label, pres, color }) => {
