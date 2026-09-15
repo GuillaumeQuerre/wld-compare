@@ -14,10 +14,10 @@ import React, { useState, useMemo, useEffect } from "react";
 //  ne comptait que comme mention, ce qui sous-évaluait structurellement les citations.
 // ════════════════════════════════════════════════════════════════════════
 
-export const MEC_COLORS = { mentions: "#2E5E3A", evocations: "#E8541A", citations: "#1F6F6B" };
+export const MEC_COLORS = { mentions: "#1A7A4A", evocations: "#E8541A", citations: "#3B4FA8" };
 export const MEC_LABELS = { mentions: "Mentions", evocations: "Évocations", citations: "Citations" };
 // Palette pour le mode Comparaison (une couleur par marque, repli si la marque n'a pas la sienne).
-export const BRAND_PALETTE = ["#2E5E3A", "#1F6F6B", "#E8541A", "#7C3AED", "#DB2777", "#0891B2", "#B45309", "#4B5563"];
+export const BRAND_PALETTE = ["#2E5E3A", "#3B4FA8", "#E8541A", "#7C3AED", "#DB2777", "#0891B2", "#B45309", "#4B5563"];
 
 // Courbe lissée passant par TOUS les points, sans dépassement (interpolation
 // cubique monotone de Fritsch-Carlson) : idéal pour des comptes en dents de scie
@@ -253,11 +253,14 @@ export function computeMecDaily(results = [], siteIds = null) {
       q: {},
     };
     const d = byDay[date];
+    // Le dénominateur est le nombre RÉEL de réponses : on l'incrémente une seule
+    // fois par résultat, hors de la boucle des marques (sinon 30 réponses × 6
+    // marques = 180, ce qui écrasait artificiellement les pourcentages).
+    d.responses++;
     for (const sid of brands) {
       const c = sid == null ? classifyResult(r) : classifyResultForBrand(r, sid);
-      d.responses++;
       const baseQid = r.question_id != null ? r.question_id : `_${d.responses}`;
-      const qid = sid == null ? baseQid : `${baseQid}|${sid}`; // (question × marque) distinct
+      const qid = baseQid; // la question compte UNE fois, quel que soit le nombre de marques
       d.questions.add(qid);
       if (c.mention) d.mentions_resp++;
       if (c.evocation) d.evocations_resp++;

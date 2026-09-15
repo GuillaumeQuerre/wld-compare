@@ -1064,9 +1064,9 @@ function TopBarChart({ title, glyph, data, accent = "#1A3C2E", onBarClick = null
           <div style={{ position: "relative", height: 150, display: "flex", alignItems: "flex-end", gap, padding: "18px 0 0", marginTop: 6 }}>
             {rows.map((d, i) => {
               const h = max ? Math.max((d.count / max) * 100, 4) : 4;
-              // Couleur propre de la marque si définie (sites secondaires
-              // reconnaissables), sinon couleur par type d'entité.
-              const c = d.brandColor || (TOP_COLORS[d.kind] || TOP_COLORS.other).color;
+              // Couleur par TYPE d'entité, conforme à la légende affichée
+              // (votre marque / concurrent direct / GEO / partenaire / autre).
+              const c = (TOP_COLORS[d.kind] || TOP_COLORS.other).color;
               const isHover = hover === i;
               const clickable = !!onBarClick;
               return (
