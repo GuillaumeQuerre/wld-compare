@@ -320,7 +320,13 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
     ...(competitors || []).filter(Boolean).map(c => (typeof c === "string" ? c : c && c.name))]
     .filter(Boolean).map(norm).filter(t => t.length >= 3);
 
-  const lines = (answer || "").split("\n");
+  // Les titres peuvent être des LIENS markdown : "**[Linconyl Angers : …](url)**".
+  // Les crochets empêchaient la reconnaissance du titre en gras → l'entité
+  // n'entrait dans aucune liste classée et retombait sur une position #1 fausse.
+  // On remplace donc "[texte](url)" par "texte" avant l'analyse structurelle.
+  const lines = (answer || "")
+    .replace(/\[([^\]]+)\]\((?:[^)]*)\)/g, "$1")
+    .split("\n");
   // Pattern d'item de top : "1. Titre", "2) Titre", "• 3. Titre"
   const topItemRe = /^\s*(?:[•\-*]\s*)?(\d+)[.)]\s*(.+)/;
 
@@ -501,7 +507,15 @@ export function detectBrand(answer, sources, brandName, brandAliases = [], compe
   }
 
   // ── MARQUE ──
-  const brandTerms = [brandName, ...brandAliases].filter(Boolean).map(norm);
+  // Un nom de marque saisi sous forme de domaine (« Albus.fr », « sofia.dev »)
+  // ne matchait pas la marque citée sans extension (« Albus ») : la mention
+  // n'était pas relevée du tout. On ajoute donc la racine comme alias implicite.
+  const stripTld = (n) => {
+    const m = String(n || "").trim().match(/^(.+?)\.(fr|com|net|org|io|dev|eu|be|ch|ca|co|app|ai|fr\.net)$/i);
+    return m ? m[1] : null;
+  };
+  const _implicit = [brandName, ...brandAliases].map(stripTld).filter(Boolean);
+  const brandTerms = [...new Set([brandName, ...brandAliases, ..._implicit].filter(Boolean).map(norm))];
   const b = detectEntity(brandTerms);
   const mentionPosition = b.mentionPosition;
   const evocationPosition = b.evocationPosition;
