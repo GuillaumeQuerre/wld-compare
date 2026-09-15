@@ -790,10 +790,16 @@ function GeoScoreBanner({ audit, auditFav = null, brand, site }) {
   const score = audit.presenceRate;
   const favScore = auditFav ? auditFav.presenceRate : null;
   const favDelta = favScore != null ? favScore - score : null;
-  const level = score >= 70 ? { label: "Excellente",            color: "#2E5E3A", bar: "#2E5E3A" }
-              : score >= 50 ? { label: "Bonne présence",           color: "#1A3C2E", bar: "#1A3C2E" }
-              : score >= 30 ? { label: "Potentiel à développer",   color: "#E8541A", bar: "#E8541A" }
-              :               { label: "Potentiel à exploiter",    color: "#E8541A", bar: "#E8541A" };
+  // Échelle progressive et encourageante : en GEO, être cité ne serait-ce que
+  // dans une réponse sur dix est déjà un signal — l'ancienne échelle basculait
+  // tout ce qui était sous 30 % en orange « à exploiter », ce qui sous-estimait
+  // une présence réelle et naissante.
+  const level = score >= 60 ? { label: "Excellente visibilité",  color: "#2E5E3A", bar: "#2E5E3A" }
+              : score >= 40 ? { label: "Bonne présence",         color: "#2E5E3A", bar: "#2E5E3A" }
+              : score >= 25 ? { label: "Présence établie",       color: "#1A3C2E", bar: "#1A3C2E" }
+              : score >= 10 ? { label: "Présence émergente",     color: "#1A3C2E", bar: "#1F6F6B" }
+              : score >   0 ? { label: "Premiers signaux",       color: "#E8541A", bar: "#E8541A" }
+              :               { label: "À conquérir",            color: "#E8541A", bar: "#E8541A" };
   return (
     <div style={{ background: "#fff", border: "0.5px solid #1A3C2E0D", borderRadius: 12, padding: "24px 28px", marginBottom: 18 }}>
       <div className="audit-banner-inner">
@@ -898,6 +904,32 @@ function normalizeUrl(raw) {
   return u.toLowerCase();
 }
 
+// ── Projection « AU MOINS UNE MARQUE » ────────────────────────────────────
+// Réécrit les champs brand_* d'un résultat avec la MEILLEURE présence parmi
+// toutes les marques détectées (brand_presences). Permet à tous les panneaux
+// de l'audit de considérer « au moins une marque positionnée » plutôt que la
+// seule marque du site 1.
+export function projectAnyBrand(rows) {
+  return (rows || []).map(r => {
+    const bp = r && r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences : null;
+    if (!bp || !Object.keys(bp).length) return r;
+    const lo = (a, b) => a == null ? b : b == null ? a : Math.min(a, b);
+    let mentioned = false, inSources = false, mPos = null, ePos = null, cPos = null;
+    Object.values(bp).forEach(p => {
+      if (!p) return;
+      mentioned = mentioned || !!p.mentioned;
+      inSources = inSources || !!p.in_sources;
+      mPos = lo(mPos, p.mention_position ?? null);
+      ePos = lo(ePos, p.evocation_position ?? null);
+      cPos = lo(cPos, p.citation_position ?? null);
+    });
+    return { ...r,
+      brand_mentioned: mentioned || mPos != null || ePos != null,
+      brand_mention_position: mPos, brand_evocation_position: ePos,
+      brand_citation_position: cPos, brand_position: mPos, brand_in_sources: inSources };
+  });
+}
+
 function computeAudit(questions, results, urlIndex, brand, site, calendarEntries = [], keywords = [], competitors = [], aliasMap = {}, aggregation = null, brandSiteId = null) {
   // Canonicalisation par alias : un nom A est compté comme son canonique B.
   const _aliasLut = {};
@@ -940,6 +972,12 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
   const _brandsFor = (r) => {
     const set = new Set([...(_qSites[r.question_id] || [])]);
     if (r.site_id) set.add(r.site_id);
+    // Toutes les marques réellement détectées sur ce résultat. Sans cela, les
+    // questions sans `associated_sites` retombaient sur le seul site du résultat
+    // (le site 1) : la vue globale ignorait le positionnement des autres marques.
+    if (r.brand_presences && typeof r.brand_presences === "object") {
+      Object.keys(r.brand_presences).forEach(sid => set.add(sid));
+    }
     return [...set];
   };
   const _normalize = (rows) => {
@@ -1066,16 +1104,17 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     if (!d) return;
     if (!calByDateFromResults[d]) calByDateFromResults[d] = { tested: 0, present: 0, mentions: 0, citations: 0, evocations: 0 };
     calByDateFromResults[d].tested++;
-    if (r.brand_mention_position != null || (r.brand_position != null && r.brand_position > 0)) {
-      calByDateFromResults[d].mentions++;
-      calByDateFromResults[d].present++;
-    } else if (r.brand_in_sources) {
-      calByDateFromResults[d].citations++;
-      calByDateFromResults[d].present++;
-    } else if (r.brand_mentioned === true || r.brand_mentioned === 1) {
-      calByDateFromResults[d].evocations++;
-      calByDateFromResults[d].present++;
-    }
+    // Les 3 indicateurs sont INDÉPENDANTS (une réponse peut être à la fois
+    // mention et citation, et porter une évocation). L'ancienne cascade
+    // if/else if écrasait l'évocation dès qu'il y avait une mention : la
+    // Répartition affichait 0 évocation alors que des positions existaient.
+    const _m = r.brand_mention_position != null || (r.brand_position != null && r.brand_position > 0);
+    const _e = r.brand_evocation_position != null || ((r.brand_mentioned === true || r.brand_mentioned === 1) && !_m);
+    const _c = !!r.brand_in_sources || r.brand_citation_position != null;
+    if (_m) calByDateFromResults[d].mentions++;
+    if (_e) calByDateFromResults[d].evocations++;
+    if (_c) calByDateFromResults[d].citations++;
+    if (_m || _e || _c) calByDateFromResults[d].present++;
   });
   // Fusionner : calendarEntries a priorité pour tested/present (historique précis)
   // mais les results fournissent toujours la ventilation M/É/C
@@ -1186,7 +1225,7 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     s.total++;
     const mPos = r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null);
     if (mPos != null && mPos > 0) { s.mentions++; s.positions.push(mPos); }
-    else if (r.brand_mentioned === true || r.brand_mentioned === 1) s.evocations++;
+    if (r.brand_evocation_position != null || ((r.brand_mentioned === true || r.brand_mentioned === 1) && mPos == null)) s.evocations++;
     if (r.brand_in_sources === true || r.brand_in_sources === 1) s.citations++;
   });
   const intentStatsList = Object.values(intentStats)
@@ -1213,7 +1252,7 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
       st.total++;
       const mPos = r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null);
       if (mPos != null && mPos > 0) { st.mentions++; st.positions.push(mPos); }
-      else if (r.brand_mentioned === true || r.brand_mentioned === 1) st.evocations++;
+      if (r.brand_evocation_position != null || ((r.brand_mentioned === true || r.brand_mentioned === 1) && mPos == null)) st.evocations++;
       if (r.brand_in_sources === true || r.brand_in_sources === 1) st.citations++;
     });
   });
@@ -1259,7 +1298,7 @@ function computeAudit(questions, results, urlIndex, brand, site, calendarEntries
     d.total++;
     const mPos = r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null);
     if (mPos != null && mPos > 0) d.mentions++;
-    else if (r.brand_mentioned === true || r.brand_mentioned === 1) d.evocations++;
+    if (r.brand_evocation_position != null || ((r.brand_mentioned === true || r.brand_mentioned === 1) && mPos == null)) d.evocations++;
     if (r.brand_in_sources === true || r.brand_in_sources === 1) d.citations++;
   });
   const mentionTrend = [];
@@ -2786,13 +2825,24 @@ export default function GeoAuditTab({
   }, [globalResults, periodDays]);
   const effQuestions  = isGlobal ? globalQuestions : siteQuestions;
   const effResults    = isGlobal ? globalResultsPeriod : siteResults;
-  const effAggregation = isGlobal ? aggMode : null;
+  // Résultats du site projetés « au moins une marque » : tous les panneaux de
+  // l'audit doivent compter une présence dès qu'UNE marque du projet est
+  // positionnée, et non la seule marque du site 1.
+  const siteResultsAny = useMemo(() => projectAnyBrand(siteResults), [siteResults]);
+  // Hors vue globale, l'agrégation valait null = présence de la seule marque du
+  // site. On passe en "simple" : la présence est comptée dès qu'AU MOINS UNE
+  // marque du projet est positionnée (meilleure position retenue).
+  const effAggregation = isGlobal ? aggMode : "simple";
   const audit         = useMemo(() => computeAudit(effQuestions, effResults, siteUrls, brand, site, calendarEntries, keywords, competitors, aliasMap, effAggregation, null), [effQuestions, effResults, siteUrls, brand, site, calendarEntries, keywords, competitors, aliasMap, effAggregation]);
   // ── Audit recalculé sur le sous-ensemble FAVORIS (affichage parallèle) ──
   const favQuestions  = useMemo(() => siteQuestions.filter(q => q.is_favorite), [siteQuestions]);
   const favQIds       = useMemo(() => new Set(favQuestions.map(q => q.id)), [favQuestions]);
   const favResults    = useMemo(() => siteResults.filter(r => favQIds.has(r.question_id)), [siteResults, favQIds]);
-  const auditFav      = useMemo(() => favQuestions.length ? computeAudit(favQuestions, favResults, siteUrls, brand, site, calendarEntries, keywords, competitors) : null, [favQuestions, favResults, siteUrls, brand, site, calendarEntries, keywords, competitors]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ⚠️ auditFav doit recevoir les MÊMES paramètres que l'audit principal : il
+  // omettait aliasMap ET l'agrégation multi-marques, si bien que la « Performance
+  // des favoris » ne regardait que la marque du site 1 → tout en « À conquérir »
+  // alors que d'autres marques du projet sont bien positionnées.
+  const auditFav      = useMemo(() => favQuestions.length ? computeAudit(favQuestions, favResults, siteUrls, brand, site, calendarEntries, keywords, competitors, aliasMap, effAggregation, null) : null, [favQuestions, favResults, siteUrls, brand, site, calendarEntries, keywords, competitors, aliasMap, effAggregation]); // eslint-disable-line react-hooks/exhaustive-deps
   // Périmètre SF : filtre global appliqué à toute analyse SF de l'audit.
   // Intervalle courant de la chronologie M/E/C : remonte par le graphique, sert aux exports.
   const [mecRange, setMecRange] = useState(null);
@@ -3292,7 +3342,7 @@ export default function GeoAuditTab({
 
               {/* Analyse Fan-out */}
               <div data-tour="audit-fanout" style={{ marginTop: 18, paddingTop: 16, borderTop: "0.5px solid #1A3C2E0C" }}>
-                <FanoutAnalysis questions={siteQuestions} results={siteResults} brand={brand} claudeKey={claudeKey} projectId={projectId} siteId={site?.id} />
+                <FanoutAnalysis questions={siteQuestions} results={siteResultsAny} brand={brand} claudeKey={claudeKey} projectId={projectId} siteId={site?.id} />
               </div>
             </Section>
 
@@ -3301,7 +3351,7 @@ export default function GeoAuditTab({
             ══════════════════════════════════════════════════════ */}
             {/* ── Perception de la marque (sentiment IA) ── */}
             <Section title="Perception de la marque" sub="Analyse IA de la tonalité et de l'image dans les réponses">
-              <SentimentAuditPanel key={site?.id || "site"} results={siteResults} brand={brand} claudeKey={claudeKey} projectId={projectId} siteId={site?.id} onData={setSentimentData} />
+              <SentimentAuditPanel key={site?.id || "site"} results={siteResultsAny} brand={brand} claudeKey={claudeKey} projectId={projectId} siteId={site?.id} onData={setSentimentData} />
             </Section>
 
             <CategoryAnalysisCard
@@ -3318,7 +3368,7 @@ export default function GeoAuditTab({
                 Met en avant le périmètre stratégique (questions ★)
             ══════════════════════════════════════════════════════ */}
             <div data-tour="audit-favorites" style={{ display: "contents" }}><Section title="Performance des favoris" sub="Vos questions stratégiques (★) classées par niveau de maîtrise">
-              <FavoritesPerformance questions={siteQuestions} results={siteResults} projectId={projectId} siteId={site?.id} />
+              <FavoritesPerformance questions={siteQuestions} results={siteResultsAny} projectId={projectId} siteId={site?.id} />
             </Section></div>
 
             {/* ══════════════════════════════════════════════════════
@@ -3604,7 +3654,7 @@ export default function GeoAuditTab({
                 gscRows={(gscData && site) ? (gscData[site.id] || []) : []}
                 gaRows={(gaData && site) ? (gaData[site.id] || []) : []}
                 bingData={(bingData && site) ? (bingData[site.id] || {}) : {}}
-                results={siteResults}
+                results={siteResultsAny}
                 audit={audit}
                 sfCorrFilter={sfCorrFilter}
                 setSfCorrFilter={setSfCorrFilter}
@@ -3642,7 +3692,7 @@ export default function GeoAuditTab({
 
               {/* Analyse IA */}
               <div style={{ paddingTop: 16, borderTop: "0.5px solid #1A3C2E0C" }}>
-                <RoadmapAuditPanel roadmapData={roadmapData} setRoadmapData={setRoadmapData} questions={siteQuestions} results={siteResults} brand={brand} categories={categories} claudeKey={claudeKey} projectId={projectId} siteId={site?.id} />
+                <RoadmapAuditPanel roadmapData={roadmapData} setRoadmapData={setRoadmapData} questions={siteQuestions} results={siteResultsAny} brand={brand} categories={categories} claudeKey={claudeKey} projectId={projectId} siteId={site?.id} />
               </div>
             </Section>
             </div>

@@ -1072,7 +1072,16 @@ function TopBarChart({ title, glyph, data, accent = "#1A3C2E", onBarClick = null
                   style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", cursor: clickable ? "pointer" : "default", position: "relative" }}>
                   {/* Tooltip : nom + rang + occurrences (le nom n'apparaît QU'au survol) */}
                   {isHover && (
-                    <div style={{ position: "absolute", bottom: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)", background: "#1A3C2E", color: "#F0EBE0", borderRadius: 6, padding: "5px 9px", fontSize: 11, whiteSpace: "nowrap", zIndex: 5, boxShadow: "0 2px 8px #1A3C2E33", pointerEvents: "none" }}>
+                    <div style={{ position: "absolute", bottom: "calc(100% + 4px)",
+                      // Ancrage adaptatif : centré par défaut, mais aligné à gauche
+                      // pour les 1res barres et à droite pour les dernières, afin que
+                      // l'infobulle ne sorte jamais de l'écran (elle était rognée).
+                      ...(i <= 1
+                        ? { left: 0, transform: "none" }
+                        : i >= rows.length - 2
+                          ? { right: 0, transform: "none" }
+                          : { left: "50%", transform: "translateX(-50%)" }),
+                      background: "#1A3C2E", color: "#F0EBE0", borderRadius: 6, padding: "5px 9px", fontSize: 11, whiteSpace: "nowrap", zIndex: 20, boxShadow: "0 2px 8px #1A3C2E33", pointerEvents: "none" }}>
                       <div style={{ fontWeight: 600 }}>#{i + 1} · {d.name}</div>
                       <div style={{ opacity: 0.8, fontVariantNumeric: "tabular-nums" }}>{d.count} occurrence{d.count > 1 ? "s" : ""}{clickable ? " · cliquer pour filtrer" : ""}</div>
                     </div>
@@ -3144,12 +3153,28 @@ function NextStepsAnalysis({ questions, results, brand, categories = [], gscRows
   }, [results]);
 
   // Position de la marque sur une question (meilleur résultat)
+  // Présence évaluée sur les MARQUES SÉLECTIONNÉES (brandSites) via brand_presences ;
+  // les colonnes brand_* ne concernent que la marque du site 1 et sont souvent vides.
+  const _presFor = (r) => {
+    const bp = r && r.brand_presences && typeof r.brand_presences === "object" ? r.brand_presences : null;
+    if (!bp) return null;
+    return Object.values(bp).filter(Boolean); // toutes les marques du projet
+  };
   const brandPosOf = (qId) => {
     const rs = resultsByQ[qId] || [];
-    const positions = rs.map(r => r.brand_mention_position || r.brand_position).filter(p => p != null && p > 0);
+    const positions = [];
+    rs.forEach(r => {
+      const ps = _presFor(r);
+      if (ps && ps.length) ps.forEach(p => { if (p.mention_position != null && p.mention_position > 0) positions.push(p.mention_position); });
+      else { const v = r.brand_mention_position || r.brand_position; if (v != null && v > 0) positions.push(v); }
+    });
     return positions.length ? Math.min(...positions) : null;
   };
-  const isMentioned = (qId) => (resultsByQ[qId] || []).some(r => r.brand_mentioned === true || r.brand_mentioned === 1);
+  const isMentioned = (qId) => (resultsByQ[qId] || []).some(r => {
+    const ps = _presFor(r);
+    if (ps && ps.length) return ps.some(p => p.mentioned || p.mention_position != null || p.evocation_position != null || p.in_sources);
+    return r.brand_mentioned === true || r.brand_mentioned === 1;
+  });
 
   // ── Catalogue des types d'action (regroupement des recos) ──
   const ACTION_TYPES = {
@@ -3191,11 +3216,23 @@ function NextStepsAnalysis({ questions, results, brand, categories = [], gscRows
 
     // 2b. Demander à Claude de classer l'action à mener pour chaque question
     const typeKeys = Object.keys(ACTION_TYPES);
-    const prompt = `Tu es un expert GEO/SEO senior. Pour "${brandName}" (${siteDomain || "site"}), tu dois définir, pour chaque question favorite, LE type d'action prioritaire à mener pour améliorer la présence de la marque dans les réponses des moteurs IA.
+    // Périmètre MULTI-MARQUES : la recommandation doit porter sur les marques
+    // sélectionnées pour cette question (sélecteur « Marques… »), pas seulement
+    // sur la marque du site 1.
+    const _recoBrands = [];
+    const _recoScope = _recoBrands.length
+      ? (_recoBrands.length > 1
+          ? `les marques ${_recoBrands.map(b => `"${b}"`).join(", ")} du même projet`
+          : `"${_recoBrands[0]}"`)
+      : `"${brandName}"`;
+    const _recoNote = _recoBrands.length > 1
+      ? `\nIMPORTANT : ${_recoBrands.length} marques sont suivies ici (${_recoBrands.join(", ")}). Une marque présente dans une réponse compte comme une présence. Précise, quand c'est utile, quelle marque porter en priorité sur chaque question.`
+      : "";
+    const prompt = `Tu es un expert GEO/SEO senior. Pour ${_recoScope} (${siteDomain || "site"}), tu dois définir, pour chaque question favorite, LE type d'action prioritaire à mener pour améliorer la présence de la marque dans les réponses des moteurs IA.
 
 CONTEXTE par question :
 - "present" : la marque est-elle déjà mentionnée dans les réponses IA ?
-- "brandPos" : meilleure position de la marque dans un top IA (null si absente)
+- "brandPos" : meilleure position de la marque dans un top IA (null si absente)${_recoNote}
 - "gscUrl" : page du site la mieux positionnée sur cette requête d'après Google Search Console (null si aucune page ne ranke)
 - "gscPos" : position Google de cette page (null si inconnue)
 ${hasGsc ? "" : "\nNOTE : aucune donnée Google Search Console importée — base-toi sur present/brandPos et juge s'il faut probablement créer ou optimiser une page.\n"}
@@ -4800,18 +4837,6 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
         </div>
       )}
 
-      {/* ── Et maintenant ? — plan d'action priorisé ── */}
-      <NextStepsAnalysis
-        questions={questions}
-        results={results}
-        brand={brand}
-        categories={categories}
-        gscRows={gscRows}
-        claudeKey={providerKeysRef.current["claude"]?.dec || ""}
-        projectId={projectId}
-        siteId={site?.id}
-      />
-
       {/* ── Stats header (filtered) ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, marginBottom: 6 }}>
         {recomputeMsg && <span style={{ fontSize: 11, color: recomputing ? "#E8541A" : "#2E5E3A" }}>{recomputeMsg}</span>}
@@ -5434,6 +5459,18 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           })}
         </div>
       )}
+
+      {/* ── Et maintenant ? — plan d'action priorisé ── */}
+      <NextStepsAnalysis
+        questions={questions}
+        results={results}
+        brand={brand}
+        categories={categories}
+        gscRows={gscRows}
+        claudeKey={providerKeysRef.current["claude"]?.dec || ""}
+        projectId={projectId}
+        siteId={site?.id}
+      />
     </div>
   );
 }
@@ -6941,6 +6978,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
 
       </div>)}
       <ScrollToTopButton />
+
     </div>
   );
 }
