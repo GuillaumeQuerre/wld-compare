@@ -14,10 +14,10 @@ import React, { useState, useMemo, useEffect } from "react";
 //  ne comptait que comme mention, ce qui sous-évaluait structurellement les citations.
 // ════════════════════════════════════════════════════════════════════════
 
-export const MEC_COLORS = { mentions: "#1A7A4A", evocations: "#C97820", citations: "#2563EB" };
+export const MEC_COLORS = { mentions: "#2E5E3A", evocations: "#E8541A", citations: "#1F6F6B" };
 export const MEC_LABELS = { mentions: "Mentions", evocations: "Évocations", citations: "Citations" };
 // Palette pour le mode Comparaison (une couleur par marque, repli si la marque n'a pas la sienne).
-export const BRAND_PALETTE = ["#1A7A4A", "#2563EB", "#C97820", "#7C3AED", "#DB2777", "#0891B2", "#B45309", "#4B5563"];
+export const BRAND_PALETTE = ["#2E5E3A", "#1F6F6B", "#E8541A", "#7C3AED", "#DB2777", "#0891B2", "#B45309", "#4B5563"];
 
 // Courbe lissée passant par TOUS les points, sans dépassement (interpolation
 // cubique monotone de Fritsch-Carlson) : idéal pour des comptes en dents de scie
@@ -323,11 +323,11 @@ function Curves({ series, width = 900, height = 240, keys = ["citations", "evoca
       {ticks.map(t => (
         <g key={t}>
           <line x1={padL} x2={w - padR} y1={y(t)} y2={y(t)} stroke="#1A3C2E14" strokeWidth="1" />
-          <text x={padL - 6} y={y(t) + 3.5} textAnchor="end" fontSize="9" fill="#94A3B8">{t}</text>
+          <text x={padL - 6} y={y(t) + 3.5} textAnchor="end" fontSize="9" fill="#5B6B63">{t}</text>
         </g>
       ))}
       {pts.map((d, i) => (i % labelEvery === 0 || i === n - 1) && (
-        <text key={d.date} x={x(i)} y={h - 8} textAnchor="middle" fontSize="9" fill="#94A3B8">{d.date.slice(8, 10)}/{d.date.slice(5, 7)}</text>
+        <text key={d.date} x={x(i)} y={h - 8} textAnchor="middle" fontSize="9" fill="#5B6B63">{d.date.slice(8, 10)}/{d.date.slice(5, 7)}</text>
       ))}
       {/* C) Une courbe LISSÉE fine par set reliant tous les points, points par-dessus. */}
       {keys.map(key => (
@@ -364,6 +364,12 @@ export function PresenceTrendChart({
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(today);
   const [modeInner, setModeInner] = useState(defaultMode); // repli si non contrôlé
+  // Séries visibles en mode cumulé (bascules Mentions / Évocations / Citations)
+  const [visibleKeys, setVisibleKeys] = useState({ mentions: true, evocations: true, citations: true });
+  const toggleKey = (k) => setVisibleKeys(v => {
+    const next = { ...v, [k]: !v[k] };
+    return Object.values(next).some(Boolean) ? next : v; // garder au moins une série
+  });
   const mode = modeProp || modeInner;
   const setMode = (m) => { if (onModeChange) onModeChange(m); else setModeInner(m); };
 
@@ -377,7 +383,10 @@ export function PresenceTrendChart({
   const compare = useMemo(() => {
     if (view !== "compare" || !Array.isArray(brands) || !brands.length) return null;
     const f = from < floor ? floor : from;
-    const per = brands.map(b => ({ b, s: buildPresenceSeries({ results, mode, from: f, to, siteIds: [b.id] }) }));
+    // dailyRows DOIT être transmis ici aussi : sans lui, le mode « Par marque »
+    // n'a que la fenêtre de résultats récents (courbe plate puis saut) — c'est le
+    // même bug que celui corrigé sur le cumulé.
+    const per = brands.map(b => ({ b, s: buildPresenceSeries({ results, calendarEntries, dailyRows, mode, from: f, to, siteIds: [b.id] }) }));
     const byBD = {}; const dates = new Set();
     per.forEach(({ b, s }) => { byBD[b.id] = {}; s.forEach(d => { byBD[b.id][d.date] = d[compareMetric] ?? 0; dates.add(d.date); }); });
     const pts = [...dates].sort().map(date => {
@@ -387,9 +396,20 @@ export function PresenceTrendChart({
     });
     const keys = brands.map(b => b.id);
     const colors = {}; const labels = {};
-    brands.forEach((b, i) => { colors[b.id] = b.color || BRAND_PALETTE[i % BRAND_PALETTE.length]; labels[b.id] = b.label; });
+    // Couleurs DISTINCTES : plusieurs sites partagent souvent la même couleur
+    // (bleu/vert/violet répétés). On conserve la couleur propre d'une marque
+    // seulement si elle est encore libre, sinon on prend la 1re teinte libre.
+    const used = new Set();
+    const norm = (c) => (c || "").toLowerCase();
+    brands.forEach((b) => {
+      let c = norm(b.color);
+      if (!c || used.has(c)) c = norm(BRAND_PALETTE.find(p => !used.has(norm(p))));
+      if (!c) c = norm(BRAND_PALETTE[used.size % BRAND_PALETTE.length]);
+      used.add(c);
+      colors[b.id] = c; labels[b.id] = b.label;
+    });
     return { pts, keys, colors, labels };
-  }, [view, brands, results, mode, from, to, floor, compareMetric]);
+  }, [view, brands, results, calendarEntries, dailyRows, mode, from, to, floor, compareMetric]);
 
   // Remontee au parent APRES le rendu (jamais pendant) : evite un setState
   // sur le parent au milieu du rendu de l'enfant.
@@ -406,8 +426,8 @@ export function PresenceTrendChart({
   const preset = (days) => { const f = addDays(today, -(days - 1)); setFrom(f < floor ? floor : f); setTo(today); };
   const btn = (active) => ({
     padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
-    border: `0.5px solid ${active ? "#1A7A4A44" : "#1A3C2E18"}`,
-    background: active ? "#1A7A4A10" : "transparent", color: active ? "#1A7A4A" : "#94A3B8",
+    border: `0.5px solid ${active ? "#2E5E3A44" : "#1A3C2E18"}`,
+    background: active ? "#2E5E3A10" : "transparent", color: active ? "#2E5E3A" : "#5B6B63",
   });
   const dateInput = { padding: "3px 7px", border: "0.5px solid #1A3C2E18", borderRadius: 7, fontSize: 11, color: "#1A3C2E", background: "transparent" };
   const spanDays = daysBetween(from, to).length;
@@ -417,20 +437,40 @@ export function PresenceTrendChart({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#1A3C2E" }}>{title}</div>
-          <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: "#5B6B63", marginTop: 2 }}>
             {totals.tested > 0
               ? `${totals.mentions} mentions · ${totals.evocations} évocations · ${totals.citations} citations sur ${totals.tested} ${mode === "question" ? "questions" : "réponses"}`
               : "Aucune interrogation sur la période"}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          {/* Métrique tracée — uniquement en mode Comparaison (une courbe par marque) */}
+          {/* Séries affichées — mode cumulé : on montre/masque chaque indicateur */}
+          {view !== "compare" && (
+            <span style={{ display: "inline-flex", gap: 4, marginRight: 4 }}>
+              {["mentions", "evocations", "citations"].map(k => (
+                <button key={k} onClick={() => toggleKey(k)}
+                  aria-pressed={visibleKeys[k]}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", fontSize: 11,
+                    fontWeight: 600, cursor: "pointer", borderRadius: 20,
+                    border: `0.5px solid ${visibleKeys[k] ? MEC_COLORS[k] + "55" : "#1A3C2E18"}`,
+                    background: visibleKeys[k] ? `${MEC_COLORS[k]}14` : "transparent",
+                    color: visibleKeys[k] ? MEC_COLORS[k] : "#5B6B63", opacity: visibleKeys[k] ? 1 : 0.65 }}
+                  title={visibleKeys[k] ? `Masquer les ${MEC_LABELS[k].toLowerCase()}` : `Afficher les ${MEC_LABELS[k].toLowerCase()}`}>
+                  <span style={{ width: 9, height: 9, borderRadius: 3,
+                    background: visibleKeys[k] ? MEC_COLORS[k] : "transparent",
+                    border: `1.5px solid ${MEC_COLORS[k]}` }} />
+                  {MEC_LABELS[k]}
+                </button>
+              ))}
+            </span>
+          )}
+          {/* Métrique tracée — uniquement en mode Par marque (une courbe par marque) */}
           {view === "compare" && Array.isArray(brands) && brands.length > 1 && (
             <span style={{ display: "inline-flex", border: "0.5px solid #1A3C2E18", borderRadius: 20, overflow: "hidden", marginRight: 4 }}>
               {[["mentions", "Mentions"], ["evocations", "Évocations"], ["citations", "Citations"]].map(([m, lbl]) => (
                 <button key={m} onClick={() => { if (onCompareMetricChange) onCompareMetricChange(m); }}
                   style={{ padding: "3px 9px", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
-                    background: compareMetric === m ? `${MEC_COLORS[m]}18` : "transparent", color: compareMetric === m ? MEC_COLORS[m] : "#94A3B8" }}
+                    background: compareMetric === m ? `${MEC_COLORS[m]}18` : "transparent", color: compareMetric === m ? MEC_COLORS[m] : "#5B6B63" }}
                   title={`Tracer les ${lbl.toLowerCase()} par marque`}>
                   {lbl}
                 </button>
@@ -442,7 +482,7 @@ export function PresenceTrendChart({
             {[["response", "par réponse"], ["question", "par question"]].map(([m, lbl]) => (
               <button key={m} onClick={() => setMode(m)}
                 style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
-                  background: mode === m ? "#1A7A4A10" : "transparent", color: mode === m ? "#1A7A4A" : "#94A3B8" }}
+                  background: mode === m ? "#2E5E3A10" : "transparent", color: mode === m ? "#2E5E3A" : "#5B6B63" }}
                 title={m === "response" ? "Chaque interrogation d'un modèle compte" : "Une question compte si ≥1 réponse la classe ainsi"}>
                 {lbl}
               </button>
@@ -451,28 +491,29 @@ export function PresenceTrendChart({
           {[7, 30, 90].map(d => <button key={d} onClick={() => preset(d)} style={btn(spanDays === d && to === today)}>{d} j</button>)}
           <button onClick={() => { setFrom(floor); setTo(today); }} style={btn(from === floor && to === today)}>Tout</button>
           <input type="date" value={from} min={floor} max={to} onChange={e => setFrom(e.target.value < floor ? floor : e.target.value)} style={dateInput} title={`Début (au plus tôt : ${floor})`} />
-          <span style={{ fontSize: 11, color: "#94A3B8" }}>→</span>
+          <span style={{ fontSize: 11, color: "#5B6B63" }}>→</span>
           <input type="date" value={to} min={from} max={today} onChange={e => setTo(e.target.value > today ? today : e.target.value)} style={dateInput} title="Fin" />
         </div>
       </div>
 
       {view === "compare" && compare
         ? <Curves series={compare.pts} keys={compare.keys} colors={compare.colors} labels={compare.labels} height={chartHeight || (compact ? 190 : 240)} />
-        : <Curves series={series} height={chartHeight || (compact ? 190 : 240)} />}
+        : <Curves series={series} keys={["citations", "evocations", "mentions"].filter(k => visibleKeys[k])}
+                  height={chartHeight || (compact ? 190 : 240)} />}
 
       <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
         {view === "compare" && compare
           ? compare.keys.map(k => {
               const last = [...compare.pts].reverse().find(d => (d[k] || 0) > 0) || compare.pts[compare.pts.length - 1];
               return (
-                <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748B" }}>
+                <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#4A5A52" }}>
                   <span style={{ width: 14, height: 2.5, borderRadius: 2, background: compare.colors[k] }} />
                   {compare.labels[k]} <b style={{ color: compare.colors[k] }}>{last ? (last[k] || 0) : 0}</b>
                 </span>
               );
             })
-          : ["mentions", "evocations", "citations"].map(k => (
-              <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748B" }}>
+          : ["mentions", "evocations", "citations"].filter(k => visibleKeys[k]).map(k => (
+              <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#5B6B63" }}>
                 <span style={{ width: 14, height: 2.5, borderRadius: 2, background: MEC_COLORS[k] }} />
                 {MEC_LABELS[k]} <b style={{ color: MEC_COLORS[k] }}>{totals[k]}</b>
               </span>

@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { C, SF_DIMS, RES_KPIS, RADAR_DIMS, DEFAULT_SITES, SEMRUSH_DIMS } from "./lib/constants";
+import { T, FONT, DIAMOND } from "./lib/theme";
 import { emptyDataMap, makeInitialProject, parseCSV, parseSemrushCSV } from "./lib/helpers";
 import { extractSF, extractGSC, extractGA, extractBing, extractSemrush, parseSemrush, filterByMode } from "./lib/parsers";
 import { parseSemrushOverview } from "./lib/compareEngine";
@@ -135,7 +136,7 @@ function NavBar({ tab, setTab, user, onLogout }) {
                 <button onClick={() => { onLogout(); setBurgerOpen(false); }} style={{
                   padding: "7px 14px", border: "none", borderRadius: 7, cursor: "pointer",
                   fontSize: 12, fontWeight: 500, textAlign: "left",
-                  background: "transparent", color: "#DC2626",
+                  background: "transparent", color: "#C0352A",
                 }}
                   onMouseEnter={e => e.currentTarget.style.background = "#FEF2F2"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
@@ -637,8 +638,65 @@ export default function App() {
 
   return (
     <>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <div style={{ fontFamily: "'DM Sans', 'Segoe UI', sans-serif", background: C.bg, minHeight: "100vh", color: C.text }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Inter:wght@400;500;600;700;800&display=swap');
+        @keyframes spin { to { transform: rotate(360deg); } }
+        /* ── Charte Sonate (alignée sur le Simulateur SEO) ───────────────── */
+        body { background: ${T.bg}; }
+        /* Titres en Playfair Display (le serif du logo Sonate) */
+        h1, h2, h3 { font-family: ${FONT.heading}; letter-spacing: -0.2px; }
+        /* Titres de section : petites capitales espacées, marqueur ◆ orange */
+        .sn-section { font-size: 11px; font-weight: 700; letter-spacing: 1.1px;
+          text-transform: uppercase; color: ${T.text}; display: flex; align-items: center; gap: 6px; }
+        .sn-section::before { content: "${DIAMOND}"; color: ${T.accent}; font-size: 9px; }
+        /* Libellé de carte sur fond sombre */
+        .sn-card-label { font-size: 10px; font-weight: 600; letter-spacing: 1px;
+          text-transform: uppercase; color: ${T.textMutedOnDark}; }
+        /* Chiffre clé */
+        .sn-kpi { font-size: 34px; font-weight: 800; letter-spacing: -0.5px; color: ${T.accent}; }
+        /* Panneau sombre (zone de résultats) */
+        .sn-panel-dark { background: ${T.bgDark}; color: ${T.textOnDark}; border-radius: ${T.radiusLg}px; }
+        .sn-panel-dark .sn-card { background: rgba(255,255,255,0.03); border: 1px solid ${T.borderDark}; border-radius: ${T.radius}px; }
+
+        /* ── Cartes KPI Mention / Évocation / Citation ─────────────────────
+           Mises en valeur façon Simulateur SEO : panneau vert sombre,
+           libellé en petites capitales claires, chiffre orange imposant. */
+        .gt-kpi-grid { gap: 12px !important; }
+        .gt-kpi-card {
+          background: ${T.bgDark} !important;
+          border: 1px solid ${T.borderDark} !important;
+          border-radius: ${T.radiusLg}px !important;
+          padding: 16px 18px !important;
+          box-shadow: ${T.shadow};
+          position: relative;
+          overflow: hidden;
+        }
+        /* Filet orange en tête de carte — rappel du marqueur ◆ */
+        .gt-kpi-card::before {
+          content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+          background: ${T.accent}; opacity: .85;
+        }
+        .gt-kpi-card .gt-kpi-label {
+          color: ${T.textMutedOnDark} !important;
+          font-size: 10px !important; font-weight: 600 !important;
+          letter-spacing: 1px !important; text-transform: uppercase !important;
+        }
+        /* Le chiffre : gros, orange — c'est l'information à retenir */
+        .gt-kpi-card .gt-kpi-val {
+          color: ${T.accent} !important;
+          font-size: 38px !important; font-weight: 800 !important;
+          line-height: 1.05 !important; letter-spacing: -1px !important;
+          font-variant-numeric: tabular-nums;
+        }
+        .gt-kpi-card .gt-kpi-sub,
+        .gt-kpi-card .gt-caption { color: ${T.textMutedOnDark} !important; }
+        /* Le chiffre reste orange quel que soit l'état hérité (vert/rouge),
+           sauf à zéro où il s'atténue : l'absence reste lisible d'un coup d'œil. */
+        .gt-kpi-card .gt-kpi-val.gt-success,
+        .gt-kpi-card .gt-kpi-val.gt-warn { color: ${T.accent} !important; }
+        .gt-kpi-card .gt-kpi-val.gt-danger { color: ${T.textMutedOnDark} !important; opacity: .8; }
+      `}</style>
+      <div style={{ fontFamily: FONT.body, background: T.bg, minHeight: "100vh", color: T.text }}>
 
         {/* ── NAV ── */}
         <div style={{ background: C.white, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 100 }}>
@@ -978,7 +1036,7 @@ export default function App() {
                 <button onClick={() => setConfirmModal(null)} style={{ padding: "8px 20px", border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, cursor: "pointer", fontSize: 13, color: C.textMid }}>
                   Annuler
                 </button>
-                <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#DC2626", cursor: "pointer", fontSize: 13, color: "#fff", fontWeight: 600 }}>
+                <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#C0352A", cursor: "pointer", fontSize: 13, color: "#fff", fontWeight: 600 }}>
                   Confirmer
                 </button>
               </div>

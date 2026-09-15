@@ -59,8 +59,8 @@ function throttleProvider(providerId) {
 // ── Intention manuelle de la question (tag contrôlé à 3 valeurs) ──────────────
 const QUESTION_INTENTS = [
   { id: "transactional",  label: "Transactionnelle",     short: "Transac.", color: "#1A4A7A", bg: "#1A4A7A14" },
-  { id: "informational",  label: "Informationnelle",     short: "Info.",    color: "#1A7A4A", bg: "#1A7A4A14" },
-  { id: "brand",          label: "Notoriété de la marque", short: "Notoriété", color: "#C97820", bg: "#C9782014" },
+  { id: "informational",  label: "Informationnelle",     short: "Info.",    color: "#2E5E3A", bg: "#2E5E3A14" },
+  { id: "brand",          label: "Notoriété de la marque", short: "Notoriété", color: "#E8541A", bg: "#E8541A14" },
 ];
 const INTENT_BY_ID = Object.fromEntries(QUESTION_INTENTS.map(i => [i.id, i]));
 
@@ -86,8 +86,8 @@ function SiteBrandSelect({ value = [], sites = [], onChange }) {
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button type="button" onClick={() => setOpen(o => !o)} title="Marques associées à cette question"
         style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
-          border: `0.5px solid ${sel.length ? "#2563EB44" : "#1A3C2E18"}`, background: sel.length ? "#2563EB10" : "transparent", color: sel.length ? "#2563EB" : "#94A3B8" }}>
-        {selectedSites.length > 0 && <span style={{ display: "inline-flex", gap: 2 }}>{selectedSites.slice(0, 3).map(s => <span key={s.id} style={{ width: 7, height: 7, borderRadius: "50%", background: s.color || "#2563EB" }} />)}</span>}
+          border: `0.5px solid ${sel.length ? "#1F6F6B44" : "#1A3C2E18"}`, background: sel.length ? "#1F6F6B10" : "transparent", color: sel.length ? "#1F6F6B" : "#5B6B63" }}>
+        {selectedSites.length > 0 && <span style={{ display: "inline-flex", gap: 2 }}>{selectedSites.slice(0, 3).map(s => <span key={s.id} style={{ width: 7, height: 7, borderRadius: "50%", background: s.color || "#1F6F6B" }} />)}</span>}
         {label}
         <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
       </button>
@@ -97,14 +97,14 @@ function SiteBrandSelect({ value = [], sites = [], onChange }) {
             const on = sel.includes(s.id);
             return (
               <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 9px", fontSize: 11, color: "#1A3C2E", cursor: "pointer", borderRadius: 4 }}>
-                <input type="checkbox" checked={on} onChange={() => toggle(s.id)} style={{ cursor: "pointer", accentColor: s.color || "#2563EB" }} />
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color || "#2563EB", flexShrink: 0 }} />
+                <input type="checkbox" checked={on} onChange={() => toggle(s.id)} style={{ cursor: "pointer", accentColor: s.color || "#1F6F6B" }} />
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color || "#1F6F6B", flexShrink: 0 }} />
                 <span>{s.label}</span>
               </label>
             );
           })}
           {sel.length > 0 && (
-            <div onClick={() => onChange([])} style={{ marginTop: 4, padding: "5px 9px", fontSize: 10, color: "#94A3B8", cursor: "pointer", borderTop: "0.5px solid #1A3C2E11" }}>✕ Tout retirer</div>
+            <div onClick={() => onChange([])} style={{ marginTop: 4, padding: "5px 9px", fontSize: 10, color: "#5B6B63", cursor: "pointer", borderTop: "0.5px solid #1A3C2E11" }}>✕ Tout retirer</div>
           )}
         </div>
       )}
@@ -124,7 +124,7 @@ function IntentSelect({ value, onChange }) {
         padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
         border: `0.5px solid ${cur ? cur.color + "44" : "#1A3C2E18"}`,
         background: cur ? cur.bg : "transparent",
-        color: cur ? cur.color : "#94A3B8", appearance: "none", maxWidth: 130,
+        color: cur ? cur.color : "#5B6B63", appearance: "none", maxWidth: 130,
       }}>
       <option value="">Intention…</option>
       {QUESTION_INTENTS.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
@@ -518,16 +518,16 @@ function buildFanoutPDF({ questions, results, hintsMap = {}, brandName, brandAli
     const sources = (latest?.sources || []).slice(0, 3);
     const dateLabel = latest?.created_at ? new Date(latest.created_at).toLocaleDateString("fr-FR", {day:"2-digit",month:"short",year:"numeric"}) : "";
 
-    return `<div style="margin-bottom:14px;padding:14px 18px;border:1px solid #E2E8F0;border-radius:10px;break-inside:avoid;page-break-inside:avoid;">
+    return `<div style="margin-bottom:14px;padding:14px 18px;border:1px solid #EDE7D9;border-radius:10px;break-inside:avoid;page-break-inside:avoid;">
       <div style="font-size:13px;font-weight:700;color:#0F172A;margin-bottom:8px;line-height:1.4">${esc(q.question)}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${(comps||sources.length||hint) ? "10px":"0"}">
         ${kw ? badge("#6366F1","#EEF2FF",`🔑 ${kw}`) : ""}
-        ${latest?.brand_position ? badge("#059669","#ECFDF5",`Position #${latest.brand_position}`) : ""}
-        ${latest?.brand_in_sources ? badge("#2563EB","#EFF6FF","🔗 Dans les sources") : ""}
-        ${showDate && dateLabel ? badge("#64748B","#F8FAFC",`Dernière parution : ${dateLabel}`) : ""}
+        ${latest?.brand_position ? badge("#2E5E3A","#ECFDF5",`Position #${latest.brand_position}`) : ""}
+        ${latest?.brand_in_sources ? badge("#1F6F6B","#EFF6FF","🔗 Dans les sources") : ""}
+        ${showDate && dateLabel ? badge("#4A5A52","#FAF7F0",`Dernière parution : ${dateLabel}`) : ""}
       </div>
-      ${comps ? `<div style="font-size:11px;color:#64748B;margin-bottom:6px">Concurrents cités : <strong>${esc(comps)}</strong></div>` : ""}
-      ${sources.length ? `<div style="font-size:10px;color:#94A3B8">${sources.map(u=>{ const clean=stripQuery(u); return `<a href="${esc(u)}" style="color:#6366F1">${esc(clean.length>60?clean.slice(0,60)+"…":clean)}</a>`; }).join("  ·  ")}</div>` : ""}
+      ${comps ? `<div style="font-size:11px;color:#4A5A52;margin-bottom:6px">Concurrents cités : <strong>${esc(comps)}</strong></div>` : ""}
+      ${sources.length ? `<div style="font-size:10px;color:#5B6B63">${sources.map(u=>{ const clean=stripQuery(u); return `<a href="${esc(u)}" style="color:#6366F1">${esc(clean.length>60?clean.slice(0,60)+"…":clean)}</a>`; }).join("  ·  ")}</div>` : ""}
       ${showHint && hint ? `<div style="margin-top:10px;padding:10px 12px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:7px;">
         <div style="font-size:10px;font-weight:700;color:#B45309;margin-bottom:4px">💡 HINT GEO${hintDate ? " · "+new Date(hintDate).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}) : ""}</div>
         <div style="font-size:11px;color:#92400E;line-height:1.6;white-space:pre-wrap">${esc(hint)}</div>
@@ -563,36 +563,36 @@ function buildFanoutPDF({ questions, results, hintsMap = {}, brandName, brandAli
   <div style="border-bottom:3px solid #6366F1;padding-bottom:20px;margin-bottom:28px">
     <div style="font-size:11px;font-weight:700;color:#6366F1;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Rapport GEO — Fan-outs</div>
     <div style="font-size:26px;font-weight:800;color:#0F172A;margin-bottom:4px">${esc(projectName)}</div>
-    <div style="font-size:13px;color:#64748B">Généré le ${dateStr}${selectedProviders.length > 0 ? " · Providers : "+selectedProviders.join(", ") : " · Tous les providers"}</div>
+    <div style="font-size:13px;color:#4A5A52">Généré le ${dateStr}${selectedProviders.length > 0 ? " · Providers : "+selectedProviders.join(", ") : " · Tous les providers"}</div>
   </div>
 
   <!-- ── Chiffres clés ── -->
   ${sectionTitle("📊","Chiffres clés","#6366F1")}
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
     ${[
-      { label:"Présence marque", value: presence+"%", sub:`${withBrand}/${totalRes} réponses`, color: presence>=50?"#059669":presence>0?"#D97706":"#DC2626" },
+      { label:"Présence marque", value: presence+"%", sub:`${withBrand}/${totalRes} réponses`, color: presence>=50?"#2E5E3A":presence>0?"#D97706":"#C0352A" },
       { label:"Position moyenne", value: avgPos ? "#"+avgPos : "—", sub:"dans les fan-outs", color:"#6366F1" },
-      { label:"Dans les sources", value: withSources, sub:"questions citées", color:"#2563EB" },
+      { label:"Dans les sources", value: withSources, sub:"questions citées", color:"#1F6F6B" },
       { label:"Questions analysées", value: questions.length, sub:`${presentQs.length} positionnées`, color:"#0F172A" },
-    ].map(k=>`<div style="padding:16px;border:1px solid #E2E8F0;border-radius:12px;text-align:center">
-      <div style="font-size:10px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">${esc(k.label)}</div>
+    ].map(k=>`<div style="padding:16px;border:1px solid #EDE7D9;border-radius:12px;text-align:center">
+      <div style="font-size:10px;font-weight:700;color:#5B6B63;text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">${esc(k.label)}</div>
       <div style="font-size:28px;font-weight:800;color:${k.color};margin-bottom:3px">${esc(String(k.value))}</div>
-      <div style="font-size:10px;color:#94A3B8">${esc(k.sub)}</div>
+      <div style="font-size:10px;color:#5B6B63">${esc(k.sub)}</div>
     </div>`).join("")}
   </div>
 
-  ${topComps.length > 0 ? `<div style="padding:12px 16px;border:1px solid #E2E8F0;border-radius:10px;margin-bottom:24px">
-    <div style="font-size:11px;font-weight:700;color:#64748B;margin-bottom:8px;text-transform:uppercase;letter-spacing:.7px">Top concurrents cités</div>
+  ${topComps.length > 0 ? `<div style="padding:12px 16px;border:1px solid #EDE7D9;border-radius:10px;margin-bottom:24px">
+    <div style="font-size:11px;font-weight:700;color:#4A5A52;margin-bottom:8px;text-transform:uppercase;letter-spacing:.7px">Top concurrents cités</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px">
-      ${topComps.map(([name,cnt])=>`<span style="padding:4px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:20px;font-size:12px;font-weight:600;color:#DC2626">${esc(name)} <span style="opacity:.7">${cnt}×</span></span>`).join("")}
+      ${topComps.map(([name,cnt])=>`<span style="padding:4px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:20px;font-size:12px;font-weight:600;color:#C0352A">${esc(name)} <span style="opacity:.7">${cnt}×</span></span>`).join("")}
     </div>
   </div>` : ""}
 
   <!-- ── Questions positionnées ── -->
   ${presentQs.length > 0 ? `
-  ${sectionTitle("✅",`Questions positionnées (${presentQs.length})`, "#059669")}
+  ${sectionTitle("✅",`Questions positionnées (${presentQs.length})`, "#2E5E3A")}
   ${presentQs.map(item => questionBlock(item, true, false)).join("")}
-  ` : `<div style="padding:16px;background:#F8FAFC;border-radius:8px;color:#94A3B8;font-size:13px;margin-bottom:20px">Aucune question positionnée pour l'instant.</div>`}
+  ` : `<div style="padding:16px;background:#FAF7F0;border-radius:8px;color:#5B6B63;font-size:13px;margin-bottom:20px">Aucune question positionnée pour l'instant.</div>`}
 
   <!-- ── Questions déjà positionnées (perdues) ── -->
   ${lostQs.length > 0 ? `
@@ -604,12 +604,12 @@ function buildFanoutPDF({ questions, results, hintsMap = {}, brandName, brandAli
   <!-- ── Questions sans présence ── -->
   ${absentQs.length > 0 ? `
   <div class="page-break"></div>
-  ${sectionTitle("❌",`Marque absente (${absentQs.length})`, "#DC2626")}
+  ${sectionTitle("❌",`Marque absente (${absentQs.length})`, "#C0352A")}
   ${absentQs.map(item => questionBlock(item, true, false)).join("")}
   ` : ""}
 
   <!-- Pied de page -->
-  <div style="margin-top:40px;padding-top:16px;border-top:1px solid #E2E8F0;font-size:10px;color:#94A3B8;text-align:center">
+  <div style="margin-top:40px;padding-top:16px;border-top:1px solid #EDE7D9;font-size:10px;color:#5B6B63;text-align:center">
     Rapport Echo GEO · ${esc(projectName)} · ${dateStr}
   </div>
 
@@ -688,12 +688,12 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
     }, 0);
   };
 
-  const providerColors = { openai:"#059669", gemini:"#2563EB", perplexity:"#7C3AED", claude:"#D97706", other:"#64748B" };
+  const providerColors = { openai:"#2E5E3A", gemini:"#1F6F6B", perplexity:"#7C3AED", claude:"#D97706", other:"#4A5A52" };
   const providerIcons  = { openai:"🟢", gemini:"🔵", perplexity:"🟣", claude:"🟠", other:"⚪" };
   const providerLabels = { openai:"OpenAI", gemini:"Gemini", perplexity:"Perplexity", claude:"Claude", other:"Autre" };
 
   const SCOPES = [
-    { key: "brand",     label: "✓ Marque présente",  desc: "Questions où la marque est citée",   color: "#059669", bg: "#ECFDF5" },
+    { key: "brand",     label: "✓ Marque présente",  desc: "Questions où la marque est citée",   color: "#2E5E3A", bg: "#ECFDF5" },
     { key: "favorites", label: "⭐ Favoris",           desc: "Questions marquées comme favoris",   color: "#F59E0B", bg: "#FFFBEB" },
     { key: "all",       label: "◉ Toutes",            desc: "Toutes les questions et réponses",   color: "#6366F1", bg: "#EEF2FF" },
   ];
@@ -708,10 +708,10 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
         style={{
           display: "inline-flex", alignItems: "center", gap: 6,
           padding: "6px 14px",
-          border: `1.5px solid ${open ? "#6366F1" : "#059669"}`,
+          border: `1.5px solid ${open ? "#6366F1" : "#2E5E3A"}`,
           borderRadius: 8,
           background: open ? "#EEF2FF" : "#ECFDF5",
-          color: open ? "#6366F1" : "#059669",
+          color: open ? "#6366F1" : "#2E5E3A",
           fontSize: 12, fontWeight: 700,
           cursor: "pointer",
           transition: "all 0.15s",
@@ -724,7 +724,7 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
             <span style={{ fontSize: 14 }}>📤</span>
             Exporter
             {scopedCount > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 800, background: currentScope?.color || "#059669", color: "#fff", borderRadius: 10, padding: "1px 6px", marginLeft: 2 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, background: currentScope?.color || "#2E5E3A", color: "#fff", borderRadius: 10, padding: "1px 6px", marginLeft: 2 }}>
                 {scopedCount}
               </span>
             )}
@@ -736,13 +736,13 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
       {/* ── Popover ── */}
       {open && (
         <div className="geo-export-popup" style={{
-          zIndex: 300, background: "#fff", border: "1px solid #E2E8F0",
+          zIndex: 300, background: "#fff", border: "1px solid #EDE7D9",
           borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.14)", padding: 16, minWidth: 290,
         }}>
 
           {/* ── Périmètre des questions ── */}
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".7px", marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#5B6B63", textTransform: "uppercase", letterSpacing: ".7px", marginBottom: 8 }}>
               Questions à exporter
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -750,9 +750,9 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
                 <button key={s.key} onClick={() => setScope(s.key)}
                   style={{
                     padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                    border: `2px solid ${questionScope === s.key ? s.color : "#E2E8F0"}`,
+                    border: `2px solid ${questionScope === s.key ? s.color : "#EDE7D9"}`,
                     background: questionScope === s.key ? s.bg : "transparent",
-                    color: questionScope === s.key ? s.color : "#64748B",
+                    color: questionScope === s.key ? s.color : "#4A5A52",
                     cursor: "pointer", textAlign: "left",
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                   }}
@@ -767,7 +767,7 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
           {/* ── Providers ── */}
           {presentProviders.length > 1 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".7px", marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#5B6B63", textTransform: "uppercase", letterSpacing: ".7px", marginBottom: 8 }}>
                 Providers à inclure
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -778,9 +778,9 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
                     <button key={pid} onClick={() => toggleProvider(pid)}
                       style={{
                         padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-                        border: `2px solid ${active ? col : "#E2E8F0"}`,
+                        border: `2px solid ${active ? col : "#EDE7D9"}`,
                         background: active ? col+"18" : "transparent",
-                        color: active ? col : "#64748B", cursor: "pointer",
+                        color: active ? col : "#4A5A52", cursor: "pointer",
                       }}
                     >
                       {providerIcons[pid]||"⚪"} {providerLabels[pid]||pid}
@@ -788,16 +788,16 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
                   );
                 })}
               </div>
-              <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 5 }}>
+              <div style={{ fontSize: 10, color: "#5B6B63", marginTop: 5 }}>
                 {selectedProviders.length === 0 ? "Tous les providers inclus" : `${selectedProviders.length} provider${selectedProviders.length>1?"s":""} sélectionné${selectedProviders.length>1?"s":""}`}
               </div>
             </div>
           )}
 
           {/* ── Résumé ── */}
-          <div style={{ fontSize: 11, color: "#64748B", marginBottom: 14, padding: "8px 10px", background: "#F8FAFC", borderRadius: 7 }}>
+          <div style={{ fontSize: 11, color: "#4A5A52", marginBottom: 14, padding: "8px 10px", background: "#FAF7F0", borderRadius: 7 }}>
             <strong style={{ color: currentScope?.color }}>{scopedCount}</strong> question{scopedCount>1?"s":""} · {currentScope?.desc?.toLowerCase()}
-            <br/><span style={{ color: "#94A3B8" }}>{questions.length} questions au total · {results.length} réponses</span>
+            <br/><span style={{ color: "#5B6B63" }}>{questions.length} questions au total · {results.length} réponses</span>
           </div>
 
           {/* ── Boutons d'export ── */}
@@ -805,8 +805,8 @@ function ExportFanoutBtn({ questions, results, brandName, brandAliases = [], key
             <button onClick={doCSV} disabled={scopedCount === 0}
               style={{
                 padding: "9px 14px", borderRadius: 8, border: "none",
-                background: scopedCount === 0 ? "#F1F5F9" : "#059669",
-                color: scopedCount === 0 ? "#94A3B8" : "#fff",
+                background: scopedCount === 0 ? "#F1F5F9" : "#2E5E3A",
+                color: scopedCount === 0 ? "#5B6B63" : "#fff",
                 fontSize: 12, fontWeight: 700, cursor: scopedCount === 0 ? "not-allowed" : "pointer",
                 display: "flex", alignItems: "center", gap: 8,
               }}
@@ -852,7 +852,7 @@ export const PROVIDERS = [
     keyPrefix: "sk-",
     keyPlaceholder: "sk-…",
     proxyPath: "/api/openai",
-    color: "#059669",
+    color: "#2E5E3A",
   },
   {
     id: "gemini",
@@ -863,7 +863,7 @@ export const PROVIDERS = [
     keyPrefix: "AIza",
     keyPlaceholder: "AIzaSy…",
     proxyPath: "/api/gemini",
-    color: "#2563EB",
+    color: "#1F6F6B",
   },
   {
     id: "perplexity",
@@ -929,8 +929,8 @@ const PROVIDER_THEME = {
   },
   other: {
     name: "Assistant",
-    accent: "#64748B", bubbleBg: "#F8FAFC", botBg: "#FFFFFF",
-    glyph: "○", avatarBg: "#64748B", avatarFg: "#FFFFFF",
+    accent: "#4A5A52", bubbleBg: "#FAF7F0", botBg: "#FFFFFF",
+    glyph: "○", avatarBg: "#4A5A52", avatarFg: "#FFFFFF",
     font: '-apple-system, "Segoe UI", sans-serif',
   },
 };
@@ -1007,7 +1007,7 @@ function StatusBadge({ status }) {
   const map = {
     pending:       { label: "Prêt",       color: "#1A3C2E" },
     generating_q:  { label: "Génération…", color: "#E8541A" },
-    done_q:        { label: "Généré",      color: "#1A7A4A" },
+    done_q:        { label: "Généré",      color: "#2E5E3A" },
     generating_r:  { label: "LLM…",       color: "#E8541A" },
     done:          { label: "Terminé",     color: "#1A3C2E" },
     error:         { label: "Erreur",      color: "#C0352A" },
@@ -1027,9 +1027,9 @@ function StatusBadge({ status }) {
 
 // ── Code couleur partagé pour les 3 tops (marque + catégories concurrents) ──
 const TOP_COLORS = {
-  brand:   { color: "#1A7A4A", label: "Votre marque" },   // vert Sonate
+  brand:   { color: "#2E5E3A", label: "Votre marque" },   // vert Sonate
   direct:  { color: "#C0352A", label: "Concurrent direct" },
-  geo:     { color: "#C97820", label: "Concurrent GEO" },
+  geo:     { color: "#E8541A", label: "Concurrent GEO" },
   partner: { color: "#1A3C2E", label: "Partenaire" },
   other:   { color: "#9AAEA4", label: "Autre" },
 };
@@ -1106,7 +1106,7 @@ function UnknownBrandsPanel({ list = [] }) {
   return (
     <div className="gt-kpi-card" style={{ marginTop: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <span style={{ width: 22, height: 22, borderRadius: 6, background: "#C978201A", color: "#C97820", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>?</span>
+        <span style={{ width: 22, height: 22, borderRadius: 6, background: "#E8541A1A", color: "#E8541A", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>?</span>
         <span className="gt-kpi-label" style={{ marginBottom: 0 }}>Autres marques à identifier</span>
         <span style={{ marginLeft: "auto", fontSize: 11, color: "#1A3C2E" }}>{list.length}</span>
       </div>
@@ -1117,7 +1117,7 @@ function UnknownBrandsPanel({ list = [] }) {
         {list.slice(0, 30).map((e, i) => (
           <span key={i} title={`${e.count} apparition${e.count > 1 ? "s" : ""}${e.bestPos ? ` · meilleure position #${e.bestPos}` : ""}`}
             style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 14, border: "0.5px solid #1A3C2E18", background: "#fff", fontSize: 11, color: "#1A3C2E" }}>
-            {e.bestPos && <span style={{ fontSize: 9, fontWeight: 700, color: "#C97820", fontVariantNumeric: "tabular-nums" }}>#{e.bestPos}</span>}
+            {e.bestPos && <span style={{ fontSize: 9, fontWeight: 700, color: "#E8541A", fontVariantNumeric: "tabular-nums" }}>#{e.bestPos}</span>}
             {e.name}
             <span style={{ fontSize: 9, color: "#1A3C2E" }}>×{e.count}</span>
           </span>
@@ -1340,11 +1340,28 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
     brandEntries.forEach(({ label, pres }) => {
       if (!label) return;
       let mPos, isEvoc, isCit, citPos;
-      if (pres) {
-        mPos = pres.mention_position ?? null;
-        isEvoc = pres.evocation_position != null;
-        isCit = !!pres.in_sources;
-        citPos = pres.citation_position ?? null;
+      // Hors comparaison, les colonnes détaillées (brand_*_position) sont souvent
+      // VIDES : sur beaucoup de projets elles n'ont jamais été renseignées (repli
+      // d'écriture), la vérité est dans brand_presences. On agrège donc d'abord
+      // les marques sélectionnées, et on ne retombe sur les colonnes qu'en dernier.
+      let eff = pres;
+      if (!eff && r.brand_presences && typeof r.brand_presences === "object") {
+        const ids = (_brands && _brands.length) ? _brands : Object.keys(r.brand_presences);
+        ids.forEach(sid => {
+          const p = r.brand_presences[sid];
+          if (!p) return;
+          if (!eff) eff = { mention_position: null, evocation_position: null, citation_position: null, in_sources: false };
+          if (p.mention_position   != null) eff.mention_position   = eff.mention_position   == null ? p.mention_position   : Math.min(eff.mention_position, p.mention_position);
+          if (p.evocation_position != null) eff.evocation_position = eff.evocation_position == null ? p.evocation_position : Math.min(eff.evocation_position, p.evocation_position);
+          if (p.citation_position  != null) eff.citation_position  = eff.citation_position  == null ? p.citation_position  : Math.min(eff.citation_position, p.citation_position);
+          if (p.in_sources) eff.in_sources = true;
+        });
+      }
+      if (eff) {
+        mPos = eff.mention_position ?? null;
+        isEvoc = eff.evocation_position != null;
+        isCit = !!eff.in_sources;
+        citPos = eff.citation_position ?? null;
       } else {
         mPos = r.brand_mention_position ?? (r.brand_position > 0 ? r.brand_position : null);
         isEvoc = r.brand_evocation_position != null;
@@ -1408,11 +1425,23 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
   return (
     <div style={{ marginBottom: 24 }}>
 
+      {/* En-tête : rappelle que les 3 chiffres portent sur la DERNIÈRE interrogation */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.1, textTransform: "uppercase", color: "#1A3C2E" }}>
+          Visibilité de la marque
+        </span>
+        <span style={{ fontSize: 11, color: "#5B6B63" }}>
+          {lastDate
+            ? `dernière interrogation du ${lastDate.slice(8, 10)}/${lastDate.slice(5, 7)}/${lastDate.slice(0, 4)}`
+            : "aucune interrogation"}
+        </span>
+      </div>
+
       {/* ── 3 couples Présence + Position ── */}
       {/* Mode COMPARAISON : un jeu de 3 chiffres PAR MARQUE (mention/évocation/citation). */}
       {view === "compare" && statBrands.length > 1 && (
         <div style={{ marginBottom: 12, border: "0.5px solid #1A3C2E14", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", fontSize: 10, fontWeight: 700, color: "#94A3B8", padding: "6px 12px", background: "#1A3C2E08", textTransform: "uppercase", letterSpacing: 0.3 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", fontSize: 10, fontWeight: 700, color: "#5B6B63", padding: "6px 12px", background: "#1A3C2E08", textTransform: "uppercase", letterSpacing: 0.3 }}>
             <span>Marque</span><span style={{ textAlign: "center" }}>Mention</span><span style={{ textAlign: "center" }}>Évocation</span><span style={{ textAlign: "center" }}>Citation</span>
           </div>
           {statBrands.map((b, i) => {
@@ -1426,9 +1455,9 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: col, flexShrink: 0 }} />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.label}</span>
                 </span>
-                <span style={{ textAlign: "center", fontWeight: 700, color: "#1A7A4A" }}>{pct(a["mentions" + _suf])}%<span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 400 }}> · {a["mentions" + _suf]}</span></span>
-                <span style={{ textAlign: "center", fontWeight: 700, color: "#C97820" }}>{pct(a["evocations" + _suf])}%<span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 400 }}> · {a["evocations" + _suf]}</span></span>
-                <span style={{ textAlign: "center", fontWeight: 700, color: "#2563EB" }}>{pct(a["citations" + _suf])}%<span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 400 }}> · {a["citations" + _suf]}</span></span>
+                <span style={{ textAlign: "center", fontWeight: 700, color: "#2E5E3A" }}>{pct(a["mentions" + _suf])}%<span style={{ fontSize: 9, color: "#5B6B63", fontWeight: 400 }}> · {a["mentions" + _suf]}</span></span>
+                <span style={{ textAlign: "center", fontWeight: 700, color: "#E8541A" }}>{pct(a["evocations" + _suf])}%<span style={{ fontSize: 9, color: "#5B6B63", fontWeight: 400 }}> · {a["evocations" + _suf]}</span></span>
+                <span style={{ textAlign: "center", fontWeight: 700, color: "#1F6F6B" }}>{pct(a["citations" + _suf])}%<span style={{ fontSize: 9, color: "#5B6B63", fontWeight: 400 }}> · {a["citations" + _suf]}</span></span>
               </div>
             );
           })}
@@ -1503,8 +1532,8 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
 
       {/* ── 3 TOPS : Mentions · Évocations · Sources (barres verticales) ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
-        <TopBarChart title="Top mentions" glyph="◎" accent="#1A7A4A" data={topMentions} onBarClick={onTopClick ? (d) => onTopClick("mention", d.name) : null} />
-        <TopBarChart title="Top évocations" glyph="⟶" accent="#C97820" data={topEvocations} onBarClick={onTopClick ? (d) => onTopClick("evocation", d.name) : null} />
+        <TopBarChart title="Top mentions" glyph="◎" accent="#2E5E3A" data={topMentions} onBarClick={onTopClick ? (d) => onTopClick("mention", d.name) : null} />
+        <TopBarChart title="Top évocations" glyph="⟶" accent="#E8541A" data={topEvocations} onBarClick={onTopClick ? (d) => onTopClick("evocation", d.name) : null} />
         <TopBarChart title="Top citations" glyph="↗" accent="#1A3C2E" data={topCitations} onBarClick={onTopClick ? (d) => onTopClick("citation", d.name) : null} />
       </div>
 
@@ -1526,11 +1555,11 @@ function StatsHeader({ questions, results: allResults, brandName, qualifiedCompe
 
 // ── Competitor categories ─────────────────────────────────────────
 const COMP_CATEGORIES = [
-  { key: "direct",      label: "Concurrent direct",  color: "#DC2626", bg: "#FEF2F2" },
+  { key: "direct",      label: "Concurrent direct",  color: "#C0352A", bg: "#FEF2F2" },
   { key: "geo",         label: "Concurrent GEO",      color: "#D97706", bg: "#FFFBEB" },
-  { key: "partner",     label: "Partenaire",           color: "#059669", bg: "#ECFDF5" },
-  { key: "second_site", label: "2nd site suivi",       color: "#2563EB", bg: "#EFF6FF" },
-  { key: "other",       label: "Autre",                color: "#64748B", bg: "#F1F5F9" },
+  { key: "partner",     label: "Partenaire",           color: "#2E5E3A", bg: "#ECFDF5" },
+  { key: "second_site", label: "2nd site suivi",       color: "#1F6F6B", bg: "#EFF6FF" },
+  { key: "other",       label: "Autre",                color: "#4A5A52", bg: "#F1F5F9" },
 ];
 
 // ── Overlay d'import SF / Semrush pour un concurrent (comparaison approfondie) ──
@@ -1563,22 +1592,22 @@ function ToolImportOverlay({ target, tool, citedUrls = null, onClose, onSubmit }
     } catch (e) { setErr("Erreur de lecture du fichier."); setBusy(false); }
   };
 
-  const L = { fontSize: 11, color: "#64748B", marginBottom: 3, display: "block" };
-  const I = { width: "100%", padding: "7px 9px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, boxSizing: "border-box" };
+  const L = { fontSize: 11, color: "#4A5A52", marginBottom: 3, display: "block" };
+  const I = { width: "100%", padding: "7px 9px", border: "1px solid #EDE7D9", borderRadius: 7, fontSize: 12, boxSizing: "border-box" };
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(26,60,46,0.35)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ width: 380, maxWidth: "100%", background: "#fff", borderRadius: 14, boxShadow: "0 12px 48px rgba(26,60,46,0.25)", padding: 20 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: "#1A3C2E", marginBottom: 2 }}>
           Importer {tool === "sf" ? "Screaming Frog" : "Semrush"}
         </div>
-        <div style={{ fontSize: 11.5, color: "#94A3B8", marginBottom: 16 }}>pour <b style={{ color: target.color }}>{target.label}</b></div>
+        <div style={{ fontSize: 11.5, color: "#5B6B63", marginBottom: 16 }}>pour <b style={{ color: target.color }}>{target.label}</b></div>
 
         {tool === "semrush" && (
           <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
             {[{ id: "sm_overview", label: "Overview" }, { id: "sm_pages", label: "Top pages" }].map(k => (
               <button key={k.id} onClick={() => setSmKind(k.id)}
                 style={{ flex: 1, padding: "6px 0", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                  border: `1px solid ${smKind === k.id ? "#1A4A7A" : "#E2E8F0"}`, background: smKind === k.id ? "#1A4A7A" : "transparent", color: smKind === k.id ? "#fff" : "#64748B" }}>
+                  border: `1px solid ${smKind === k.id ? "#1A4A7A" : "#EDE7D9"}`, background: smKind === k.id ? "#1A4A7A" : "transparent", color: smKind === k.id ? "#fff" : "#4A5A52" }}>
                 {k.label}
               </button>
             ))}
@@ -1610,8 +1639,8 @@ function ToolImportOverlay({ target, tool, citedUrls = null, onClose, onSubmit }
         {err && <div style={{ fontSize: 11, color: "#E8541A", marginBottom: 10 }}>{err}</div>}
 
         <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-          <button onClick={submit} disabled={busy} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", background: busy ? "#94A3B8" : "#1A7A4A", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: busy ? "default" : "pointer" }}>{busy ? "Import…" : "Importer"}</button>
-          <button onClick={onClose} style={{ padding: "9px 14px", borderRadius: 8, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Annuler</button>
+          <button onClick={submit} disabled={busy} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", background: busy ? "#5B6B63" : "#2E5E3A", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: busy ? "default" : "pointer" }}>{busy ? "Import…" : "Importer"}</button>
+          <button onClick={onClose} style={{ padding: "9px 14px", borderRadius: 8, border: "1px solid #EDE7D9", background: "transparent", color: "#4A5A52", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Annuler</button>
         </div>
       </div>
     </div>
@@ -1838,7 +1867,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
       });
       const avg = st.positions.length ? Math.round((st.positions.reduce((a, b) => a + b, 0) / st.positions.length) * 10) / 10 : null;
       const u = entityUrlStats(allResults, comp.name, comp.domain);
-      return { key: comp.id, label: comp.name, color: comp.color || "#64748B",
+      return { key: comp.id, label: comp.name, color: comp.color || "#4A5A52",
         stats: { mentions: st.mentions, evocations: st.evocations, citations: st.citations, avgPos: avg, urlsCited: u.urlsCited || null, bestUrlHits: u.bestUrlHits || null } };
     });
     const brandTool = { ...(sfStats || {}), ...(smStats || {}) };
@@ -1866,13 +1895,13 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
           <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nom du concurrent…"
             onKeyDown={e => e.key === "Enter" && save()}
-            style={{ flex: "1 1 180px", padding: "6px 10px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12 }} />
+            style={{ flex: "1 1 180px", padding: "6px 10px", border: "1px solid #EDE7D9", borderRadius: 7, fontSize: 12 }} />
           <select value={newCat} onChange={e => setNewCat(e.target.value)}
-            style={{ padding: "6px 10px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12 }}>
+            style={{ padding: "6px 10px", border: "1px solid #EDE7D9", borderRadius: 7, fontSize: 12 }}>
             {COMP_CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
           <button onClick={save} disabled={saving || !newName.trim()}
-            style={{ padding: "6px 14px", background: newName.trim() ? "#1A3C2E" : "#F1F5F9", color: newName.trim() ? "#F0EBE0" : "#94A3B8", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: newName.trim() ? "pointer" : "default" }}>
+            style={{ padding: "6px 14px", background: newName.trim() ? "#1A3C2E" : "#F1F5F9", color: newName.trim() ? "#F0EBE0" : "#5B6B63", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: newName.trim() ? "pointer" : "default" }}>
             {saving ? "…" : "Ajouter"}
           </button>
         </div>
@@ -1880,14 +1909,14 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
       {/* Marques détectées non qualifiées — cliquer pour catégoriser → Concurrents */}
       {detectedNames.filter(d => !competitors.some(c => c.name.toLowerCase() === d.lower)).length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 4 }}>Marques détectées — à catégoriser</div>
-          <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 8 }}>Cliquez une marque puis choisissez sa catégorie : elle rejoint vos concurrents.</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#5B6B63", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 4 }}>Marques détectées — à catégoriser</div>
+          <div style={{ fontSize: 10, color: "#5B6B63", marginBottom: 8 }}>Cliquez une marque puis choisissez sa catégorie : elle rejoint vos concurrents.</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {detectedNames.filter(d => !competitors.some(c => c.name.toLowerCase() === d.lower)).slice(0, 20).map(d => (
               <div key={d.lower} style={{ position: "relative", display: "inline-block" }}>
                 <button onClick={() => setCatMenuFor(catMenuFor === d.lower ? null : d.lower)}
-                  style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, border: catMenuFor === d.lower ? "1px solid #1A3C2E" : "1px solid #E2E8F0", background: catMenuFor === d.lower ? "#1A3C2E0A" : "#F8FAFC", color: "#64748B", cursor: "pointer" }}>
-                  {d.name} <span style={{ color: "#94A3B8" }}>{d.mentions}×</span>
+                  style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, border: catMenuFor === d.lower ? "1px solid #1A3C2E" : "1px solid #EDE7D9", background: catMenuFor === d.lower ? "#1A3C2E0A" : "#FAF7F0", color: "#4A5A52", cursor: "pointer" }}>
+                  {d.name} <span style={{ color: "#5B6B63" }}>{d.mentions}×</span>
                 </button>
                 {catMenuFor === d.lower && (
                   <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 20, background: "#fff", border: "0.5px solid #1A3C2E22", borderRadius: 8, boxShadow: "0 4px 14px #1A3C2E22", padding: 4, minWidth: 160 }}>
@@ -1895,7 +1924,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
                       <button key={c.key}
                         onClick={() => { categorizeDetected(d.name, c.key); setCatMenuFor(null); }}
                         style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", padding: "6px 9px", border: "none", background: "transparent", borderRadius: 6, fontSize: 12, color: "#1A3C2E", cursor: "pointer" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
+                        onMouseEnter={e => e.currentTarget.style.background = "#FAF7F0"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <span style={{ width: 9, height: 9, borderRadius: 3, background: c.color, flexShrink: 0 }} />
                         {c.label}
@@ -1910,20 +1939,20 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
       )}
       {/* ── Panneau Alias : A compté comme B partout dans le projet ── */}
       <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "0.5px solid #1A3C2E0D" }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 4 }}>Alias de marques</div>
-        <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#5B6B63", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 4 }}>Alias de marques</div>
+        <div style={{ fontSize: 10, color: "#5B6B63", marginBottom: 8 }}>
           Déclarez qu'un nom (A) doit être compté comme un autre (B). Ex. « 2io » → « Deux.io ». Les mentions / évocations / citations de A sont sommées sur B ; A apparaît ensuite à 0.
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: aliases.length ? 10 : 0 }}>
           <input value={aliasA} onChange={e => setAliasA(e.target.value)} placeholder="Alias (A)…"
             onKeyDown={e => e.key === "Enter" && saveAlias()}
-            style={{ flex: "1 1 130px", padding: "6px 10px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12 }} />
-          <span style={{ fontSize: 13, color: "#94A3B8" }}>→</span>
+            style={{ flex: "1 1 130px", padding: "6px 10px", border: "1px solid #EDE7D9", borderRadius: 7, fontSize: 12 }} />
+          <span style={{ fontSize: 13, color: "#5B6B63" }}>→</span>
           <input value={aliasB} onChange={e => setAliasB(e.target.value)} placeholder="Compté comme (B)…"
             onKeyDown={e => e.key === "Enter" && saveAlias()}
-            style={{ flex: "1 1 130px", padding: "6px 10px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12 }} />
+            style={{ flex: "1 1 130px", padding: "6px 10px", border: "1px solid #EDE7D9", borderRadius: 7, fontSize: 12 }} />
           <button onClick={saveAlias} disabled={aliasSaving || !aliasA.trim() || !aliasB.trim()}
-            style={{ padding: "6px 14px", background: (aliasA.trim() && aliasB.trim()) ? "#1A3C2E" : "#F1F5F9", color: (aliasA.trim() && aliasB.trim()) ? "#F0EBE0" : "#94A3B8", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: (aliasA.trim() && aliasB.trim()) ? "pointer" : "default" }}>
+            style={{ padding: "6px 14px", background: (aliasA.trim() && aliasB.trim()) ? "#1A3C2E" : "#F1F5F9", color: (aliasA.trim() && aliasB.trim()) ? "#F0EBE0" : "#5B6B63", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: (aliasA.trim() && aliasB.trim()) ? "pointer" : "default" }}>
             {aliasSaving ? "…" : "Ajouter"}
           </button>
         </div>
@@ -1932,8 +1961,8 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
             {aliases.map(a => (
               <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#1A3C2E", padding: "4px 0" }}>
                 <span style={{ fontWeight: 600 }}>{a.alias}</span>
-                <span style={{ color: "#94A3B8" }}>→</span>
-                <span style={{ fontWeight: 600, color: "#1A7A4A" }}>{a.canonical}</span>
+                <span style={{ color: "#5B6B63" }}>→</span>
+                <span style={{ fontWeight: 600, color: "#2E5E3A" }}>{a.canonical}</span>
                 <button onClick={() => removeAlias(a.id)}
                   style={{ marginLeft: "auto", fontSize: 11, color: "#C0352A", background: "transparent", border: "none", cursor: "pointer" }}>Supprimer</button>
               </div>
@@ -1946,11 +1975,11 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
       {competitors.length > 0 && (
         <div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
-            <span style={{ fontSize: 11, color: "#94A3B8" }}>{competitors.length} concurrent{competitors.length > 1 ? "s" : ""} qualifié{competitors.length > 1 ? "s" : ""}</span>
+            <span style={{ fontSize: 11, color: "#5B6B63" }}>{competitors.length} concurrent{competitors.length > 1 ? "s" : ""} qualifié{competitors.length > 1 ? "s" : ""}</span>
             <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
               {[{ key: "mentions", label: "Mentions" }, { key: "alpha", label: "A→Z" }, { key: "cat", label: "Catégorie" }].map(s => (
                 <button key={s.key} onClick={() => setSortBy(s.key)}
-                  style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: `1px solid ${sortBy === s.key ? "#1A3C2E" : "#E2E8F0"}`, background: sortBy === s.key ? "#1A3C2E" : "transparent", color: sortBy === s.key ? "#F0EBE0" : "#64748B", cursor: "pointer" }}>
+                  style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: `1px solid ${sortBy === s.key ? "#1A3C2E" : "#EDE7D9"}`, background: sortBy === s.key ? "#1A3C2E" : "transparent", color: sortBy === s.key ? "#F0EBE0" : "#4A5A52", cursor: "pointer" }}>
                   {s.label}
                 </button>
               ))}
@@ -1973,7 +2002,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
                   ) : (
                   <>
                   <label title={comp.deep_compare ? "Retirer de la comparaison approfondie" : (deepSelected.length >= MAX_DEEP ? `Maximum ${MAX_DEEP} concurrents comparés` : "Comparer en profondeur")}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: comp.deep_compare ? "#1A4A7A" : "#94A3B8", cursor: (comp.deep_compare || deepSelected.length < MAX_DEEP) ? "pointer" : "not-allowed", flexShrink: 0, userSelect: "none" }}>
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: comp.deep_compare ? "#1A4A7A" : "#5B6B63", cursor: (comp.deep_compare || deepSelected.length < MAX_DEEP) ? "pointer" : "not-allowed", flexShrink: 0, userSelect: "none" }}>
                     <input type="checkbox" checked={comp.deep_compare === true}
                       disabled={!comp.deep_compare && deepSelected.length >= MAX_DEEP}
                       onChange={() => toggleDeep(comp)}
@@ -1988,7 +2017,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
                     style={{ fontSize: 10, padding: "2px 5px", border: `1px solid ${catDef.color}44`, borderRadius: 5, background: "#fff", color: catDef.color, fontWeight: 700, cursor: "pointer" }}>
                     {COMP_CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
                   </select>
-                  <button onClick={() => remove(comp.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8", fontSize: 11 }}>✕</button>
+                  <button onClick={() => remove(comp.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#5B6B63", fontSize: 11 }}>✕</button>
                   </>
                   )}
                 </div>
@@ -1998,7 +2027,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
         </div>
       )}
       {competitors.length === 0 && detectedNames.length === 0 && (
-        <div style={{ fontSize: 12, color: "#94A3B8", fontStyle: "italic" }}>Interrogez des questions pour détecter les concurrents cités.</div>
+        <div style={{ fontSize: 12, color: "#5B6B63", fontStyle: "italic" }}>Interrogez des questions pour détecter les concurrents cités.</div>
       )}
 
       {/* ── Lot B1 : Comparaison approfondie ── */}
@@ -2007,7 +2036,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
           <div style={{ fontSize: 13, fontWeight: 800, color: "#1A3C2E", marginBottom: 3, display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ fontSize: 15 }}>⚖️</span>Comparaison approfondie
           </div>
-          <div style={{ fontSize: 11.5, color: "#64748B", lineHeight: 1.55, marginBottom: 14, maxWidth: 680 }}>
+          <div style={{ fontSize: 11.5, color: "#4A5A52", lineHeight: 1.55, marginBottom: 14, maxWidth: 680 }}>
             Comparaison de votre marque avec {deepSelected.length} concurrent{deepSelected.length > 1 ? "s" : ""} sélectionné{deepSelected.length > 1 ? "s" : ""}. Cochez à gauche de chaque ligne pour l'inclure dans l'audit (navigateur + exports). La cellule encadrée en vert est la meilleure valeur de la ligne. Utilisez « Importer » sous une colonne concurrent pour ajouter son crawl Screaming Frog ou ses exports Semrush.
           </div>
           <CompareTable
@@ -2030,7 +2059,7 @@ function CompetitorManager({ projectId, siteId, allResults, competitors, setComp
 
 // ── Category Manager ─────────────────────────────────────────────
 
-const CAT_COLORS = ["#2563EB","#059669","#7C3AED","#D97706","#DC2626","#0891B2","#EA580C","#64748B"];
+const CAT_COLORS = ["#1F6F6B","#2E5E3A","#7C3AED","#D97706","#C0352A","#0891B2","#EA580C","#4A5A52"];
 
 function CategoryManager({ projectId, categories, setCategories, compact }) {
   const [newName, setNewName] = useState("");
@@ -2099,12 +2128,12 @@ function TagSelect({ values = [], categories, onChange, placeholder = "Tags…" 
   const label = selected.length === 0 ? placeholder
     : selected.length === 1 ? selected[0].name
     : `${selected.length} catégories`;
-  const accent = selected[0]?.color || "#2563EB";
+  const accent = selected[0]?.color || "#1F6F6B";
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button type="button" onClick={() => setOpen(o => !o)} title={placeholder.replace("…", "")}
         style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
-          border: `0.5px solid ${selected.length ? accent + "44" : "#1A3C2E18"}`, background: selected.length ? accent + "10" : "transparent", color: selected.length ? accent : "#94A3B8" }}>
+          border: `0.5px solid ${selected.length ? accent + "44" : "#1A3C2E18"}`, background: selected.length ? accent + "10" : "transparent", color: selected.length ? accent : "#5B6B63" }}>
         {selected.length > 0 && <span style={{ display: "inline-flex", gap: 2 }}>{selected.slice(0, 3).map(c => <span key={c.id} style={{ width: 7, height: 7, borderRadius: "50%", background: c.color || accent }} />)}</span>}
         {label}
         <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
@@ -2500,12 +2529,12 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
           <div className="geo-volume-toolbar-actions" style={{ gap: 6 }}>
             <input ref={fileVolRef} type="file" accept=".csv" style={{ display: "none" }} onChange={enrichFromCsv} />
             <button onClick={() => setShowVolModal(true)}
-              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", border: "1px solid #BFDBFE", borderRadius: 7, background: "#fff", color: "#2563EB", cursor: "pointer" }}>
+              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", border: "1px solid #BFDBFE", borderRadius: 7, background: "#fff", color: "#1F6F6B", cursor: "pointer" }}>
               🔍 Enrichir avec des volumes de recherche
             </button>
             <button onClick={enrichFromApi} disabled={enriching || !semrushKey}
               title={!semrushKey ? "Clé API Semrush non configurée — ajoutez-la dans ⚙️ Gestion des Providers" : "Récupérer les volumes depuis l'API Semrush (1 crédit/mot-clé)"}
-              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", border: "1px solid #BFDBFE", borderRadius: 7, background: semrushKey ? "#2563EB" : C.bg, color: semrushKey ? "#fff" : C.textLight, cursor: semrushKey ? "pointer" : "not-allowed", opacity: semrushKey ? 1 : 0.6 }}>
+              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", border: "1px solid #BFDBFE", borderRadius: 7, background: semrushKey ? "#1F6F6B" : C.bg, color: semrushKey ? "#fff" : C.textLight, cursor: semrushKey ? "pointer" : "not-allowed", opacity: semrushKey ? 1 : 0.6 }}>
               {enriching ? "⏳ Enrichissement…" : "⚡ API Semrush"}
             </button>
           </div>
@@ -2549,7 +2578,7 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: C.textLight, flexShrink: 0 }}>
               {filtered.length} mot{filtered.length > 1 ? "s-clés" : "-clé"}
-              {" · "}<span style={{ color: "#059669", fontWeight: 600 }}>{filtered.filter(k => k.status === "done_q" || k.status === "done").length} générés</span>
+              {" · "}<span style={{ color: "#2E5E3A", fontWeight: 600 }}>{filtered.filter(k => k.status === "done_q" || k.status === "done").length} générés</span>
               {" · "}{filtered.reduce((s, k) => s + (k.question_count || 0), 0)} question{filtered.reduce((s, k) => s + (k.question_count || 0), 0) > 1 ? "s" : ""}
               {selected.size > 0 && <strong style={{ color: C.text }}> · {selected.size} sélectionné{selected.size > 1 ? "s" : ""}</strong>}
             </span>
@@ -2595,7 +2624,7 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
                   💬 Générer ({selected.size})
                 </Btn>
                 {/* Bulk delete */}
-                <Btn onClick={bulkDelete} small color="#DC2626" variant="outline"
+                <Btn onClick={bulkDelete} small color="#C0352A" variant="outline"
                   title={`Supprimer ${selected.size} mot${selected.size > 1 ? "s-clés" : "-clé"}`}>
                   🗑 Supprimer ({selected.size})
                 </Btn>
@@ -2606,7 +2635,7 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
               <Btn onClick={() => setShowAddKw(v => !v)} variant="outline" small color={site.color}>
                 {showAddKw ? "✕ Fermer l'ajout" : "➕ Ajouter des mots-clés"}
               </Btn>
-              {runningAll && <Btn onClick={() => { stopRef.current = true; setRunningAll(false); }} color="#DC2626" variant="outline" small>⏹ Arrêter</Btn>}
+              {runningAll && <Btn onClick={() => { stopRef.current = true; setRunningAll(false); }} color="#C0352A" variant="outline" small>⏹ Arrêter</Btn>}
             <Btn onClick={generateAll} disabled={runningAll || (!apiKey && !providerKeys?.openai?.dec)} color={site.color} small
               title={(!apiKey && !providerKeys?.openai?.dec) ? "Clé OpenAI manquante — ajoutez-la dans ⚙️ Gestion des Providers (en haut de page)" : undefined}>
               {runningAll ? "⏳ Génération en cours…" : "💬 Générer toutes les questions"}
@@ -2656,18 +2685,18 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
                   <div style={{ display: "flex", gap: 6, marginTop: 3, alignItems: "center", flexWrap: "wrap" }}>
                     <StatusBadge status={kw.status} />
                     {kw.search_volume > 0 && (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "1px 8px" }}
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#1F6F6B", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "1px 8px" }}
                         title={`Volume de recherche mensuel${kw.volume_source ? " (" + kw.volume_source + ")" : ""}`}>
                         🔍 {kw.search_volume >= 1000 ? (kw.search_volume / 1000).toFixed(1) + "k" : kw.search_volume}
                       </span>
                     )}
                     {kw.error_msg && (
-                      <span style={{ fontSize: 10, color: "#DC2626", fontStyle: "italic", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={kw.error_msg}>
+                      <span style={{ fontSize: 10, color: "#C0352A", fontStyle: "italic", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={kw.error_msg}>
                         {kw.error_msg}
                       </span>
                     )}
                     {kw.question_count > 0 && (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#059669", background: "#ECFDF5", border: "1px solid #059669", borderRadius: 10, padding: "1px 8px" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#2E5E3A", background: "#ECFDF5", border: "1px solid #2E5E3A", borderRadius: 10, padding: "1px 8px" }}>
                         {kw.question_count} question{kw.question_count > 1 ? "s" : ""}
                       </span>
                     )}
@@ -2729,7 +2758,7 @@ Réponds UNIQUEMENT avec les ${numQ} questions séparées par des points-virgule
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", borderTop: "0.5px solid #1A3C2E11", paddingTop: 14 }}>
               <button onClick={() => setShowVolModal(false)} style={{ fontSize: 12, padding: "8px 14px", border: "0.5px solid #1A3C2E22", borderRadius: 8, background: "transparent", color: "#1A3C2E", cursor: "pointer" }}>Annuler</button>
               <button onClick={() => { fileVolRef.current?.click(); setShowVolModal(false); }}
-                style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", border: "none", borderRadius: 8, background: "#2563EB", color: "#fff", cursor: "pointer" }}>
+                style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", border: "none", borderRadius: 8, background: "#1F6F6B", color: "#fff", cursor: "pointer" }}>
                 📄 Importer le fichier .csv
               </button>
             </div>
@@ -2861,7 +2890,7 @@ function HintPanelQuestion({ questionId, question, sources, brandName, brandAlia
               🕐 {savedHintDate ? new Date(savedHintDate).toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : new Date().toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
             </div>
           )}
-          <div style={{ fontSize: 11, lineHeight: 1.7, color: status === "error" ? "#DC2626" : "#92400E" }}>
+          <div style={{ fontSize: 11, lineHeight: 1.7, color: status === "error" ? "#C0352A" : "#92400E" }}>
             {status === "error" ? hint : renderMarkdown(hint)}
           </div>
         </div>
@@ -2973,9 +3002,9 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
         {external ? (
           isReadOnly ? null : queued ? (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span style={{ fontSize: 10, color: "#C97820", fontStyle: "italic" }} title="En attente du scraper local (lancez-le en mode veille). Retour auto à ▶ après 1 min.">en attente…</span>
+              <span style={{ fontSize: 10, color: "#E8541A", fontStyle: "italic" }} title="En attente du scraper local (lancez-le en mode veille). Retour auto à ▶ après 1 min.">en attente…</span>
               <button onClick={onCancelQueue} title="Annuler la demande"
-                style={{ border: "none", background: "transparent", color: "#C9782099", cursor: "pointer", fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
+                style={{ border: "none", background: "transparent", color: "#E8541A99", cursor: "pointer", fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
             </span>
           ) : (
             <button className="gt-provider-run" onClick={onEnqueue} title={`Lancer ${p.label} (via le scraper local)`}>▶</button>
@@ -2998,7 +3027,7 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
         <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingLeft: 12, marginTop: 1, marginBottom: 4 }}>
           {brandSites.map(bs => (
             <div key={bs.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 74, flexShrink: 0, fontSize: 9.5, fontWeight: 600, color: bs.color || "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={bs.label}>{bs.label}</span>
+              <span style={{ width: 74, flexShrink: 0, fontSize: 9.5, fontWeight: 600, color: bs.color || "#5B6B63", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={bs.label}>{bs.label}</span>
               <PresenceCalendar questionId={questionId} providers={[provider]} newEntry={newCalEntry} errorMsg={errorMsg} siteId={bs.id} alwaysShow hideProviderLabel seedEntries={calSeed} />
             </div>
           ))}
@@ -3022,7 +3051,7 @@ function ProviderRow({ provider, results, brandName, brandAliases, brandDomain =
                   <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 5, marginBottom: 4, minWidth: 0 }}>
                     <span className="gt-caption" style={{ minWidth: 18, flexShrink: 0, paddingTop: 1 }}>[{i+1}]</span>
                     <a href={url} target="_blank" rel="noreferrer"
-                      style={{ fontSize: 11, color: ib ? "#1A7A4A" : "#1A3C2E", wordBreak: "break-all", flex: 1, minWidth: 0 }}>
+                      style={{ fontSize: 11, color: ib ? "#2E5E3A" : "#1A3C2E", wordBreak: "break-all", flex: 1, minWidth: 0 }}>
                       {stripQuery(url)}
                     </a>
                     </div>
@@ -3124,13 +3153,13 @@ function NextStepsAnalysis({ questions, results, brand, categories = [], gscRows
 
   // ── Catalogue des types d'action (regroupement des recos) ──
   const ACTION_TYPES = {
-    optimize:   { label: "Optimiser une page existante", color: "#1A7A4A", icon: "✎" },
+    optimize:   { label: "Optimiser une page existante", color: "#2E5E3A", icon: "✎" },
     create:     { label: "Créer une nouvelle page",       color: "#E8541A", icon: "＋" },
-    enrich:     { label: "Enrichir / restructurer le contenu", color: "#C97820", icon: "≣" },
+    enrich:     { label: "Enrichir / restructurer le contenu", color: "#E8541A", icon: "≣" },
     netlink:    { label: "Netlinking / autorité",          color: "#7C3AED", icon: "⚓" },
     schema:     { label: "Données structurées (Schema)",   color: "#0EA5E9", icon: "{}" },
     media:      { label: "Médias (images, vidéo, formats)", color: "#DB2777", icon: "▦" },
-    other:      { label: "Autres actions",                 color: "#64748B", icon: "•" },
+    other:      { label: "Autres actions",                 color: "#4A5A52", icon: "•" },
   };
 
   // ── Mode "Par action" : présence par favori → page GSC → type d'action → récap ICE ──
@@ -3330,8 +3359,8 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
   if (!results.length) return null;
 
   const BUCKET_META = {
-    defend:            { label: "À défendre",          color: "#1A7A4A", desc: "La marque lead (#1-3)" },
-    watch:             { label: "À surveiller",         color: "#C97820", desc: "Top 4-10" },
+    defend:            { label: "À défendre",          color: "#2E5E3A", desc: "La marque lead (#1-3)" },
+    watch:             { label: "À surveiller",         color: "#E8541A", desc: "Top 4-10" },
     conquest_priority: { label: "Conquête prioritaire", color: "#E8541A", desc: "Non positionnée, fort potentiel" },
     conquer:           { label: "À conquérir",          color: "#1A3C2E", desc: "Non positionnée" },
   };
@@ -3421,13 +3450,13 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
               {/* Constat de présence */}
               <div style={{ display: "flex", gap: 20, flexWrap: "wrap", padding: "12px 16px", background: "#1A3C2E08", borderRadius: 10 }}>
                 <div><div style={{ fontSize: 10, color: "#1A3C2E", textTransform: "uppercase", letterSpacing: 0.5 }}>Favoris analysés</div><div style={{ fontSize: 20, fontWeight: 800, color: "#1A3C2E" }}>{actionData.presence.total}</div></div>
-                <div><div style={{ fontSize: 10, color: "#1A3C2E", textTransform: "uppercase", letterSpacing: 0.5 }}>Marque présente</div><div style={{ fontSize: 20, fontWeight: 800, color: "#1A7A4A" }}>{actionData.presence.present}</div></div>
+                <div><div style={{ fontSize: 10, color: "#1A3C2E", textTransform: "uppercase", letterSpacing: 0.5 }}>Marque présente</div><div style={{ fontSize: 20, fontWeight: 800, color: "#2E5E3A" }}>{actionData.presence.present}</div></div>
                 <div><div style={{ fontSize: 10, color: "#1A3C2E", textTransform: "uppercase", letterSpacing: 0.5 }}>Marque absente</div><div style={{ fontSize: 20, fontWeight: 800, color: "#C0352A" }}>{actionData.presence.absent}</div></div>
                 <div><div style={{ fontSize: 10, color: "#1A3C2E", textTransform: "uppercase", letterSpacing: 0.5 }}>Page GSC trouvée</div><div style={{ fontSize: 20, fontWeight: 800, color: "#1A3C2E" }}>{actionData.presence.withPage}</div></div>
               </div>
 
               {!actionData.hasGsc && (
-                <div style={{ fontSize: 11, color: "#C97820", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px" }}>
+                <div style={{ fontSize: 11, color: "#E8541A", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px" }}>
                   ⚠ Aucune donnée Google Search Console importée (onglet Audit → Imports). Les pages cibles n'ont pas pu être identifiées via GSC ; l'analyse repose sur la présence IA seule. Importez un export GSC pour des recommandations « optimiser vs créer » plus précises.
                 </div>
               )}
@@ -3472,7 +3501,7 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
                             <div key={i} style={{ paddingTop: 8, borderTop: i ? "0.5px solid #1A3C2E08" : "none" }}>
                               <div style={{ fontSize: 12, color: "#1A3C2E", fontWeight: 500 }}>{it.question}</div>
                               <div style={{ fontSize: 11, color: "#1A3C2E", marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                                <span style={{ color: it.present ? "#1A7A4A" : "#C0352A" }}>{it.present ? `Présente${it.brandPos ? ` #${it.brandPos}` : ""}` : "Absente"}</span>
+                                <span style={{ color: it.present ? "#2E5E3A" : "#C0352A" }}>{it.present ? `Présente${it.brandPos ? ` #${it.brandPos}` : ""}` : "Absente"}</span>
                                 {it.url && <span>↳ <a href={it.url} target="_blank" rel="noopener noreferrer" style={{ color: meta.color, textDecoration: "none" }}>{it.url.replace(/^https?:\/\//, "").slice(0, 60)}</a>{it.gscPos ? ` (GSC #${Math.round(it.gscPos)})` : ""}</span>}
                                 {!it.url && <span style={{ fontStyle: "italic" }}>aucune page existante</span>}
                               </div>
@@ -3553,10 +3582,10 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {[
-                  { k: "better",    label: "Ce qui a mieux fonctionné",  color: "#1A7A4A" },
+                  { k: "better",    label: "Ce qui a mieux fonctionné",  color: "#2E5E3A" },
                   { k: "worse",     label: "Ce qui a moins bien fonctionné", color: "#C0352A" },
                   { k: "done",      label: "Ce qui semble avoir été fait", color: "#1A3C2E" },
-                  { k: "missing",   label: "Ce qui semble avoir manqué",  color: "#C97820" },
+                  { k: "missing",   label: "Ce qui semble avoir manqué",  color: "#E8541A" },
                   { k: "reinforce", label: "Ce qui est à renforcer",      color: "#E8541A" },
                 ].filter(row => data.comparison[row.k]).map(row => (
                   <div key={row.k}>
@@ -3569,7 +3598,7 @@ Réponds UNIQUEMENT en JSON valide, sans texte autour :
           )}
 
           {/* 4. Rappel hint */}
-          <div style={{ fontSize: 11, color: "#1A3C2E", fontStyle: "italic", background: "#FFFBEB", border: "0.5px solid #C9782022", borderRadius: 6, padding: "10px 12px" }}>
+          <div style={{ fontSize: 11, color: "#1A3C2E", fontStyle: "italic", background: "#FFFBEB", border: "0.5px solid #E8541A22", borderRadius: 6, padding: "10px 12px" }}>
             💡 Pour des recommandations plus précises sur une question donnée, cliquez sur « Générer une recommandation » sous chaque question.
           </div>
         </div>
@@ -3654,7 +3683,7 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
   const [dailyRows, setDailyRows] = useState([]);
   // File d'attente AI Overview (question_ids en attente/en cours pour ce site)
   const [mecMode, setMecMode] = useState("question"); // switch réponse/question, partagé courbe+chiffres
-  const [mecView, setMecView] = useState("cumule");    // Cumulé (somme sélection) / Comparaison (par marque)
+  const [mecView, setMecView] = useState("cumule");    // Cumulé (somme sélection) / Par marque (une courbe par marque)
   const [compareMetric, setCompareMetric] = useState("mentions"); // métrique tracée en Comparaison
   // File AI Overview : Map question_id → requested_at (ISO). « en attente » n'est
   // affiché que si la demande date de MOINS de 60 s ; au-delà → retour auto à
@@ -4726,41 +4755,6 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
   return (
     <div>
-      {/* ── Suivi chronologique : mentions / évocations / citations ── */}
-      {calResults.length > 0 && (
-        <div style={{ marginBottom: 18 }}>
-          {/* Switch Cumulé / Comparaison — visible dès 2 marques sélectionnées */}
-          {_readIds.length > 1 && (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-              <span style={{ display: "inline-flex", border: "0.5px solid #1A3C2E18", borderRadius: 20, overflow: "hidden" }}>
-                {[["cumule", "Cumulé"], ["compare", "Comparaison"]].map(([v, lbl]) => (
-                  <button key={v} onClick={() => setMecView(v)}
-                    style={{ padding: "3px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
-                      background: mecView === v ? "#1A7A4A10" : "transparent", color: mecView === v ? "#1A7A4A" : "#94A3B8" }}
-                    title={v === "cumule" ? "Somme des marques sélectionnées" : "Une courbe et un jeu de chiffres par marque"}>
-                    {lbl}
-                  </button>
-                ))}
-              </span>
-            </div>
-          )}
-          <PresenceTrendChart
-            results={calResults}
-            calendarEntries={calendarEntries}
-            dailyRows={dailyRows}
-            siteIds={_readIds}
-            view={_readIds.length > 1 ? mecView : "cumule"}
-            brands={(allSites || []).filter(s => _readIds.includes(s.id)).map(s => ({ id: s.id, label: s.label, color: s.color }))}
-            compareMetric={compareMetric}
-            onCompareMetricChange={setCompareMetric}
-            minDate={earliestSelectableDate(project, calResults, calendarEntries)}
-            title="Suivi Chronologique"
-            compact
-            mode={mecMode}
-            onModeChange={setMecMode}
-          />
-        </div>
-      )}
 
       {/* ── Onboarding : aucune question encore renseignée ── */}
       {questions.length === 0 && !isReadOnly && (
@@ -4820,7 +4814,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
       {/* ── Stats header (filtered) ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, marginBottom: 6 }}>
-        {recomputeMsg && <span style={{ fontSize: 11, color: recomputing ? "#C97820" : "#1A7A4A" }}>{recomputeMsg}</span>}
+        {recomputeMsg && <span style={{ fontSize: 11, color: recomputing ? "#E8541A" : "#2E5E3A" }}>{recomputeMsg}</span>}
         <button onClick={recomputeDetection} disabled={recomputing}
           className="gt-btn gt-btn--ghost" style={{ fontSize: 11, opacity: recomputing ? 0.5 : 1 }}
           title="Re-détecte TOUTES les marques du projet et les concurrents sur les réponses déjà enregistrées (sans ré-interroger les modèles, donc sans coût). Remplit les carrés des marques ajoutées après coup.">
@@ -4829,6 +4823,42 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
       </div>
       <div data-tour="stats-header"><StatsHeader questions={filtered} results={calResults} brandName={brand_name} qualifiedCompetitors={competitors.filter(c => c.enabled !== false)} aliasMap={aliasMap} mode={mecMode} siteIds={_readIds} view={_readIds.length > 1 ? mecView : "cumule"} statBrands={(allSites || []).filter(s => _readIds.includes(s.id)).map(s => ({ id: s.id, label: s.label, color: s.color }))}
             onTopClick={(field, name) => { setSearchField(field); setFilterSearch(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")); }} /></div>
+
+      {/* ── Suivi chronologique : mentions / évocations / citations ── */}
+      {calResults.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          {/* Switch Cumulé / Comparaison — visible dès 2 marques sélectionnées */}
+          {_readIds.length > 1 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+              <span style={{ display: "inline-flex", border: "0.5px solid #1A3C2E18", borderRadius: 20, overflow: "hidden" }}>
+                {[["cumule", "Cumulé"], ["compare", "Par marque"]].map(([v, lbl]) => (
+                  <button key={v} onClick={() => setMecView(v)}
+                    style={{ padding: "3px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
+                      background: mecView === v ? "#2E5E3A10" : "transparent", color: mecView === v ? "#2E5E3A" : "#5B6B63" }}
+                    title={v === "cumule" ? "Somme des marques sélectionnées" : "Une courbe et un jeu de chiffres par marque"}>
+                    {lbl}
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
+          <PresenceTrendChart
+            results={calResults}
+            calendarEntries={calendarEntries}
+            dailyRows={dailyRows}
+            siteIds={_readIds}
+            view={_readIds.length > 1 ? mecView : "cumule"}
+            brands={(allSites || []).filter(s => _readIds.includes(s.id)).map(s => ({ id: s.id, label: s.label, color: s.color }))}
+            compareMetric={compareMetric}
+            onCompareMetricChange={setCompareMetric}
+            minDate={earliestSelectableDate(project, calResults, calendarEntries)}
+            title="Suivi Chronologique"
+            compact
+            mode={mecMode}
+            onModeChange={setMecMode}
+          />
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════
            ZONE AJOUT + FILTRES + ACTIONS
@@ -4875,11 +4905,11 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
               <div onClick={e => e.stopPropagation()}
                 style={{ background: "#fff", borderRadius: 14, padding: 22, width: 420, maxWidth: "100%", boxShadow: "0 12px 40px rgba(26,60,46,0.18)" }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#1A3C2E", marginBottom: 4 }}>Importer des questions (CSV)</div>
-                <div style={{ fontSize: 11.5, color: "#94A3B8", marginBottom: 14 }}>Le fichier est lu par position de colonne. Les colonnes au-delà de la 4ᵉ sont ignorées.</div>
+                <div style={{ fontSize: 11.5, color: "#5B6B63", marginBottom: 14 }}>Le fichier est lu par position de colonne. Les colonnes au-delà de la 4ᵉ sont ignorées.</div>
                 {[
-                  ["1", "Question", "le texte de la question (obligatoire)", "#1A7A4A"],
-                  ["2", "Favori", "vrai/true/oui/1/⭐ → marquée favorite ; sinon non", "#C97820"],
-                  ["3", "Catégorie", "nom de catégorie ; vide = ignorée ; créée si inconnue", "#2563EB"],
+                  ["1", "Question", "le texte de la question (obligatoire)", "#2E5E3A"],
+                  ["2", "Favori", "vrai/true/oui/1/⭐ → marquée favorite ; sinon non", "#E8541A"],
+                  ["3", "Catégorie", "nom de catégorie ; vide = ignorée ; créée si inconnue", "#1F6F6B"],
                   ["4", "Intention", "transactionnelle / informationnelle / notoriété ; vide = ignorée", "#7C3AED"],
                   ["5", "Marques concernées", "noms séparés par des virgules ; vide = toutes les marques du projet ; marque inconnue = ignorée", "#0891B2"],
                 ].map(([n, title, desc, color]) => (
@@ -4887,14 +4917,14 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                     <span style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 6, background: color + "18", color, fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{n}</span>
                     <div>
                       <div style={{ fontSize: 12.5, fontWeight: 600, color: "#1A3C2E" }}>Colonne {n} — {title}</div>
-                      <div style={{ fontSize: 11, color: "#64748B" }}>{desc}</div>
+                      <div style={{ fontSize: 11, color: "#4A5A52" }}>{desc}</div>
                     </div>
                   </div>
                 ))}
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
                   <button onClick={() => setCsvOverlay(false)} className="gt-btn gt-btn--ghost">Annuler</button>
                   <button onClick={() => csvInputRef.current?.click()} className="gt-btn"
-                    style={{ background: "#1A7A4A", color: "#fff", border: "none" }}>Choisir un fichier…</button>
+                    style={{ background: "#2E5E3A", color: "#fff", border: "none" }}>Choisir un fichier…</button>
                 </div>
               </div>
             </div>
@@ -4958,8 +4988,8 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
             style={{
               display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
               padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer",
-              border: `0.5px solid ${sortByResult ? "#1A7A4A" : "#1A3C2E22"}`,
-              background: sortByResult ? "#1A7A4A" : "transparent",
+              border: `0.5px solid ${sortByResult ? "#2E5E3A" : "#1A3C2E22"}`,
+              background: sortByResult ? "#2E5E3A" : "transparent",
               color: sortByResult ? "#fff" : "#1A3C2E",
             }}>
             <span style={{ fontSize: 12 }}>⇅</span> Trier par résultat
@@ -5079,7 +5109,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                 <span
                   data-tour="run-all"
                   title="Aucun provider configuré : ajoutez au moins une clé API (Claude et/ou OpenAI) dans l'onglet ⚙ Configuration pour pouvoir lancer les interrogations."
-                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: "50%", fontSize: 15, color: "#C97820", background: "#FFFBEB", border: "1px solid #FDE68A", cursor: "help" }}>
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: "50%", fontSize: 15, color: "#E8541A", background: "#FFFBEB", border: "1px solid #FDE68A", cursor: "help" }}>
                   ⚠
                 </span>
               ) : (
@@ -5114,7 +5144,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
               onChange={e => setUrlGenUrl(e.target.value)}
               onKeyDown={e => e.key === "Enter" && urlGenStatus !== "crawl" && urlGenStatus !== "gen" && generateFromUrl()}
               placeholder="https://exemple.fr/page…"
-              style={{ flex: "1 1 260px", padding: "7px 11px", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12 }} />
+              style={{ flex: "1 1 260px", padding: "7px 11px", border: "1px solid #EDE7D9", borderRadius: 8, fontSize: 12 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
               <span style={{ fontSize: 11, color: "#1A3C2E" }}>Nombre</span>
               <input type="range" min="10" max="25" value={urlGenCount}
@@ -5131,7 +5161,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
             </button>
           </div>
           {urlGenStatus.startsWith("done:") && (
-            <div style={{ marginTop: 10, fontSize: 12, color: "#1A7A4A", fontWeight: 600 }}>
+            <div style={{ marginTop: 10, fontSize: 12, color: "#2E5E3A", fontWeight: 600 }}>
               ✓ {urlGenStatus.slice(5)} question{parseInt(urlGenStatus.slice(5), 10) > 1 ? "s" : ""} ajoutée{parseInt(urlGenStatus.slice(5), 10) > 1 ? "s" : ""}.
             </div>
           )}
@@ -5162,7 +5192,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
               onDragOver={dragId ? (e => e.preventDefault()) : undefined}
               onDrop={dragId ? (e => { e.preventDefault(); moveQuestion(dragId, q.id); setDragId(null); }) : undefined}
               style={{
-              borderLeft: `2px solid ${hasBrand ? "#1A7A4A" : q.is_favorite ? "#C97820" : "#1A3C2E11"}`,
+              borderLeft: `2px solid ${hasBrand ? "#2E5E3A" : q.is_favorite ? "#E8541A" : "#1A3C2E11"}`,
               paddingLeft: 12,
               borderRadius: 0,
               opacity: dragId === q.id ? 0.4 : 1,
@@ -5186,9 +5216,9 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                           value={editingQ.text}
                           onChange={e => setEditingQ(prev => ({ ...prev, text: e.target.value }))}
                           onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditingQ(null); }}
-                          style={{ flex: 1, padding: "5px 10px", border: `1px solid #2563EB`, borderRadius: 7, fontSize: 13, fontWeight: 600, color: C.text }}
+                          style={{ flex: 1, padding: "5px 10px", border: `1px solid #1F6F6B`, borderRadius: 7, fontSize: 13, fontWeight: 600, color: C.text }}
                         />
-                        <button onClick={saveEdit} style={{ padding: "4px 10px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>✓</button>
+                        <button onClick={saveEdit} style={{ padding: "4px 10px", background: "#1F6F6B", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>✓</button>
                         <button onClick={() => setEditingQ(null)} style={{ padding: "4px 8px", background: "#FAFAF8", color: C.textLight, border: "0.5px solid #1A3C2E0D", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>✕</button>
                       </div>
                     ) : (
@@ -5249,7 +5279,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
                     ) : null;
                   })}
                       {q.is_manual && <span style={{ fontSize: 10, color: "#1A3C2E", fontWeight: 400, fontStyle: "italic" }}>manuel</span>}
-                      {hasBrand && <span style={{ fontSize: 10, color: "#1A7A4A", fontWeight: 500, letterSpacing: "0.01em" }}>✓ {brand_name}</span>}
+                      {hasBrand && <span style={{ fontSize: 10, color: "#2E5E3A", fontWeight: 500, letterSpacing: "0.01em" }}>✓ {brand_name}</span>}
                       {qResults.length > 0 && <span style={{ fontSize: 10, color: "#1A3C2E" }}>{qResults.length} réponse{qResults.length > 1 ? "s" : ""}</span>}
                     </div>
                     {/* Per-provider 30-day calendar */}
@@ -5507,9 +5537,9 @@ function UrlsTab({ projectId, categories, brand, allResults }) {
   const mapCls = (c) => c.startsWith("competitor") ? "competitor" : c;
 
   const classColors = {
-    brand:      { color: "#059669", bg: "#ECFDF5", border: "#059669", label: `✓ ${brandName || "Marque"}`,     filterKey: "brand" },
-    competitor: { color: "#DC2626", bg: "#FEF2F2", border: "#DC2626", label: "⚔️ Concurrents",                filterKey: "competitor" },
-    other:      { color: "#64748B", bg: "#F8FAFC", border: "#E2E8F0", label: "🔗 Autre source",               filterKey: "other" },
+    brand:      { color: "#2E5E3A", bg: "#ECFDF5", border: "#2E5E3A", label: `✓ ${brandName || "Marque"}`,     filterKey: "brand" },
+    competitor: { color: "#C0352A", bg: "#FEF2F2", border: "#C0352A", label: "⚔️ Concurrents",                filterKey: "competitor" },
+    other:      { color: "#4A5A52", bg: "#FAF7F0", border: "#EDE7D9", label: "🔗 Autre source",               filterKey: "other" },
   };
 
   const TEMPLATE_TYPES = ["article","landing","fiche","FAQ","comparatif","forum","media","institutionnel","autre"];
@@ -5782,10 +5812,10 @@ function UrlsTab({ projectId, categories, brand, allResults }) {
                     <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.10em", textTransform: "uppercase", color: "#1A3C2E", marginBottom: 8 }}>Sections · {u.crawl_sections.length}</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 7 }}>
                       {u.crawl_sections.map((sec, i) => (
-                        <div key={i} style={{ background: "#fff", border: `1px solid ${sec.used_in_llm ? "#059669" : C.border}`, borderRadius: 7, padding: "8px 10px", borderLeft: `3px solid ${sec.used_in_llm ? "#059669" : C.border}` }}>
+                        <div key={i} style={{ background: "#fff", border: `1px solid ${sec.used_in_llm ? "#2E5E3A" : C.border}`, borderRadius: 7, padding: "8px 10px", borderLeft: `3px solid ${sec.used_in_llm ? "#2E5E3A" : C.border}` }}>
                           <div style={{ display: "flex", gap: 5, alignItems: "center", marginBottom: 3 }}>
                             <span style={{ fontSize: 9, fontWeight: 700, color: "#7C3AED", background: "#F5F3FF", borderRadius: 4, padding: "1px 5px" }}>{sec.type}</span>
-                            {sec.used_in_llm && <span style={{ fontSize: 9, color: "#059669", fontWeight: 600 }}>✓ LLM</span>}
+                            {sec.used_in_llm && <span style={{ fontSize: 9, color: "#2E5E3A", fontWeight: 600 }}>✓ LLM</span>}
                           </div>
                           <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 2 }}>{sec.title}</div>
                           <div style={{ fontSize: 10, color: C.textLight, lineHeight: 1.4 }}>{sec.summary}</div>
@@ -5808,17 +5838,17 @@ function UrlsTab({ projectId, categories, brand, allResults }) {
                       {/* Signaux + Opportunités */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                         <div>
-                          <div className="gt-label" style={{ marginBottom: 6, color: "#1A7A4A" }}>Signaux GEO</div>
+                          <div className="gt-label" style={{ marginBottom: 6, color: "#2E5E3A" }}>Signaux GEO</div>
                           {(pageAnalysis[u.id].geo_signals || []).map((s, i) => (
-                            <div key={i} style={{ fontSize: 11, color: "#1A3C2E", marginBottom: 3, paddingLeft: 8, borderLeft: "2px solid #1A7A4A22" }}>
+                            <div key={i} style={{ fontSize: 11, color: "#1A3C2E", marginBottom: 3, paddingLeft: 8, borderLeft: "2px solid #2E5E3A22" }}>
                               {s}
                             </div>
                           ))}
                         </div>
                         <div>
-                          <div className="gt-label" style={{ marginBottom: 6, color: "#C97820" }}>Opportunités</div>
+                          <div className="gt-label" style={{ marginBottom: 6, color: "#E8541A" }}>Opportunités</div>
                           {(pageAnalysis[u.id].opportunities || []).map((o, i) => (
-                            <div key={i} style={{ fontSize: 11, color: "#1A3C2E", marginBottom: 3, paddingLeft: 8, borderLeft: "2px solid #C9782022" }}>
+                            <div key={i} style={{ fontSize: 11, color: "#1A3C2E", marginBottom: 3, paddingLeft: 8, borderLeft: "2px solid #E8541A22" }}>
                               {o}
                             </div>
                           ))}
@@ -5995,9 +6025,9 @@ function AutomationTab({ projectId, site, user, providerKeys }) {
       )}
 
       {/* ── Info : seules les questions favorites sont interrogées ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", marginBottom: 20, background: "#F0FDF4", border: "0.5px solid #1A7A4A33", borderRadius: 8, fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", marginBottom: 20, background: "#F0FDF4", border: "0.5px solid #2E5E3A33", borderRadius: 8, fontSize: 12 }}>
         <span style={{ fontSize: 14, flexShrink: 0 }}>⭐</span>
-        <span style={{ color: "#1A7A4A", lineHeight: 1.5 }}>
+        <span style={{ color: "#2E5E3A", lineHeight: 1.5 }}>
           Seules les <strong>questions favorites</strong> sont interrogées automatiquement, avec les providers sélectionnés ci-dessous. Les appels sont enregistrés en base et apparaissent dans l'onglet Questions à votre prochaine connexion.
         </span>
       </div>
@@ -6075,7 +6105,7 @@ function AutomationTab({ projectId, site, user, providerKeys }) {
       </div>
 
       {/* ── Notification email ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", marginBottom: 20, background: "#FFFBF5", border: "0.5px solid #C9782033", borderRadius: 8, fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", marginBottom: 20, background: "#FFFBF5", border: "0.5px solid #E8541A33", borderRadius: 8, fontSize: 12 }}>
         <span style={{ fontSize: 14, flexShrink: 0 }}>✉️</span>
         <span style={{ color: "#8A5A1A", lineHeight: 1.5 }}>
           Un email récapitulatif est envoyé à <strong>{user?.email || "votre adresse"}</strong> après chaque interrogation automatique.
@@ -6102,7 +6132,7 @@ function AutomationTab({ projectId, site, user, providerKeys }) {
             {triggering ? "En cours…" : "▶ Lancer maintenant"}
           </button>
           {triggerResult && (
-            <div style={{ marginTop: 10, fontSize: 11, color: "#1A7A4A", padding: "8px 12px", background: "transparent", border: "0.5px solid #1A7A4A22", borderRadius: 6, lineHeight: 1.5 }}>
+            <div style={{ marginTop: 10, fontSize: 11, color: "#2E5E3A", padding: "8px 12px", background: "transparent", border: "0.5px solid #2E5E3A22", borderRadius: 6, lineHeight: 1.5 }}>
               {triggerResult.dispatched
                 ? "✓ Interrogation lancée en arrière-plan. Les questions favorites sont en cours d'interrogation — les résultats apparaîtront dans l'onglet Questions dans quelques minutes (rechargez la page pour les voir)."
                 : `✓ ${triggerResult.processed || 0} schedule(s) — ${triggerResult.results?.[0]?.questions_processed || 0} question(s) traitée(s)`}
@@ -6122,7 +6152,7 @@ function BrandConfigAccordion({ sites, projectId }) {
   const [keys, setKeys] = useState({});
 
   if (!sites?.length) {
-    return <div style={{ fontSize: 12, color: "#94A3B8", fontStyle: "italic" }}>Ajoutez un site pour configurer sa marque.</div>;
+    return <div style={{ fontSize: 12, color: "#5B6B63", fontStyle: "italic" }}>Ajoutez un site pour configurer sa marque.</div>;
   }
 
   return (
@@ -6134,10 +6164,10 @@ function BrandConfigAccordion({ sites, projectId }) {
           <div key={site.id} style={{ border: `1px solid ${site.color}33`, borderRadius: 10, overflow: "hidden" }}>
             {/* Header accordéon */}
             <div onClick={() => setOpenId(isOpen ? null : site.id)}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: isOpen ? site.bg : "#F8FAFC", cursor: "pointer", borderBottom: isOpen ? `1px solid ${site.color}22` : "none" }}>
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: isOpen ? site.bg : "#FAF7F0", cursor: "pointer", borderBottom: isOpen ? `1px solid ${site.color}22` : "none" }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: site.color, flexShrink: 0 }} />
               <span style={{ fontSize: 13, fontWeight: 700, color: site.color, flex: 1 }}>{site.label}</span>
-              <span style={{ fontSize: 11, color: "#94A3B8" }}>{isOpen ? "▲" : "▼"}</span>
+              <span style={{ fontSize: 11, color: "#5B6B63" }}>{isOpen ? "▲" : "▼"}</span>
             </div>
             {/* Contenu BrandConfigPanel */}
             {isOpen && (
@@ -6184,7 +6214,7 @@ function SetupSection({ icon, title, desc, children }) {
       <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1A3C2E", marginBottom: desc ? 3 : 9, display: "flex", alignItems: "center", gap: 7 }}>
         <span style={{ fontSize: 14 }}>{icon}</span>{title}
       </div>
-      {desc && <div style={{ fontSize: 11.5, color: "#64748B", lineHeight: 1.55, marginBottom: 11, maxWidth: 620 }}>{desc}</div>}
+      {desc && <div style={{ fontSize: 11.5, color: "#4A5A52", lineHeight: 1.55, marginBottom: 11, maxWidth: 620 }}>{desc}</div>}
       {children}
     </div>
   );
@@ -6218,7 +6248,7 @@ function FanoutSetupPanel({
 
       {/* ── Projet actif ── */}
       <SetupSection icon="📁" title="Projet actif" desc="Sélectionnez le projet et les sites suivis. Vous pouvez en créer un nouveau, en supprimer, et rattacher autant de sites que nécessaire à comparer.">
-        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
+        <div style={{ background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 16px" }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
               <select value={currentProjectId || ""} onChange={e => setCurrentProjectId(e.target.value)}
@@ -6239,13 +6269,13 @@ function FanoutSetupPanel({
               }}
               placeholder="Nom du projet"
               title="Renommer le projet actif"
-              style={{ flex: 1, minWidth: 160, padding: "7px 10px", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#1A3C2E", background: "#fff" }}
+              style={{ flex: 1, minWidth: 160, padding: "7px 10px", border: "1px solid #EDE7D9", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#1A3C2E", background: "#fff" }}
             />
             {safeProjects.length > 1 && (
               <button onClick={() => setConfirmModal?.({ message: `Supprimer "${safeProjects.find(p => p.id === currentProjectId)?.name}" ?`, onConfirm: () => {
                 sbDeleteProject(currentProjectId).catch(() => {});
                 setProjects(prev => { const next = prev.filter(x => x.id !== currentProjectId); if (next.length) setCurrentProjectId(next[0].id); return next; });
-              }})} style={{ padding: "6px 10px", border: "1px solid #FECACA", borderRadius: 7, background: "#FEF2F2", cursor: "pointer", fontSize: 11, color: "#DC2626" }}>🗑</button>
+              }})} style={{ padding: "6px 10px", border: "1px solid #FECACA", borderRadius: 7, background: "#FEF2F2", cursor: "pointer", fontSize: 11, color: "#C0352A" }}>🗑</button>
             )}
             {safeProjects.length < 20 && (
               <button onClick={() => {
@@ -6268,7 +6298,7 @@ function FanoutSetupPanel({
                   <button onClick={() => setConfirmModal?.({ message: `Supprimer "${site.label}" ?`, onConfirm: () => {
                     setSites(prev => (Array.isArray(prev) ? prev : []).filter(s => s.id !== site.id));
                     setSmData(p => { const n = {...p}; delete n[site.id]; return n; });
-                  }})} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#DC2626", padding: 0 }}>✕</button>
+                  }})} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#C0352A", padding: 0 }}>✕</button>
                 )}
               </div>
             ))}
@@ -6286,7 +6316,7 @@ function FanoutSetupPanel({
           <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 11, color: C.textLight }}>
               {dbLoading ? (<><span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#F59E0B", marginRight: 5 }} />Chargement…</>)
-                : safeHistory.length > 0 ? (<><span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#059669", marginRight: 5 }} />{safeHistory.length} import{safeHistory.length > 1 ? "s" : ""} en base</>)
+                : safeHistory.length > 0 ? (<><span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#2E5E3A", marginRight: 5 }} />{safeHistory.length} import{safeHistory.length > 1 ? "s" : ""} en base</>)
                 : null}
             </span>
             <button onClick={() => { setShowHistory(h => !h); refreshHistory?.(); }}
@@ -6314,7 +6344,7 @@ function FanoutSetupPanel({
 
       {/* ── Gestion des providers et Clés API ── */}
       <SetupSection icon="🔑" title="Gestion des providers et Clés API" desc="Branchez les clés API des moteurs IA et choisissez ceux à interroger. Claude et OpenAI sont indispensables : Claude génère les questions, les analyses « Et maintenant ? » et l'audit, OpenAI interroge ChatGPT.">
-        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
+        <div style={{ background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 16px" }}>
           <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} canSeeCosts={canSeeCosts} />
         </div>
       </SetupSection>
@@ -6327,22 +6357,22 @@ function FanoutSetupPanel({
         <div style={{ fontSize: 14, fontWeight: 800, color: "#1A3C2E", marginBottom: 3, display: "flex", alignItems: "center", gap: 7 }}>
           <span style={{ fontSize: 16 }}>🔑</span>Génération à partir des mots clés
         </div>
-        <div style={{ fontSize: 11.5, color: "#64748B", lineHeight: 1.55, marginBottom: 16, maxWidth: 640 }}>Cette partie du setup concerne la génération des questions à partir des mots clés.</div>
+        <div style={{ fontSize: 11.5, color: "#4A5A52", lineHeight: 1.55, marginBottom: 16, maxWidth: 640 }}>Cette partie du setup concerne la génération des questions à partir des mots clés.</div>
       {/* ── Mots-clés — Axes de génération ── */}
       <SetupSection icon="🎯" title="Mots-clés — Axes de génération des questions" desc="Définissez les angles sous lesquels chaque mot-clé sera décliné en question, adaptés à votre secteur. Chaque mot-clé génèrera une question par axe ; pensez à sauvegarder.">
-        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
+        <div style={{ background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 16px" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {safeAxes.map((a, i) => (
               <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <span style={{ fontSize: 11, color: "#94A3B8", minWidth: 18, flexShrink: 0 }}>{i + 1}.</span>
+                <span style={{ fontSize: 11, color: "#5B6B63", minWidth: 18, flexShrink: 0 }}>{i + 1}.</span>
                 <input value={a} onChange={e => { const u = [...safeAxes]; u[i] = e.target.value; onAxesChange?.(u); }}
-                  style={{ flex: 1, padding: "5px 9px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, color: "#1E293B" }} />
+                  style={{ flex: 1, padding: "5px 9px", border: "1px solid #EDE7D9", borderRadius: 7, fontSize: 12, color: "#1E293B" }} />
                 <button onClick={() => onAxesChange?.(safeAxes.filter((_, j) => j !== i))}
-                  style={{ fontSize: 11, color: "#94A3B8", background: "none", border: "none", cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>✕</button>
+                  style={{ fontSize: 11, color: "#5B6B63", background: "none", border: "none", cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>✕</button>
               </div>
             ))}
             <button onClick={() => onAxesChange?.([...safeAxes, ""])}
-              style={{ fontSize: 11, color: "#2563EB", background: "none", border: "1px dashed #E2E8F0", borderRadius: 7, padding: "5px 12px", cursor: "pointer", textAlign: "left", marginTop: 2 }}>
+              style={{ fontSize: 11, color: "#1F6F6B", background: "none", border: "1px dashed #EDE7D9", borderRadius: 7, padding: "5px 12px", cursor: "pointer", textAlign: "left", marginTop: 2 }}>
               + Ajouter un axe
             </button>
           </div>
@@ -6359,7 +6389,7 @@ function FanoutSetupPanel({
       <SetupSection icon="📈" title="Visibilité SEO — Import Semrush" desc="Pour chaque site, importez l'export « Domain Overview » (totaux mots-clés / trafic organiques du domaine) et l'export « Organic pages » (performance par page). Ces données alimentent la comparaison concurrentielle et l'audit.">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {safeSites.map(site => (
-            <div key={site.id} style={{ flex: "1 1 200px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px" }}>
+            <div key={site.id} style={{ flex: "1 1 200px", background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "10px 14px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: site.color, marginBottom: 8 }}>{site.label}</div>
               <UploadCard label="Semrush" icon="📈" hint="Organic pages export" color={site.color}
                 loaded={(smData||{})[site.id]?.length > 0} rows={(smData||{})[site.id]}
@@ -6374,7 +6404,7 @@ function FanoutSetupPanel({
                 <button onClick={async () => { try { const t = await sbDownload(lastImports[`${site.id}_sm`].storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch { } }}
                   style={{ marginTop: 4, width: "100%", padding: "3px 0", border: `1px solid ${site.color}`, borderRadius: 6, background: site.bg, color: site.color, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>↩ Dernier</button>
               )}
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #E2E8F0" }}>
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #EDE7D9" }}>
                 <UploadCard label="Overview" icon="📊" hint="Domain Overview export" color={site.color}
                   loaded={((smOverview||{})[site.id]||[]).length > 0} rows={(smOverview||{})[site.id]}
                   onData={(_, rawText) => { const ov = parseSemrushOverview(rawText); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); }}
@@ -6633,7 +6663,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
       const key = name.toLowerCase();
       if (seen.has(key)) return;
       seen.add(key);
-      virtuals.push({ id: `__site_${key}__`, name, category: "second_site", color: b._siteColor || def?.color || "#2563EB", enabled: true, _virtual: true });
+      virtuals.push({ id: `__site_${key}__`, name, category: "second_site", color: b._siteColor || def?.color || "#1F6F6B", enabled: true, _virtual: true });
     });
     return virtuals.length ? [...virtuals, ...base] : base;
   }, [competitors, otherSiteBrands]);
@@ -6835,7 +6865,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
               <SiteMultiSelect sites={safeSites} value={selectedSiteIds} onChange={setSelectedSiteIds} />
               {isMultiSite && (
-                <span style={{ fontSize: 11, color: "#C97820", fontWeight: 600, background: "#FEF3E2", padding: "3px 10px", borderRadius: 12 }}>
+                <span style={{ fontSize: 11, color: "#E8541A", fontWeight: 600, background: "#FEF3E2", padding: "3px 10px", borderRadius: 12 }}>
                   Vue agrégée ({activeSites.length} sites)
                 </span>
               )}

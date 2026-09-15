@@ -1,13 +1,21 @@
 // ── DESIGN TOKENS ───────────────────────────────────────────────
 export const C = {
-  bg: "#FAFAFA", white: "#FFFFFF", border: "#E8E8ED", borderLight: "#F0F0F5",
-  text: "#0D0D14", textMid: "#4A4A5A", textLight: "#9090A0",
-  blue: "#2563EB", blueLight: "#EFF6FF",
-  green: "#059669", greenLight: "#ECFDF5",
-  amber: "#D97706", amberLight: "#FFFBEB",
-  red: "#DC2626", redLight: "#FEF2F2",
-  purple: "#7C3AED", purpleLight: "#F5F3FF",
-  teal: "#0891B2", tealLight: "#ECFEFF",
+  // ── Fonds ────────────────────────────────────────────────────────────
+  bg:          "#F5F1E7", // crème Sonate (était un gris/blanc froid)
+  white:       "#FFFFFF",
+ 
+  // ── Textes ───────────────────────────────────────────────────────────
+  text:        "#1A3C2E", // vert forêt — contraste 10.76 sur crème
+  textMid:     "#4A5A52", // gris-vert — contraste 6.47 (était #64748B, bleuté)
+  textLight:   "#5B6B63", // gris-vert — contraste 4.99 (était #94A3B8 ❌ 2.27)
+ 
+  // ── Accent (ex-bleu, hors charte → orange Sonate) ────────────────────
+  blue:        "#E8541A", // onglet actif, CTA, sélection
+  blueLight:   "#FBE9E0", // fond d'onglet survolé / actif clair
+ 
+  // ── Bordures ─────────────────────────────────────────────────────────
+  border:      "#EDE7D9", // séparateur sur crème
+  borderLight: "#F3EEE3",
 };
 
 export const SITE_PALETTE = [

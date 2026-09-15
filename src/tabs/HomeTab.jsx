@@ -35,7 +35,7 @@ function ForgotPasswordModal({ onClose }) {
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.40)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ background: "#fff", borderRadius: 16, padding: "32px 36px", width: "100%", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.18)", position: "relative" }}>
-        <button onClick={onClose} style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#94A3B8" }}>✕</button>
+        <button onClick={onClose} style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#5B6B63" }}>✕</button>
         <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 6 }}>🔑 Mot de passe oublié</div>
         <div style={{ fontSize: 12, color: C.textLight, lineHeight: 1.6, marginBottom: 22 }}>
           Entrez votre email. Si un compte existe, vous recevrez un lien de réinitialisation.
@@ -47,14 +47,14 @@ function ForgotPasswordModal({ onClose }) {
             <div style={{ fontSize: 12, color: "#047857", lineHeight: 1.6, marginBottom: 16 }}>
               Si <strong>{email}</strong> correspond à un compte, vous recevrez le lien sous peu.
             </div>
-            <button onClick={onClose} style={{ padding: "9px 22px", background: "#059669", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Fermer</button>
+            <button onClick={onClose} style={{ padding: "9px 22px", background: "#2E5E3A", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Fermer</button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="votre@email.com" autoFocus required
               style={{ padding: "10px 14px", border: `1.5px solid ${C.border}`, borderRadius: 9, fontSize: 13, color: C.text, outline: "none" }}
               onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = C.border} />
-            {error && <div style={{ background: "#FEF2F2", border: "1px solid #DC262633", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#DC2626" }}>{error}</div>}
+            {error && <div style={{ background: "#FEF2F2", border: "1px solid #C0352A33", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#C0352A" }}>{error}</div>}
             <button type="submit" disabled={status === "loading" || !email.trim()}
               style={{ padding: "10px", background: status === "loading" ? C.bg : GREEN, color: status === "loading" ? C.textLight : "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {status === "loading" ? "⏳ Envoi…" : "Envoyer le lien"}
@@ -108,8 +108,8 @@ function LoginForm({ onLogin }) {
             </button>
           ))}
         </div>
-        {error   && <div style={{ background: "#FEF2F2", border: "1px solid #DC262633", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#DC2626" }}>{error}</div>}
-        {success && <div style={{ background: "#ECFDF5", border: "1px solid #05966633", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#059669" }}>{success}</div>}
+        {error   && <div style={{ background: "#FEF2F2", border: "1px solid #C0352A33", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#C0352A" }}>{error}</div>}
+        {success && <div style={{ background: "#ECFDF5", border: "1px solid #05966633", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#2E5E3A" }}>{success}</div>}
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="adresse@email.com"
             style={{ padding: "10px 14px", border: `1.5px solid ${C.border}`, borderRadius: 9, fontSize: 13, color: C.text, outline: "none" }} />
@@ -117,7 +117,7 @@ function LoginForm({ onLogin }) {
             style={{ padding: "10px 14px", border: `1.5px solid ${C.border}`, borderRadius: 9, fontSize: 13, color: C.text }} />
           {!isLogin && (
             <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required placeholder="Confirmer le mot de passe"
-              style={{ padding: "10px 14px", border: `1.5px solid ${confirm && confirm !== password ? "#DC2626" : C.border}`, borderRadius: 9, fontSize: 13, color: C.text }} />
+              style={{ padding: "10px 14px", border: `1.5px solid ${confirm && confirm !== password ? "#C0352A" : C.border}`, borderRadius: 9, fontSize: 13, color: C.text }} />
           )}
           {isLogin && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -146,9 +146,9 @@ function BenefitsList() {
   const items = [
     { icon: "📡", title: "Monitoring GEO en temps réel", color: GREEN,
       points: ["Présence marque dans OpenAI, Gemini, Perplexity, Claude", "Historique 30 jours et tendances", "Analyse par provider et par question"] },
-    { icon: "📋", title: "Audits GEO prêts à livrer", color: "#2563EB",
+    { icon: "📋", title: "Audits GEO prêts à livrer", color: "#1F6F6B",
       points: ["Analyse concurrentielle des sources citées", "URLs à optimiser et pages à créer", "Recommandations actionnables priorisées"] },
-    { icon: "🔬", title: "Analyse SEO × GEO", color: "#059669",
+    { icon: "🔬", title: "Analyse SEO × GEO", color: "#2E5E3A",
       points: ["Corrélations SF × citations LLM", "Croisement Bing AI × Fan-outs", "Roadmaps avec quick wins par site"] },
   ];
   return (
@@ -259,14 +259,14 @@ function ProjectsList({ user, projects, currentProjectId, dbLoading, onSelectPro
 function GuideSection({ onGoFanoutTour, onGoAuditTour }) {
   const cards = [
     {
-      icon: "🔍", label: "Fan-outs", color: "#059669", bg: "#ECFDF5", border: "#BBF7D0",
+      icon: "🔍", label: "Fan-outs", color: "#2E5E3A", bg: "#ECFDF5", border: "#BBF7D0",
       desc: "Configurez vos providers, ajoutez vos mots-clés et interrogez les LLMs pour mesurer votre présence.",
       steps: 5,
       action: "Démarrer le guide →",
       onClick: onGoFanoutTour,
     },
     {
-      icon: "📋", label: "Audit GEO", color: "#2563EB", bg: "#EFF6FF", border: "#BFDBFE",
+      icon: "📋", label: "Audit GEO", color: "#1F6F6B", bg: "#EFF6FF", border: "#BFDBFE",
       desc: "Consultez votre score de présence, le paysage concurrentiel et exportez un rapport PDF.",
       steps: 4,
       action: "Démarrer le guide →",

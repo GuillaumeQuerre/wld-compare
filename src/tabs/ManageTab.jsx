@@ -54,13 +54,13 @@ function LoginCard({ onLogin }) {
           </button>
         ))}
       </div>
-      {error && <div style={{ background: "#FEF2F2", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#DC2626", marginBottom: 12 }}>{error}</div>}
-      {success && <div style={{ background: "#ECFDF5", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#059669", marginBottom: 12 }}>{success}</div>}
+      {error && <div style={{ background: "#FEF2F2", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#C0352A", marginBottom: 12 }}>{error}</div>}
+      {success && <div style={{ background: "#ECFDF5", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#2E5E3A", marginBottom: 12 }}>{success}</div>}
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 360 }}>
         <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="Email" style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
         <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Mot de passe (8 min.)" style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
         {mode === "signup" && (
-          <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required placeholder="Confirmer" style={{ padding: "8px 12px", border: `1px solid ${confirm && confirm !== password ? "#DC2626" : C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required placeholder="Confirmer" style={{ padding: "8px 12px", border: `1px solid ${confirm && confirm !== password ? "#C0352A" : C.border}`, borderRadius: 8, fontSize: 13 }} />
         )}
         <button type="submit" disabled={loading} style={{ padding: "9px", background: "#7C3AED", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
           {loading ? "…" : mode === "login" ? "Se connecter" : "Créer mon compte"}
@@ -177,13 +177,13 @@ function ProjectCosts({ project }) {
             {stats.totalSearchCost > 0 && (
               <div>
                 <div style={{ fontSize: 10, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.5 }}>dont recherche web</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#C97820", marginTop: 4 }}>{fmt$(stats.totalSearchCost)}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#E8541A", marginTop: 4 }}>{fmt$(stats.totalSearchCost)}</div>
               </div>
             )}
           </div>
 
           {stats.withTokens < stats.totalCalls && (
-            <div style={{ fontSize: 11, color: "#C97820", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: "#E8541A", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
               ⚠ {stats.totalCalls - stats.withTokens} interrogation(s) sans tokens enregistrés (antérieures au suivi des coûts) — non comptées dans le total.
             </div>
           )}
@@ -199,7 +199,7 @@ function ProjectCosts({ project }) {
                 <div style={{ fontSize: 11, color: C.textLight, display: "flex", gap: 14, flexWrap: "wrap" }}>
                   <span>{b.calls} interrogation{b.calls > 1 ? "s" : ""}</span>
                   <span>{fmtTok(b.inTok)} in · {fmtTok(b.outTok)} out</span>
-                  {b.searchCost > 0 && <span style={{ color: "#C97820" }}>recherche web {fmt$(b.searchCost)}</span>}
+                  {b.searchCost > 0 && <span style={{ color: "#E8541A" }}>recherche web {fmt$(b.searchCost)}</span>}
                   <span>{Object.entries(b.models).map(([m, mv]) => `${m} (${fmt$(mv.cost)})`).join(" · ")}</span>
                 </div>
               </div>
@@ -284,7 +284,7 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
   const roleBadge = (role) => {
     if (role === "reader") return { label: "👁 Lecture", color: "#D97706", bg: "#FFFBEB" };
     if (role === "admin")  return { label: "🛡 Admin",  color: "#1A3C2E", bg: "#EAF0EC" };
-    if (role === "owner")  return { label: "★ Propriétaire", color: "#059669", bg: "#ECFDF5" };
+    if (role === "owner")  return { label: "★ Propriétaire", color: "#2E5E3A", bg: "#ECFDF5" };
     return { label: "✏️ Membre", color: "#7C3AED", bg: "#F5F3FF" };
   };
 
@@ -295,8 +295,8 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
       {/* Owner */}
       <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8 }}>Propriétaire</div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#F0FDF4", borderRadius: 8, marginBottom: 16 }}>
-        <span style={{ fontSize: 12, color: "#059669", fontWeight: 600 }}>{project.owner_email || ownerEmail || "—"}</span>
-        <span style={{ fontSize: 10, background: "#ECFDF5", color: "#059669", borderRadius: 4, padding: "1px 6px" }}>propriétaire</span>
+        <span style={{ fontSize: 12, color: "#2E5E3A", fontWeight: 600 }}>{project.owner_email || ownerEmail || "—"}</span>
+        <span style={{ fontSize: 10, background: "#ECFDF5", color: "#2E5E3A", borderRadius: 4, padding: "1px 6px" }}>propriétaire</span>
       </div>
 
       {/* Members list */}
@@ -324,7 +324,7 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
                   <span style={{ fontSize: 10, fontWeight: 700, color: badge.color, background: badge.bg, borderRadius: 5, padding: "2px 8px" }}>{badge.label}</span>
                 )}
                 {canManage && (
-                  <button onClick={() => remove(m.user_email)} style={{ fontSize: 11, color: "#DC2626", background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>✕</button>
+                  <button onClick={() => remove(m.user_email)} style={{ fontSize: 11, color: "#C0352A", background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>✕</button>
                 )}
               </div>
             );
@@ -336,9 +336,9 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
       {canManage && (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8 }}>Inviter un utilisateur</div>
-          {error && <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 8 }}>{error}</div>}
+          {error && <div style={{ fontSize: 12, color: "#C0352A", marginBottom: 8 }}>{error}</div>}
           {inviteMsg && (
-            <div style={{ fontSize: 12, color: "#059669", background: "#ECFDF5", border: "1px solid #BBF7D0", borderRadius: 7, padding: "8px 12px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <div style={{ fontSize: 12, color: "#2E5E3A", background: "#ECFDF5", border: "1px solid #BBF7D0", borderRadius: 7, padding: "8px 12px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 10 }}>
               <span style={{ flex: 1 }}>{inviteMsg}</span>
               {emailPayload && (
                 <a
@@ -420,7 +420,7 @@ function AccountForm({ user, onLogout, isAdmin }) {
             {isAdmin && <span style={{ marginLeft: 8, fontSize: 10, background: "#F5F3FF", color: "#7C3AED", borderRadius: 4, padding: "1px 6px", fontWeight: 700 }}>SUPER ADMIN</span>}
           </div>
         </div>
-        <button onClick={onLogout} style={{ padding: "7px 16px", border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff", color: "#DC2626", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={onLogout} style={{ padding: "7px 16px", border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff", color: "#C0352A", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           Déconnexion
         </button>
       </div>
@@ -431,7 +431,7 @@ function AccountForm({ user, onLogout, isAdmin }) {
             style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, color: C.text, boxSizing: "border-box" }} />
         </div>
         <button onClick={saveName} disabled={saving}
-          style={{ marginTop: 20, padding: "8px 16px", background: saved ? "#059669" : "#7C3AED", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
+          style={{ marginTop: 20, padding: "8px 16px", background: saved ? "#2E5E3A" : "#7C3AED", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
           {saved ? "✓ Enregistré" : saving ? "…" : "Enregistrer"}
         </button>
       </div>

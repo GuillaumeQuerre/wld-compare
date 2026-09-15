@@ -10,8 +10,8 @@ function encodeKey(k) { try { return btoa(k); } catch { return ""; } }
 function decodeKey(e) { try { return atob(e); } catch { return ""; } }
 
 const PROVIDERS = [
-  { id: "openai",     label: "OpenAI",     icon: "🟢", color: "#059669", keyField: "openai_key_enc",     keyPrefix: "sk-",      keyPlaceholder: "sk-…",      model: "gpt-4o-mini" },
-  { id: "gemini",     label: "Gemini",     icon: "🔵", color: "#2563EB", keyField: "gemini_key_enc",     keyPrefix: "AIza",     keyPlaceholder: "AIza…",     model: "gemini-3.5-flash" },
+  { id: "openai",     label: "OpenAI",     icon: "🟢", color: "#2E5E3A", keyField: "openai_key_enc",     keyPrefix: "sk-",      keyPlaceholder: "sk-…",      model: "gpt-4o-mini" },
+  { id: "gemini",     label: "Gemini",     icon: "🔵", color: "#1F6F6B", keyField: "gemini_key_enc",     keyPrefix: "AIza",     keyPlaceholder: "AIza…",     model: "gemini-3.5-flash" },
   { id: "perplexity", label: "Perplexity", icon: "🟣", color: "#7C3AED", keyField: "perplexity_key_enc", keyPrefix: "pplx-",    keyPlaceholder: "pplx-…",    model: "sonar" },
   { id: "claude",     label: "Claude",     icon: "🟠", color: "#D97706", keyField: "claude_geo_key_enc", keyPrefix: "sk-ant-",  keyPlaceholder: "sk-ant-…",  model: "claude-haiku-4-5-20251001" },
 ];
@@ -194,7 +194,7 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
           <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>⚙️ Gestion des Providers</span>
           <div style={{ display: "flex", gap: 4 }}>
             {PROVIDERS.map(p => (
-              <span key={p.id} style={{ fontSize: 11, fontWeight: 700, color: keys[p.id]?.dec ? "#059669" : C.textLight }}>
+              <span key={p.id} style={{ fontSize: 11, fontWeight: 700, color: keys[p.id]?.dec ? "#2E5E3A" : C.textLight }}>
                 {keys[p.id]?.dec ? "●" : "○"}
               </span>
             ))}
@@ -214,7 +214,7 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
                   <div style={{ fontSize: 10, fontWeight: 600, color: p.color, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6 }}>
                     {p.icon} {p.label}
                     {hasKey
-                      ? <span style={{ color: "#059669", marginLeft: 6, fontWeight: 700 }}>✓ OK</span>
+                      ? <span style={{ color: "#2E5E3A", marginLeft: 6, fontWeight: 700 }}>✓ OK</span>
                       : <span style={{ color: C.textLight, marginLeft: 6, fontWeight: 400 }}>· non configuré</span>
                     }
                   </div>
@@ -225,7 +225,7 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
                       value={pk.input || ""}
                       onChange={e => setKeys(prev => ({ ...prev, [p.id]: { ...prev[p.id], input: e.target.value, status: "idle" } }))}
                       onKeyDown={e => e.key === "Enter" && saveKey(p)}
-                      style={{ flex: 1, padding: "6px 10px", border: `1px solid ${hasKey ? "#059669" : C.border}`, borderRadius: 7, fontSize: 12, color: C.text, background: hasKey ? "#F0FDF4" : C.white }}
+                      style={{ flex: 1, padding: "6px 10px", border: `1px solid ${hasKey ? "#2E5E3A" : C.border}`, borderRadius: 7, fontSize: 12, color: C.text, background: hasKey ? "#F0FDF4" : C.white }}
                     />
                     <button onClick={() => saveKey(p)} disabled={!pk.input?.trim()}
                       style={{ padding: "6px 12px", borderRadius: 7, background: p.color, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: pk.input?.trim() ? "pointer" : "not-allowed", opacity: pk.input?.trim() ? 1 : 0.5 }}>
@@ -277,7 +277,7 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
                           return (
                             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between", paddingTop: 6, borderTop: "0.5px solid #1A3C2E0D" }}>
                               <span style={{ fontSize: 11, color: "#1A3C2E" }}>
-                                🔍 Recherche web{fee > 0 && on ? <span style={{ color: "#C97820" }}> +${fee.toFixed(3)}/question</span> : null}
+                                🔍 Recherche web{fee > 0 && on ? <span style={{ color: "#E8541A" }}> +${fee.toFixed(3)}/question</span> : null}
                               </span>
                               {kind === "optional" ? (
                                 <button type="button" onClick={() => toggleWebSearch(p.id)}
@@ -334,18 +334,18 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
                         <span style={{ fontSize: 11, color: "#1A3C2E" }}>Coût total estimé (interrogations, tous providers)</span>
                         <span style={{ fontSize: 16, fontWeight: 800, color: "#1A3C2E" }}>≈ ${grand.toFixed(grand < 1 ? 3 : 2)}</span>
                       </div>
-                      <div style={{ fontSize: 10, color: "#94A3B8", lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 10, color: "#5B6B63", lineHeight: 1.5 }}>
                         Hors analyses : chaque « recommandation » ou audit tourne sur Claude Sonnet + recherche web
-                        (≈ <strong style={{ color: "#C97820" }}>$0.15</strong> par analyse), facturé à l'usage et non compté ci-dessus.
+                        (≈ <strong style={{ color: "#E8541A" }}>$0.15</strong> par analyse), facturé à l'usage et non compté ci-dessus.
                         Le coût réel d'une journée dépend donc surtout du nombre d'analyses lancées.
                       </div>
                       {canSeeCosts && costSummary && (
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", paddingTop: 6, borderTop: "0.5px dashed #1A3C2E12" }}>
                           <span style={{ fontSize: 11, color: "#1A3C2E" }}>
                             Dépenses réelles d'analyses ce mois
-                            {costSummary.count > 0 && <span style={{ color: "#94A3B8" }}> · {costSummary.count} analyse{costSummary.count > 1 ? "s" : ""}</span>}
+                            {costSummary.count > 0 && <span style={{ color: "#5B6B63" }}> · {costSummary.count} analyse{costSummary.count > 1 ? "s" : ""}</span>}
                           </span>
-                          <span style={{ fontSize: 14, fontWeight: 800, color: "#C97820" }}>≈ ${(costSummary.total || 0).toFixed(2)}</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: "#E8541A" }}>≈ ${(costSummary.total || 0).toFixed(2)}</span>
                         </div>
                       )}
                     </div>
@@ -359,7 +359,7 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
               <div style={{ fontSize: 10, fontWeight: 600, color: "#FF642B", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6 }}>
                 📊 Semrush
                 {semrushEnc
-                  ? <span style={{ color: "#059669", marginLeft: 6, fontWeight: 700 }}>✓ OK</span>
+                  ? <span style={{ color: "#2E5E3A", marginLeft: 6, fontWeight: 700 }}>✓ OK</span>
                   : <span style={{ color: C.textLight, marginLeft: 6, fontWeight: 400 }}>· non configuré</span>
                 }
                 <span style={{ fontSize: 9, color: C.textLight, marginLeft: 6, fontWeight: 400, textTransform: "none" }}>volumes mots-clés</span>
@@ -371,7 +371,7 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
                   value={semrushInput}
                   onChange={e => setSemrushInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && saveSemrush()}
-                  style={{ flex: 1, padding: "6px 10px", border: `1px solid ${semrushEnc ? "#059669" : C.border}`, borderRadius: 7, fontSize: 12, color: C.text, background: semrushEnc ? "#F0FDF4" : C.white }}
+                  style={{ flex: 1, padding: "6px 10px", border: `1px solid ${semrushEnc ? "#2E5E3A" : C.border}`, borderRadius: 7, fontSize: 12, color: C.text, background: semrushEnc ? "#F0FDF4" : C.white }}
                 />
                 <button onClick={saveSemrush} disabled={!semrushInput.trim()}
                   style={{ padding: "6px 12px", borderRadius: 7, background: "#FF642B", color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: semrushInput.trim() ? "pointer" : "not-allowed", opacity: semrushInput.trim() ? 1 : 0.5 }}>

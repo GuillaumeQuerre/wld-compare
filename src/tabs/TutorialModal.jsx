@@ -50,7 +50,7 @@ const TRACKS = [
     icon: "🔍",
     label: "Fan-outs & Suivi",
     tagline: "Suivre votre marque dans les IA, jour après jour",
-    color: "#059669",
+    color: "#2E5E3A",
     steps: [
       {
         num: 1, icon: "🔑", title: "Configurez les providers",
@@ -150,7 +150,7 @@ export default function TutorialModal({ onClose, onNavigate }) {
           {/* Track selection */}
           {!track && (
             <div>
-              <p style={{ fontSize: 13, color: "#64748B", marginBottom: 18, lineHeight: 1.5 }}>
+              <p style={{ fontSize: 13, color: "#4A5A52", marginBottom: 18, lineHeight: 1.5 }}>
                 Choisissez votre parcours selon votre objectif.
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -162,7 +162,7 @@ export default function TutorialModal({ onClose, onNavigate }) {
                     <div style={{ width: 44, height: 44, flexShrink: 0, background: t.color + "18", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{t.icon}</div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 2 }}>{t.label}</div>
-                      <div style={{ fontSize: 12, color: "#64748B" }}>{t.tagline}</div>
+                      <div style={{ fontSize: 12, color: "#4A5A52" }}>{t.tagline}</div>
                       <div style={{ display: "flex", gap: 3, marginTop: 5, flexWrap: "wrap" }}>
                         {t.steps.map((s, i) => (
                           <span key={i} style={{ fontSize: 9, background: t.color + "18", color: t.color, borderRadius: 8, padding: "1px 6px", fontWeight: 600 }}>{s.num}. {s.title}</span>
@@ -191,7 +191,7 @@ export default function TutorialModal({ onClose, onNavigate }) {
                 </div>
               </div>
               <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, marginBottom: 10 }}>{currentStep.desc}</p>
-              <p style={{ fontSize: 12, color: "#64748B", lineHeight: 1.6, marginBottom: 12 }}>{currentStep.detail}</p>
+              <p style={{ fontSize: 12, color: "#4A5A52", lineHeight: 1.6, marginBottom: 12 }}>{currentStep.detail}</p>
               <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#92400E", display: "flex", gap: 7 }}>
                 <span style={{ flexShrink: 0 }}>💡</span><span>{currentStep.tip}</span>
               </div>
@@ -208,7 +208,7 @@ export default function TutorialModal({ onClose, onNavigate }) {
               {/* Step dots */}
               <div style={{ display: "flex", gap: 5, justifyContent: "center", marginTop: 20 }}>
                 {currentTrack.steps.map((_, i) => (
-                  <button key={i} onClick={() => setStep(i)} style={{ width: i === step ? 20 : 7, height: 7, borderRadius: 4, border: "none", background: i === step ? currentTrack.color : i < step ? currentTrack.color + "55" : "#E2E8F0", cursor: "pointer", transition: "all 0.2s", padding: 0 }} />
+                  <button key={i} onClick={() => setStep(i)} style={{ width: i === step ? 20 : 7, height: 7, borderRadius: 4, border: "none", background: i === step ? currentTrack.color : i < step ? currentTrack.color + "55" : "#EDE7D9", cursor: "pointer", transition: "all 0.2s", padding: 0 }} />
                 ))}
               </div>
             </div>
@@ -219,7 +219,7 @@ export default function TutorialModal({ onClose, onNavigate }) {
         {track && (
           <div style={{ padding: "12px 24px 18px", borderTop: "1px solid #F1F5F9", display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={() => setStep(s => s - 1)} disabled={step === 0}
-              style={{ padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, border: "1px solid #E2E8F0", background: "transparent", color: step === 0 ? "#CBD5E1" : "#64748B", cursor: step === 0 ? "not-allowed" : "pointer" }}>
+              style={{ padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, border: "1px solid #EDE7D9", background: "transparent", color: step === 0 ? "#CBD5E1" : "#4A5A52", cursor: step === 0 ? "not-allowed" : "pointer" }}>
               ← Précédent
             </button>
             {currentStep?.action && onNavigate && (
@@ -229,7 +229,7 @@ export default function TutorialModal({ onClose, onNavigate }) {
               </button>
             )}
             <button onClick={() => { if (isLast) onClose(); else setStep(s => s + 1); }}
-              style={{ padding: "8px 18px", borderRadius: 8, fontSize: 12, fontWeight: 700, border: "none", background: isLast ? "#059669" : currentTrack.color, color: "#fff", cursor: "pointer", marginLeft: "auto" }}>
+              style={{ padding: "8px 18px", borderRadius: 8, fontSize: 12, fontWeight: 700, border: "none", background: isLast ? "#2E5E3A" : currentTrack.color, color: "#fff", cursor: "pointer", marginLeft: "auto" }}>
               {isLast ? "✓ Terminer" : "Suivant →"}
             </button>
           </div>
