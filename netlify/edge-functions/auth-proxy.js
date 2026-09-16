@@ -274,13 +274,45 @@ Une fois votre compte créé et connecté, le projet « ${projectLabel} » appar
 ${inviterEmail || "L'équipe Echo"}`,
           };
 
+      // ── Étape 4 : ENVOI RÉEL pour un email SANS compte ────────────────
+      // Supabase Auth expédie lui-même l'invitation (lien de création de compte).
+      // Pour un compte EXISTANT, il n'y a rien à envoyer côté Auth : on laisse
+      // l'inviteur décider via le bouton mailto (envoi facultatif).
+      let emailSent = false, emailError = null;
+      if (!existed && SUPABASE_SERVICE_KEY) {
+        try {
+          const invRes = await fetch(`${SUPABASE_URL}/auth/v1/invite`, {
+            method: "POST",
+            headers: {
+              "apikey": SUPABASE_SERVICE_KEY,
+              "Authorization": `Bearer ${SUPABASE_SERVICE_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email: emailClean,
+              data: { project_id: projectId, project_name: projectLabel, invited_by: inviterEmail, role: roleClean },
+            }),
+          });
+          if (invRes.ok) emailSent = true;
+          else {
+            const t = await invRes.text().catch(() => "");
+            emailError = `Auth ${invRes.status}: ${t.slice(0, 160)}`;
+            console.warn("[invite_member] invite email failed:", emailError);
+          }
+        } catch (e) {
+          emailError = e.message;
+          console.warn("[invite_member] invite email error:", e.message);
+        }
+      }
+
       return json({
         ok:            true,
         accountCreated: false,      // on ne crée jamais le compte : l'utilisateur s'inscrit lui-même
         existed,                    // true = un compte existe déjà pour cet email
         email:         emailClean,
-        emailSent:     false,       // l'email part via le client (mailto)
-        emailPayload,               // toujours non-null → le frontend ouvre le mailto
+        emailSent,                  // true = Supabase a expédié l'invitation
+        emailError,                 // motif d'échec éventuel (repli mailto)
+        emailPayload,               // repli / envoi facultatif via le client
         role:          roleClean,
       });
     }

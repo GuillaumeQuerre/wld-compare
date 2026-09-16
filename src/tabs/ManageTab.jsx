@@ -248,11 +248,18 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
 
       // Le compte n'est jamais pré-créé : l'invité s'inscrit lui-même.
       // Un email (mailto) est préparé dans tous les cas pour que l'inviteur l'envoie.
-      if (result.emailPayload) setEmailPayload(result.emailPayload);
+      // Compte EXISTANT → envoi facultatif (bouton mailto bien visible).
+      // Compte INEXISTANT → Supabase a expédié l'invitation automatiquement ;
+      // on ne garde le bouton qu'en repli si l'envoi a échoué.
       if (result.existed) {
-        setInviteMsg(`✓ ${email} a été ajouté au projet (compte existant). Un email de notification est prêt à envoyer.`);
+        setEmailPayload(result.emailPayload || null);
+        setInviteMsg(`✓ ${email} a été ajouté au projet (compte existant). Vous pouvez lui envoyer un email de notification.`);
+      } else if (result.emailSent) {
+        setEmailPayload(null);
+        setInviteMsg(`✓ Invitation envoyée à ${email} — il accédera au projet dès la création de son compte.`);
       } else {
-        setInviteMsg(`✓ ${email} a été ajouté au projet. Un email d'invitation à créer un compte est prêt à envoyer — il accédera au projet dès sa connexion.`);
+        setEmailPayload(result.emailPayload || null);
+        setInviteMsg(`✓ ${email} a été ajouté, mais l'envoi automatique a échoué${result.emailError ? "" : ""}. Envoyez-lui l'invitation avec le bouton ci-dessous.`);
       }
     } else {
       setError(result.error || "Erreur lors de l'invitation");
@@ -343,7 +350,7 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
               {emailPayload && (
                 <a
                   href={`mailto:${emailPayload.to}?subject=${encodeURIComponent(emailPayload.subject)}&body=${encodeURIComponent(emailPayload.body)}`}
-                  style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#fff", background: "#1A3C2E", borderRadius: 6, padding: "4px 10px", textDecoration: "none", whiteSpace: "nowrap" }}
+                  style={{ flexShrink: 0, fontSize: 12, fontWeight: 800, color: "#fff", background: "#E8541A", borderRadius: 8, padding: "8px 16px", textDecoration: "none", whiteSpace: "nowrap", boxShadow: "0 2px 8px #E8541A55", letterSpacing: 0.2 }}
                   onClick={() => setTimeout(() => setEmailPayload(null), 500)}
                 >
                   ✉ Envoyer le mail
