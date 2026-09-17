@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { C } from "../lib/constants";
-import { authLogin, authSignup, authForgotPassword, isSuperAdmin } from "../lib/auth";
+import { authLogin, authSignup, authForgotPassword, authResendConfirmation, consumeAuthNotice, AUTH_NOTICE_EVENT, isSuperAdmin } from "../lib/auth";
 
 const GREEN        = "#1A3C2E";
 const GREEN_LIGHT  = "#EAF0EC";
@@ -78,21 +78,42 @@ function LoginForm({ onLogin }) {
   const [error, setError]       = useState("");
   const [success, setSuccess]   = useState("");
   const [showForgot, setShowForgot] = useState(false);
+  const [unconfirmed, setUnconfirmed] = useState(""); // email à confirmer → bouton « renvoyer »
+  const [resending, setResending]     = useState(false);
+
+  // Message laissé par un lien email expiré / invalide
+  useEffect(() => {
+    const show = () => { const m = consumeAuthNotice(); if (m) { setError(m); setSuccess(""); } };
+    show();
+    window.addEventListener(AUTH_NOTICE_EVENT, show);
+    return () => window.removeEventListener(AUTH_NOTICE_EVENT, show);
+  }, []);
 
   const submit = async (e) => {
-    e.preventDefault(); setError(""); setSuccess("");
+    e.preventDefault(); setError(""); setSuccess(""); setUnconfirmed("");
     if (mode === "signup" && password !== confirm) { setError("Les mots de passe ne correspondent pas"); return; }
     if (password.length < 8) { setError("Minimum 8 caractères"); return; }
     setLoading(true);
     try {
       if (mode === "login") { const u = await authLogin(email.trim(), password, remember); onLogin(u); }
       else {
-        const u = await authSignup(email.trim(), password);
-        if (u) { onLogin(u); }
-        else { setSuccess("Compte créé ! Connectez-vous."); setMode("login"); setPassword(""); setConfirm(""); }
+        const r = await authSignup(email.trim(), password);
+        setSuccess(`Compte créé ! Un email de confirmation a été envoyé à ${r.email || email.trim()}. Cliquez sur le lien qu'il contient pour activer votre compte.`);
+        setUnconfirmed(r.email || email.trim());
+        setMode("login"); setPassword(""); setConfirm("");
       }
-    } catch(err) { setError(err.message); }
+    } catch(err) {
+      setError(err.message);
+      if (err.code === "email_not_confirmed") setUnconfirmed(email.trim());
+    }
     finally { setLoading(false); }
+  };
+
+  const resend = async () => {
+    setResending(true); setError("");
+    try { const r = await authResendConfirmation(unconfirmed); setSuccess(r.message || "Email renvoyé."); }
+    catch (err) { setError(err.message); }
+    finally { setResending(false); }
   };
 
   const isLogin = mode === "login";
@@ -102,7 +123,7 @@ function LoginForm({ onLogin }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", background: C.bg, borderRadius: 10, padding: 3, gap: 3 }}>
           {[{key:"login",label:"Se connecter"},{key:"signup",label:"Créer un compte"}].map(m => (
-            <button key={m.key} onClick={() => { setMode(m.key); setError(""); setSuccess(""); }}
+            <button key={m.key} onClick={() => { setMode(m.key); setError(""); setSuccess(""); setUnconfirmed(""); }}
               style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", background: mode === m.key ? "#fff" : "transparent", color: mode === m.key ? GREEN : C.textLight, boxShadow: mode === m.key ? "0 1px 4px rgba(0,0,0,0.08)" : "none" }}>
               {m.label}
             </button>
@@ -110,6 +131,12 @@ function LoginForm({ onLogin }) {
         </div>
         {error   && <div style={{ background: "#FEF2F2", border: "1px solid #C0352A33", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#C0352A" }}>{error}</div>}
         {success && <div style={{ background: "#ECFDF5", border: "1px solid #05966633", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#2E5E3A" }}>{success}</div>}
+        {unconfirmed && (
+          <button type="button" onClick={resend} disabled={resending}
+            style={{ alignSelf: "flex-start", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: GREEN, fontWeight: 600, textDecoration: "underline", padding: 0, opacity: resending ? 0.6 : 1 }}>
+            {resending ? "Envoi…" : "Renvoyer l'email de confirmation"}
+          </button>
+        )}
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="adresse@email.com"
             style={{ padding: "10px 14px", border: `1.5px solid ${C.border}`, borderRadius: 9, fontSize: 13, color: C.text, outline: "none" }} />

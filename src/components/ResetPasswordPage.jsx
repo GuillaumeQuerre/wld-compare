@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { authResetPassword } from "../lib/auth";
+import { authResetPassword, authAdoptSession } from "../lib/auth";
 
 // onDone : callback optionnel appelé après succès (retour à l'accueil dans App.jsx)
 export default function ResetPasswordPage({ onDone }) {
   const [token, setToken]       = useState("");
+  const [refresh, setRefresh]   = useState("");   // refresh_token (invitation → connexion auto)
+  const [projectId, setProjectId] = useState(""); // ?project=<id> (invitation → ouverture du projet)
   const [isInvite, setIsInvite] = useState(false); // true si type=invite (nouveau compte)
   const [password, setPassword] = useState("");
   const [confirm, setConfirm]   = useState("");
@@ -16,8 +18,11 @@ export default function ResetPasswordPage({ onDone }) {
     const params = new URLSearchParams(hash.replace(/^#/, ""));
     const t    = params.get("access_token");
     const type = params.get("type");
+    const pid  = new URLSearchParams(window.location.search).get("project") || "";
     if (t && (type === "recovery" || type === "invite")) {
       setToken(t);
+      setRefresh(params.get("refresh_token") || "");
+      setProjectId(pid);
       setIsInvite(type === "invite");
       window.history.replaceState(null, "", window.location.pathname);
     } else {
@@ -33,6 +38,14 @@ export default function ResetPasswordPage({ onDone }) {
     setStatus("loading");
     try {
       await authResetPassword(token, password);
+      if (isInvite) {
+        // Nouveau compte : connexion automatique puis ouverture du projet partagé
+        const u = await authAdoptSession(token, refresh).catch(() => null);
+        if (u) {
+          window.location.replace(projectId ? `/?project=${encodeURIComponent(projectId)}` : "/");
+          return;
+        }
+      }
       setStatus("success");
     } catch (err) {
       setError(err.message || "Erreur lors de la réinitialisation");
@@ -41,8 +54,10 @@ export default function ResetPasswordPage({ onDone }) {
   };
 
   const goHome = () => {
-    if (onDone) onDone();
-    else window.location.href = "/";
+    // On repasse par une URL propre (sans /reset-password ni hash)
+    const target = projectId ? `/?project=${encodeURIComponent(projectId)}` : "/";
+    if (onDone && !projectId && window.location.pathname === "/") onDone();
+    else window.location.replace(target);
   };
 
   const strength = (pwd) => {

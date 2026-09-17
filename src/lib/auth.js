@@ -40,31 +40,42 @@ export async function authLogin(email, password, remember = true) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Identifiants incorrects");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || "Identifiants incorrects");
+    err.code = data.code || null; // "email_not_confirmed" → proposer le renvoi
+    throw err;
+  }
   storeSession({ access_token: data.access_token, refresh_token: data.refresh_token, user: data.user }, remember);
   return data.user;
 }
 
+// Inscription : le compte reste inactif jusqu'au clic sur le lien de confirmation.
+// Retour : { pendingConfirmation: true, email }
 export async function authSignup(email, password) {
   const res = await fetch("/api/auth?action=signup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  const data = await res.json();
-
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 409) throw new Error("Un compte existe déjà avec cet email.");
     throw new Error(data.error || "Erreur lors de la création du compte");
   }
+  return data;
+}
 
-  if (data.access_token) {
-    storeSession({ access_token: data.access_token, refresh_token: data.refresh_token, user: data.user }, true);
-    return data.user;
-  }
-
-  return null;
+// Renvoie l'email de confirmation d'inscription.
+export async function authResendConfirmation(email) {
+  const res = await fetch("/api/auth?action=resend_confirmation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.toLowerCase().trim() }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Erreur lors de l'envoi");
+  return data;
 }
 
 // ── Mot de passe oublié ───────────────────────────────────────────
@@ -251,29 +262,118 @@ function parseProject(r) {
   };
 }
 
-// ── Invite member — passe par auth-proxy avec SERVICE_KEY ────────
-// Utilise /api/auth?action=invite_member qui bypass les RLS avec la clé service
-export async function sbInviteMember(projectId, email, invitedBy, role = "member", projectName = "") {
+// ── Invite member — passe par auth-proxy (JWT vérifié + SERVICE_KEY) ──
+// Retour : { ok, status: "new"|"pending"|"active", existed, email, role,
+//            emailSent, emailError, emailPayload }
+export async function sbInviteMember(projectId, email, _invitedBy, role = "member", projectName = "") {
+  const token = getToken();
   const res = await fetch("/api/auth?action=invite_member", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
     body: JSON.stringify({
       projectId,
       email:       email.toLowerCase().trim(),
-      invitedBy:   invitedBy || "",
       role:        role || "member",
       projectName: projectName || "",
     }),
   });
-
   const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    throw new Error(data.error || `Erreur invitation: ${res.status}`);
-  }
-
-  // data : { ok, accountCreated, existed, email, emailSent, emailPayload, role }
+  if (!res.ok) throw new Error(data.error || `Erreur invitation: ${res.status}`);
   return data;
+}
+
+// ── Compte existant : envoi du lien qui ouvre le projet ───────────
+// Retour : { ok, emailSent, emailError?, emailPayload? }
+export async function sbNotifyMember(projectId, email, projectName = "") {
+  const token = getToken();
+  const res = await fetch("/api/auth?action=notify_member", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ projectId, email: email.toLowerCase().trim(), projectName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Erreur d'envoi: ${res.status}`);
+  return data;
+}
+
+// ── Session issue d'un lien email (invitation / lien projet) ──────
+// Récupère le profil via /api/auth?action=me puis enregistre la session.
+export async function authAdoptSession(accessToken, refreshToken) {
+  if (!accessToken) return null;
+  const res = await fetch("/api/auth?action=me", { headers: { "Authorization": `Bearer ${accessToken}` } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.user) return null;
+  storeSession({ access_token: accessToken, refresh_token: refreshToken || null, user: data.user }, true);
+  return data.user;
+}
+
+// Liens email qui ouvrent une session : confirmation d'inscription
+// (#…&type=signup) et lien projet (#…&type=magiclink). Connecte l'utilisateur
+// et nettoie l'URL. Un lien expiré (#error=…) laisse un message pour l'accueil.
+const AUTH_NOTICE_KEY = "echo_auth_notice";
+
+export async function adoptSessionFromHash() {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const type = params.get("type");
+  const at   = params.get("access_token");
+  const clean = () => window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+  if (params.get("error") || params.get("error_code")) {
+    clean();
+    const expired = params.get("error_code") === "otp_expired";
+    setAuthNotice(expired
+      ? "Ce lien a expiré ou a déjà été utilisé. Connectez-vous, ou demandez un nouvel email."
+      : `Lien invalide : ${params.get("error_description") || "réessayez"}`);
+    return null;
+  }
+  if (!at || !["signup", "magiclink", "email"].includes(type)) return null;
+  clean();
+  const user = await authAdoptSession(at, params.get("refresh_token"));
+  if (!user) setAuthNotice("Impossible d'ouvrir la session depuis ce lien. Connectez-vous.");
+  return user;
+}
+
+export const AUTH_NOTICE_EVENT = "echo:auth-notice";
+
+function setAuthNotice(msg) {
+  try { sessionStorage.setItem(AUTH_NOTICE_KEY, msg); } catch { /* ignore */ }
+  // Le formulaire peut déjà être monté : on le prévient
+  try { window.dispatchEvent(new Event(AUTH_NOTICE_EVENT)); } catch { /* ignore */ }
+}
+
+// Message à afficher une seule fois sur le formulaire de connexion.
+export function consumeAuthNotice() {
+  try {
+    const m = sessionStorage.getItem(AUTH_NOTICE_KEY);
+    if (m) sessionStorage.removeItem(AUTH_NOTICE_KEY);
+    return m || "";
+  } catch { return ""; }
+}
+
+// ── Projet à ouvrir après arrivée par un lien (?project=<id>) ─────
+const PENDING_PROJECT_KEY = "echo_pending_project";
+
+export function capturePendingProject() {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    const id = qs.get("project");
+    if (!id) return;
+    sessionStorage.setItem(PENDING_PROJECT_KEY, id);
+    qs.delete("project");
+    const rest = qs.toString();
+    window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash);
+  } catch { /* ignore */ }
+}
+
+// Retourne l'id en attente s'il fait partie des projets accessibles (et le consomme).
+export function consumePendingProject(projects) {
+  try {
+    const id = sessionStorage.getItem(PENDING_PROJECT_KEY);
+    if (!id) return null;
+    if (!(projects || []).some(p => p.id === id)) return null;
+    sessionStorage.removeItem(PENDING_PROJECT_KEY);
+    return id;
+  } catch { return null; }
 }
 
 // ── Token expiry check ────────────────────────────────────────────

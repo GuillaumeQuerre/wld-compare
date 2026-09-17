@@ -12,6 +12,14 @@ export default async function(request) {
 
   const url = new URL(request.url);
   const supaPath  = url.pathname.replace("/api/supabase", "");
+  // Seules les API données (REST) et fichiers (Storage) sont relayées.
+  // L'authentification passe exclusivement par /api/auth (auth-proxy),
+  // sinon /auth/v1/signup ou /auth/v1/token contourneraient la vérification d'email.
+  if (!/^\/(rest|storage)\/v1\//.test(supaPath) || supaPath.includes("..")) {
+    return new Response(JSON.stringify({ error: "Chemin non autorisé" }), {
+      status: 403, headers: { "Content-Type": "application/json" },
+    });
+  }
   const targetUrl = SUPABASE_URL + supaPath + url.search;
 
   // Build clean headers — only pass what Supabase needs

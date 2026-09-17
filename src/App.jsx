@@ -21,7 +21,7 @@ import ConnectionsTab from "./tabs/ConnectionsTab";
 import HomeTab from "./tabs/HomeTab";
 import ManageTab from "./tabs/ManageTab";
 import ResetPasswordPage from "./components/ResetPasswordPage"; // ← AJOUTÉ
-import { sbLoadAccessibleProjects, getCurrentUser, getOrRefreshSession, authLogout, clearSession, isSuperAdmin } from "./lib/auth";
+import { sbLoadAccessibleProjects, getCurrentUser, getOrRefreshSession, authLogout, clearSession, isSuperAdmin, adoptSessionFromHash, capturePendingProject, consumePendingProject } from "./lib/auth";
 
 // Tabs disponibles pour TOUS les utilisateurs
 const NAV_TABS_USER = [
@@ -165,10 +165,12 @@ function NavBar({ tab, setTab, user, onLogout }) {
 
 export default function App() {
   // ── Reset password flow — doit être AVANT tout autre état ────────
-  // Détecte le hash Supabase #access_token=xxx&type=recovery au chargement
-  const [isResetFlow, setIsResetFlow] = useState(() => { // ← AJOUTÉ
+  // Détecte le hash Supabase #access_token=xxx&type=recovery|invite au chargement
+  // (recovery = mot de passe oublié, invite = création du mot de passe d'un invité)
+  const [isResetFlow, setIsResetFlow] = useState(() => {
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    return params.get("type") === "recovery" && !!params.get("access_token");
+    const type = params.get("type");
+    return (type === "recovery" || type === "invite") && !!params.get("access_token");
   });
 
   // ── Projects ─────────────────────────────────────────────────────
@@ -355,6 +357,13 @@ export default function App() {
     (async () => {
       setDbLoading(true);
       try {
+        // Lien email « ouvrir le projet » : ?project=<id> mémorisé,
+        // et connexion automatique si le lien porte une session (magic link)
+        if (!isResetFlow) {
+          capturePendingProject();
+          const linkUser = await adoptSessionFromHash();
+          if (linkUser) setUser(linkUser);
+        }
         // Récupère l'utilisateur et rafraîchit le token si expiré
         // (évite les projets vides au retour sur l'app après expiration du token)
         let currentUser = await getOrRefreshSession();
@@ -384,9 +393,11 @@ export default function App() {
             })),
           }));
           setProjects(restored);
-          // Activer le premier projet — ses données CSV seront chargées
-          // par le useEffect [currentProjectId] qui se déclenche juste après
-          setCurrentProjectId(restored[0].id);
+          // Activer le projet demandé par un lien email, sinon le premier —
+          // ses données CSV seront chargées par le useEffect [currentProjectId]
+          const pendingId = consumePendingProject(restored);
+          setCurrentProjectId(pendingId || restored[0].id);
+          if (pendingId) setTab("geo");
         } else {
           setProjects([]);
           setCurrentProjectId(null);
@@ -757,7 +768,7 @@ export default function App() {
                       })),
                     }));
                     setProjects(restored);
-                    setCurrentProjectId(restored[0].id);
+                    setCurrentProjectId(consumePendingProject(restored) || restored[0].id);
                   }
                 } catch(e) { console.warn("Project reload failed:", e); }
                 finally { setDbLoading(false); }

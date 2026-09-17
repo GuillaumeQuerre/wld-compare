@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { C } from "../lib/constants";
 import { sbGetGeoResultsAll } from "../lib/supabase";
 import { getModelPricing, WEB_SEARCH_FEE } from "../components/GeoConfig";
-import { authLogin, authSignup, isSuperAdmin, sbGetProjectMembers, sbRemoveProjectMember, sbInviteMember, sbSetMemberRole } from "../lib/auth";
+import { authLogin, authSignup, authResendConfirmation, isSuperAdmin, sbGetProjectMembers, sbRemoveProjectMember, sbInviteMember, sbNotifyMember, sbSetMemberRole } from "../lib/auth";
 
 function Section({ title, children }) {
   return (
@@ -24,10 +24,19 @@ function LoginCard({ onLogin }) {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState("");
   const [success, setSuccess]   = useState("");
+  const [unconfirmed, setUnconfirmed] = useState(""); // email à confirmer → bouton « renvoyer »
+  const [resending, setResending]     = useState(false);
+
+  const resend = async () => {
+    setResending(true); setError("");
+    try { const r = await authResendConfirmation(unconfirmed); setSuccess(r.message || "Email renvoyé."); }
+    catch (err) { setError(err.message); }
+    finally { setResending(false); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
-    setError(""); setSuccess("");
+    setError(""); setSuccess(""); setUnconfirmed("");
     if (mode === "signup" && password !== confirm) { setError("Mots de passe différents"); return; }
     if (password.length < 8) { setError("8 caractères minimum"); return; }
     setLoading(true);
@@ -36,11 +45,15 @@ function LoginCard({ onLogin }) {
         const u = await authLogin(email.trim(), password);
         onLogin(u);
       } else {
-        const u = await authSignup(email.trim(), password);
-        if (u) { onLogin(u); }
-        else { setSuccess("Compte créé ! Vérifiez votre email puis connectez-vous."); setMode("login"); setPassword(""); setConfirm(""); }
+        const r = await authSignup(email.trim(), password);
+        setSuccess(`Compte créé ! Un email de confirmation a été envoyé à ${r.email || email.trim()}. Cliquez sur le lien pour activer votre compte.`);
+        setUnconfirmed(r.email || email.trim());
+        setMode("login"); setPassword(""); setConfirm("");
       }
-    } catch(err) { setError(err.message); }
+    } catch(err) {
+      setError(err.message);
+      if (err.code === "email_not_confirmed") setUnconfirmed(email.trim());
+    }
     finally { setLoading(false); }
   };
 
@@ -48,7 +61,7 @@ function LoginCard({ onLogin }) {
     <Section title="🔐 Connexion / Inscription">
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
         {[{key:"login",label:"Connexion"},{key:"signup",label:"Créer un compte"}].map(m => (
-          <button key={m.key} onClick={() => { setMode(m.key); setError(""); setSuccess(""); }}
+          <button key={m.key} onClick={() => { setMode(m.key); setError(""); setSuccess(""); setUnconfirmed(""); }}
             style={{ flex: 1, padding: "7px", border: `2px solid ${mode===m.key ? "#7C3AED" : C.border}`, borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", background: mode===m.key ? "#F5F3FF" : "#fff", color: mode===m.key ? "#7C3AED" : C.textMid }}>
             {m.label}
           </button>
@@ -56,6 +69,12 @@ function LoginCard({ onLogin }) {
       </div>
       {error && <div style={{ background: "#FEF2F2", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#C0352A", marginBottom: 12 }}>{error}</div>}
       {success && <div style={{ background: "#ECFDF5", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#2E5E3A", marginBottom: 12 }}>{success}</div>}
+      {unconfirmed && (
+        <button type="button" onClick={resend} disabled={resending}
+          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#7C3AED", fontWeight: 600, textDecoration: "underline", padding: 0, marginBottom: 12, opacity: resending ? 0.6 : 1 }}>
+          {resending ? "Envoi…" : "Renvoyer l'email de confirmation"}
+        </button>
+      )}
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 360 }}>
         <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="Email" style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
         <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Mot de passe (8 min.)" style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
@@ -230,41 +249,67 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
   }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [inviteMsg, setInviteMsg]       = useState(""); // message de succès
-  const [emailPayload, setEmailPayload] = useState(null); // { to, subject, body } pour mailto: compte existant
+  const [emailPayload, setEmailPayload] = useState(null); // { to, subject, body } — repli mailto
+  const [notifyFor, setNotifyFor]       = useState(null); // email d'un compte existant : proposition d'envoi
+  const [notifying, setNotifying]       = useState(false);
 
   const add = async () => {
     const email = newEmail.trim().toLowerCase();
     if (!email || !email.includes("@")) return;
-    setSaving(true); setError(""); setInviteMsg("");
-    const result = await sbInviteMember(project.id, email, ownerEmail, newRole, project.name || "");
-    if (result.ok) {
+    setSaving(true); setError(""); setInviteMsg(""); setEmailPayload(null); setNotifyFor(null);
+    try {
+      const result = await sbInviteMember(project.id, email, ownerEmail, newRole, project.name || "");
       setMembers(prev => {
         const exists = prev.findIndex(m => m.user_email === email);
-        const entry = { user_email: email, role: newRole };
-        if (exists >= 0) { const n = [...prev]; n[exists] = entry; return n; }
+        const entry = { user_email: email, role: result.role || newRole };
+        if (exists >= 0) { const n = [...prev]; n[exists] = { ...prev[exists], ...entry }; return n; }
         return [...prev, entry];
       });
       setNewEmail(""); setNewRole("member");
 
-      // Le compte n'est jamais pré-créé : l'invité s'inscrit lui-même.
-      // Un email (mailto) est préparé dans tous les cas pour que l'inviteur l'envoie.
-      // Compte EXISTANT → envoi facultatif (bouton mailto bien visible).
-      // Compte INEXISTANT → Supabase a expédié l'invitation automatiquement ;
-      // on ne garde le bouton qu'en repli si l'envoi a échoué.
-      if (result.existed) {
-        setEmailPayload(result.emailPayload || null);
-        setInviteMsg(`✓ ${email} a été ajouté au projet (compte existant). Vous pouvez lui envoyer un email de notification.`);
+      if (result.status === "active") {
+        // Compte existant → on PROPOSE l'envoi du lien vers le projet
+        setNotifyFor(email);
+        setInviteMsg(`✓ ${email} a déjà un compte et a été ajouté au projet. Lui envoyer un email avec le lien du projet ?`);
       } else if (result.emailSent) {
-        setEmailPayload(null);
-        setInviteMsg(`✓ Invitation envoyée à ${email} — il accédera au projet dès la création de son compte.`);
+        // Nouveau compte (ou invitation en attente renvoyée)
+        setInviteMsg(result.status === "pending"
+          ? `✓ Invitation renvoyée à ${email} — le lien permet de créer son mot de passe et ouvre ce projet.`
+          : `✓ Invitation envoyée à ${email} — le lien permet de créer son mot de passe et ouvre ce projet.`);
       } else {
         setEmailPayload(result.emailPayload || null);
-        setInviteMsg(`✓ ${email} a été ajouté, mais l'envoi automatique a échoué${result.emailError ? "" : ""}. Envoyez-lui l'invitation avec le bouton ci-dessous.`);
+        setInviteMsg(`✓ ${email} a été ajouté, mais l'envoi automatique a échoué${result.emailError ? ` (${result.emailError})` : ""}. Envoyez l'invitation avec le bouton ci-dessous.`);
       }
-    } else {
-      setError(result.error || "Erreur lors de l'invitation");
+    } catch (e) {
+      setError(e.message || "Erreur lors de l'invitation");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
+  };
+
+  const sendProjectLink = async () => {
+    if (!notifyFor) return;
+    const email = notifyFor;
+    setNotifying(true); setError("");
+    try {
+      const r = await sbNotifyMember(project.id, email, project.name || "");
+      setNotifyFor(null);
+      if (r.emailSent) {
+        setInviteMsg(`✓ Email envoyé à ${email} avec le lien du projet.`);
+      } else {
+        setEmailPayload(r.emailPayload || null);
+        setInviteMsg(`L'envoi automatique a échoué${r.emailError ? ` (${r.emailError})` : ""}. Envoyez le lien avec le bouton ci-dessous.`);
+      }
+    } catch (e) {
+      setError(e.message || "Erreur lors de l'envoi");
+    } finally {
+      setNotifying(false);
+    }
+  };
+
+  const skipProjectLink = () => {
+    setInviteMsg(`✓ ${notifyFor} a été ajouté au projet (aucun email envoyé).`);
+    setNotifyFor(null);
   };
 
   const remove = async (email) => {
@@ -347,6 +392,18 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
           {inviteMsg && (
             <div style={{ fontSize: 12, color: "#2E5E3A", background: "#ECFDF5", border: "1px solid #BBF7D0", borderRadius: 7, padding: "8px 12px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 10 }}>
               <span style={{ flex: 1 }}>{inviteMsg}</span>
+              {notifyFor && (
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button onClick={sendProjectLink} disabled={notifying}
+                    style={{ fontSize: 12, fontWeight: 800, color: "#fff", background: "#E8541A", border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap", opacity: notifying ? 0.6 : 1 }}>
+                    {notifying ? "Envoi…" : "✉ Envoyer le lien"}
+                  </button>
+                  <button onClick={skipProjectLink} disabled={notifying}
+                    style={{ fontSize: 12, fontWeight: 600, color: "#2E5E3A", background: "transparent", border: "1px solid #BBF7D0", borderRadius: 8, padding: "8px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                    Non merci
+                  </button>
+                </div>
+              )}
               {emailPayload && (
                 <a
                   href={`mailto:${emailPayload.to}?subject=${encodeURIComponent(emailPayload.subject)}&body=${encodeURIComponent(emailPayload.body)}`}
@@ -376,7 +433,7 @@ function ProjectMembers({ project, ownerEmail, myRole = "owner", isSuper = false
           </div>
           <div style={{ fontSize: 11, color: C.textLight, marginTop: 6 }}>
             <strong>Administrateur</strong> : accès complet + peut inviter et gérer les accès + voit les coûts en tokens. <strong>Membre</strong> : accès complet (Setup, Fan-outs, Audit). <strong>Lecture seule</strong> : Fan-outs et Audit GEO uniquement, aucun appel LLM.
-            Si l'adresse n'a pas de compte, un email d'invitation à créer un compte est préparé.
+            Sans compte, l'adresse reçoit un email pour créer son mot de passe. Avec un compte existant, vous pouvez lui envoyer le lien du projet.
           </div>
         </>
       )}
