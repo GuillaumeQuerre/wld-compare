@@ -485,8 +485,13 @@ export async function sbSaveKeywords(rows) {
   return Array.isArray(data) ? data : [];
 }
 
-export async function sbGetKeywords(project_id, site_id) {
-  const res = await fetch(`${PROXY}/rest/v1/geo_keywords?project_id=eq.${encodeURIComponent(project_id)}&site_id=eq.${encodeURIComponent(site_id)}&order=created_at.asc`, { headers: authHeaders() });
+export async function sbGetKeywords(project_id, site_id = null) {
+  // Sans site : tous les mots-clés du projet. Avec site : ceux du site
+  // + ceux rattachés au projet seulement (site_id vide).
+  const siteFilter = site_id
+    ? `&or=(site_id.eq.${encodeURIComponent(site_id)},site_id.is.null)`
+    : "";
+  const res = await fetch(`${PROXY}/rest/v1/geo_keywords?project_id=eq.${encodeURIComponent(project_id)}${siteFilter}&order=created_at.asc`, { headers: authHeaders() });
   if (!res.ok) return [];
   return res.json();
 }

@@ -2270,15 +2270,17 @@ function KeywordsTab({ site, projectId, apiKey, model, axes, context, categories
   const fileVolRef = useRef(null);
 
   useEffect(() => {
-    if (!projectId || !site?.id) return;
-    // Load keywords + count questions per keyword
+    if (!projectId) return;
+    // Mots-clés : chargés même sans site (niveau projet).
+    // Comptage des questions : seulement si un site est défini, car
+    // sbGetQuestions filtre sur site_id.
     Promise.all([
-      sbGetKeywords(projectId, site.id),
-      sbGetQuestions(projectId, site.id),
+      sbGetKeywords(projectId, site?.id || null),
+      site?.id ? sbGetQuestions(projectId, site.id) : Promise.resolve([]),
     ]).then(([kws, qs]) => {
       const countByKw = {};
-      qs.forEach(q => { if (q.keyword_id) countByKw[q.keyword_id] = (countByKw[q.keyword_id] || 0) + 1; });
-      setKeywords(kws.map(k => ({ ...k, question_count: countByKw[k.id] || 0 })));
+      (qs || []).forEach(q => { if (q.keyword_id) countByKw[q.keyword_id] = (countByKw[q.keyword_id] || 0) + 1; });
+      setKeywords((kws || []).map(k => ({ ...k, question_count: countByKw[k.id] || 0 })));
     });
   }, [projectId, site?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3731,6 +3733,13 @@ function QuestionsTab({ site, projectId, project = null, apiKey, model, brand, c
     () => (allResultsAllSites != null ? allResultsAllSites : allResults) || [],
     [allResultsAllSites, allResults]
   );
+  // Les mots-clés et questions peuvent exister sans site, mais une
+  // interrogation a besoin d'une marque de référence pour détecter la présence.
+  const requireSite = () => {
+    if (site?.id) return true;
+    alert("Ajoutez au moins un site dans l'onglet Configuration avant de lancer une interrogation.");
+    return false;
+  };
   const calResultsByQ = useMemo(() => {
     const m = {};
     calResults.forEach(r => { if (!m[r.question_id]) m[r.question_id] = []; m[r.question_id].push(r); });
@@ -4398,7 +4407,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
 
   // Run a single provider on a single question
   const runProvider = useCallback(async (q, provider) => {
-    if (isReadOnly) return; // lecture seule : aucun appel LLM
+    if (isReadOnly || !site?.id) return; // lecture seule : aucun appel LLM
     const pk = providerKeysRef.current[provider.id];
     if (!pk?.dec) { console.warn("No key for provider", provider.id); return; }
     setRunning(r => ({ ...r, [`${q.id}-${provider.id}`]: true }));
@@ -4717,7 +4726,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
   };
 
   const runAllQuestions = async () => {
-    if (isReadOnly) return; // lecture seule : aucun lancement
+    if (isReadOnly || !requireSite()) return; // lecture seule : aucun lancement
     const toRun = filtered
       .map(q => ({ q, providers: getProvidersToRun(q, false) }))
       .filter(({ providers }) => providers.length > 0);
@@ -5171,7 +5180,7 @@ Réponds UNIQUEMENT avec les ${n} questions séparées par des points-virgules (
           </span>
 
           {/* Lancer tout */}
-          {!isReadOnly && (
+          {!isReadOnly && site?.id && (
             <>
               {!hasConfiguredProviders ? (
                 <span
