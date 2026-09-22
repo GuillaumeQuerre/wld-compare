@@ -191,9 +191,14 @@ export async function sbSetMemberRole(projectId, email, role) {
 }
 
 export async function sbSetProjectOwner(projectId, ownerEmail) {
+  // Jeton utilisateur obligatoire avec RLS : sans lui la requête part en
+  // anonyme et est rejetée en silence → projet sans propriétaire.
+  const token = getToken();
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   await fetch(`/api/supabase/rest/v1/projects?id=eq.${encodeURIComponent(projectId)}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ owner_email: ownerEmail }),
   });
 }
