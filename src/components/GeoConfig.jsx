@@ -387,48 +387,195 @@ export function ProviderConfigPanel({ project, projectId, sites, onSaveProviderK
 }
 
 // ── BrandConfigPanel ──────────────────────────────────────────────
-export function BrandConfigPanel({ site, projectId, onBrandSaved }) {
-  const [brand, setBrand]         = useState(null);
-  const [editing, setEditing]     = useState(false);
-  const [draft, setDraft]         = useState({ brand_name: "", brand_domain: "", brand_aliases: "", competitors: "", context: "" });
-  const [saving, setSaving]       = useState(false);
+// Trois modes d'affichage, une seule table (site_brand) :
+//   • "essential" : champ « nom de marque » seul, enregistré à la sortie du champ
+//                   (étape 2 de la Configuration GEO) ;
+//   • "advanced"  : alias, domaine, concurrents, contexte (étape 3, repliée) ;
+//   • "full"      : formulaire historique complet (ImportTab).
+// Chaque mode n'écrit QUE ses propres champs : l'enregistrement relit la ligne
+// en base et fusionne, pour ne jamais écraser un champ édité ailleurs
+// (ex. le nom saisi à l'étape 2 pendant que l'étape 3 est ouverte).
+// Prop `brand` facultative : si fournie (≠ undefined), le parent gère le
+// chargement et le panneau ne refait pas d'appel sbGetBrand.
 
+const BRAND_MODE_FIELDS = {
+  essential: ["brand_name"],
+  advanced:  ["brand_aliases", "brand_domain", "competitors", "context"],
+  full:      ["brand_name", "brand_domain", "brand_aliases", "competitors", "context"],
+};
+
+const splitList = (s) => String(s || "").split(",").map(x => x.trim()).filter(Boolean);
+
+function brandToDraft(b) {
+  return {
+    brand_name:    b?.brand_name || "",
+    brand_domain:  b?.brand_domain || "",
+    brand_aliases: (Array.isArray(b?.brand_aliases) ? b.brand_aliases : []).join(", "),
+    competitors:   (Array.isArray(b?.competitors) ? b.competitors : []).join(", "),
+    context:       b?.context || "",
+  };
+}
+
+function draftToPatch(draft, fields) {
+  const out = {};
+  fields.forEach(f => {
+    if (f === "brand_aliases" || f === "competitors") out[f] = splitList(draft[f]);
+    else out[f] = String(draft[f] || "").trim();
+  });
+  return out;
+}
+
+// Relit la ligne en base puis n'écrase que les champs du patch.
+export async function saveBrandFields(projectId, siteId, patch) {
+  const current = (await sbGetBrand(projectId, siteId).catch(() => null)) || {};
+  const merged = {
+    project_id:    projectId,
+    site_id:       siteId,
+    brand_name:    current.brand_name || "",
+    brand_domain:  current.brand_domain || "",
+    brand_aliases: Array.isArray(current.brand_aliases) ? current.brand_aliases : [],
+    competitors:   Array.isArray(current.competitors) ? current.competitors : [],
+    context:       current.context || "",
+    ...patch,
+  };
+  await sbSaveBrand(merged);
+  return merged;
+}
+
+const BRAND_FIELD_DEFS = [
+  { key: "brand_name",    label: "Nom de la marque *", placeholder: "ex : Acme Corp", span: false },
+  { key: "brand_domain",  label: "Domaine principal",   placeholder: "ex : acme.com", span: false },
+  { key: "brand_aliases", label: "Alias / variantes",   placeholder: "ex : Acme, ACME Inc (séparés par virgule)", span: true },
+  { key: "competitors",   label: "Concurrents",         placeholder: "ex : rival.com, concurrent.fr (séparés par virgule)", span: true },
+  { key: "context",       label: "Contexte",            placeholder: "Décrivez votre activité en 1-2 phrases", span: true },
+];
+
+export function BrandConfigPanel({ site, projectId, onBrandSaved, mode = "full", brand: brandProp, required = false, placeholder, onClose, disabled = false }) {
+  const controlled = brandProp !== undefined;
+  const [brandState, setBrandState] = useState(null);
+  const brand = controlled ? brandProp : brandState;
+  const [editing, setEditing] = useState(mode === "advanced");
+  const [draft, setDraft]     = useState(() => brandToDraft(brand));
+  const [saving, setSaving]   = useState(false);
+  const [saved, setSaved]     = useState(false);
+  const [error, setError]     = useState("");
+  const [focused, setFocused] = useState(false);
+
+  // Chargement autonome (mode non contrôlé)
   useEffect(() => {
-    if (!projectId || !site?.id) return;
+    if (controlled || !projectId || !site?.id) return;
+    let cancelled = false;
     sbGetBrand(projectId, site.id).then(b => {
-      if (b) {
-        setBrand(b);
-        setDraft({
-          brand_name:    b.brand_name || "",
-          brand_domain:  b.brand_domain || "",
-          brand_aliases: (b.brand_aliases || []).join(", "),
-          competitors:   (b.competitors || []).join(", "),
-          context:       b.context || "",
-        });
-      }
-    });
-  }, [projectId, site?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+      if (cancelled || !b) return;
+      setBrandState(b);
+      setDraft(brandToDraft(b));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [projectId, site?.id, controlled]);
+
+  // Mode contrôlé : resynchroniser le brouillon quand la marque change,
+  // sauf pendant une saisie en cours (champ essentiel focus / formulaire ouvert).
+  useEffect(() => {
+    if (!controlled) return;
+    if (mode === "essential" && focused) return;
+    if (mode === "full" && editing) return;
+    if (mode === "advanced") return; // brouillon figé à l'ouverture (remonté à chaque ouverture)
+    setDraft(brandToDraft(brandProp));
+  }, [brandProp]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fields = BRAND_MODE_FIELDS[mode] || BRAND_MODE_FIELDS.full;
 
   const save = async () => {
-    setSaving(true);
-    const b = {
-      project_id:    projectId,
-      site_id:       site.id,
-      brand_name:    draft.brand_name.trim(),
-      brand_domain:  draft.brand_domain.trim(),
-      brand_aliases: draft.brand_aliases.split(",").map(s => s.trim()).filter(Boolean),
-      competitors:   draft.competitors.split(",").map(s => s.trim()).filter(Boolean),
-      context:       draft.context.trim(),
-    };
-    await sbSaveBrand(b);
-    setBrand(b);
-    setEditing(false);
-    onBrandSaved?.(b);
-    setSaving(false);
+    if (!projectId || !site?.id) return null;
+    setSaving(true); setError(""); setSaved(false);
+    try {
+      const b = await saveBrandFields(projectId, site.id, draftToPatch(draft, fields));
+      if (!controlled) setBrandState(b);
+      onBrandSaved?.(b);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      return b;
+    } catch (e) {
+      setError("Échec de l'enregistrement");
+      return null;
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!site) return null;
 
+  // ── Mode essentiel : un champ, enregistré au blur / Entrée ──
+  if (mode === "essential") {
+    const value = draft.brand_name;
+    const dirty = value.trim() !== (brand?.brand_name || "").trim();
+    const missing = required && !value.trim();
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+        <input
+          value={value}
+          disabled={disabled}
+          onFocus={() => setFocused(true)}
+          onChange={e => setDraft(p => ({ ...p, brand_name: e.target.value }))}
+          onBlur={() => {
+            setFocused(false);
+            if (!dirty) return;
+            // Nom obligatoire vidé → on restaure la valeur enregistrée plutôt que d'effacer
+            if (required && !value.trim()) { setDraft(p => ({ ...p, brand_name: brand?.brand_name || "" })); return; }
+            save();
+          }}
+          onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          placeholder={placeholder || (required ? "Nom de la marque (obligatoire)" : "Nom de la marque (facultatif)")}
+          aria-required={required}
+          style={{ flex: 1, minWidth: 0, padding: "7px 10px", border: `1px solid ${missing && !focused ? "#F2B8A2" : C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, background: disabled ? "#F7F4EC" : "#fff", boxSizing: "border-box" }}
+        />
+        <span style={{ fontSize: 11, minWidth: 16, color: error ? "#C0352A" : C.textLight }} title={error || ""}>
+          {saving ? "⏳" : error ? "⚠" : saved ? "✓" : ""}
+        </span>
+      </div>
+    );
+  }
+
+  const visibleDefs = BRAND_FIELD_DEFS.filter(f => fields.includes(f.key));
+
+  const form = (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      {visibleDefs.map(f => (
+        <div key={f.key} style={{ gridColumn: f.span ? "1 / -1" : "auto" }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 5 }}>{f.label}</div>
+          {f.key === "context" ? (
+            <textarea rows={2} value={draft[f.key]} onChange={e => setDraft(p => ({ ...p, [f.key]: e.target.value }))}
+              placeholder={f.placeholder}
+              style={{ width: "100%", padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 12, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+          ) : (
+            <input value={draft[f.key]} onChange={e => setDraft(p => ({ ...p, [f.key]: e.target.value }))}
+              placeholder={f.placeholder}
+              style={{ width: "100%", padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 12, boxSizing: "border-box" }} />
+          )}
+        </div>
+      ))}
+      <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+        {error && <span style={{ fontSize: 11, color: "#C0352A" }}>{error}</span>}
+        {mode === "advanced" && onClose && (
+          <button onClick={onClose}
+            style={{ padding: "7px 14px", background: "transparent", color: C.textMid, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            Annuler
+          </button>
+        )}
+        <button
+          onClick={async () => { const b = await save(); if (b) { if (mode === "full") setEditing(false); if (mode === "advanced") onClose?.(); } }}
+          disabled={saving || (mode === "full" && !draft.brand_name.trim())}
+          style={{ padding: "7px 20px", background: site.color || C.blue, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.7 : 1 }}>
+          {saving ? "⏳…" : "💾 Sauvegarder"}
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── Mode avancé : formulaire direct (le parent gère l'ouverture) ──
+  if (mode === "advanced") return form;
+
+  // ── Mode complet (historique, ImportTab) ──
   return (
     <div style={{ background: site.bg || C.bg, border: `1px solid ${site.color || C.border}33`, borderRadius: 14, padding: "16px 20px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: editing ? 14 : 0 }}>
@@ -457,42 +604,12 @@ export function BrandConfigPanel({ site, projectId, onBrandSaved }) {
           )}
           {!brand?.brand_name && !editing && <span style={{ fontSize: 11, color: C.textLight, fontStyle: "italic" }}>Aucune marque configurée pour ce site</span>}
         </div>
-        <button onClick={() => setEditing(e => !e)}
+        <button onClick={() => { if (!editing) setDraft(brandToDraft(brand)); setEditing(e => !e); }}
           style={{ padding: "5px 12px", border: `1px solid ${site.color || C.border}`, borderRadius: 7, background: "transparent", color: site.color || C.text, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
           {editing ? "Annuler" : brand ? "✏️ Modifier" : "➕ Configurer"}
         </button>
       </div>
-
-      {editing && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {[
-            { label: "Nom de la marque *", key: "brand_name", placeholder: "ex: Acme Corp", span: false },
-            { label: "Domaine principal *", key: "brand_domain", placeholder: "ex: acme.com", span: false },
-            { label: "Alias / variantes", key: "brand_aliases", placeholder: "ex: Acme, ACME Inc (séparés par virgule)", span: true },
-            { label: "Concurrents", key: "competitors", placeholder: "ex: rival.com, concurrent.fr (séparés par virgule)", span: true },
-            { label: "Contexte", key: "context", placeholder: "Décrivez votre activité en 1-2 phrases", span: true },
-          ].map(f => (
-            <div key={f.key} style={{ gridColumn: f.span ? "1 / -1" : "auto" }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: C.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 5 }}>{f.label}</div>
-              {f.key === "context" ? (
-                <textarea rows={2} value={draft[f.key]} onChange={e => setDraft(p => ({ ...p, [f.key]: e.target.value }))}
-                  placeholder={f.placeholder}
-                  style={{ width: "100%", padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 12, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
-              ) : (
-                <input value={draft[f.key]} onChange={e => setDraft(p => ({ ...p, [f.key]: e.target.value }))}
-                  placeholder={f.placeholder}
-                  style={{ width: "100%", padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 12, boxSizing: "border-box" }} />
-              )}
-            </div>
-          ))}
-          <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end" }}>
-            <button onClick={save} disabled={saving || !draft.brand_name.trim()}
-              style={{ padding: "7px 20px", background: site.color || C.blue, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-              {saving ? "⏳…" : "💾 Sauvegarder"}
-            </button>
-          </div>
-        </div>
-      )}
+      {editing && form}
     </div>
   );
 }

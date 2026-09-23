@@ -6235,71 +6235,57 @@ function AutomationTab({ projectId, site, user, providerKeys }) {
 
 
 
-// ── BrandConfigAccordion — wrapper qui ferme la card après save ───
-function BrandConfigAccordion({ sites, projectId }) {
-  const [openId, setOpenId] = useState(null);
-  const [keys, setKeys] = useState({});
+// ── Configuration GEO — parcours en 3 étapes ──────────────────────
+//   1. Nom du projet
+//   2. Essentiel : site principal + marque (obligatoires), sites secondaires
+//      (marque facultative), providers
+//   3. Suivi de marque avancé (replié) : alias, domaine, concurrents, axes, Semrush
+// Les interrogations restent conditionnées à l'existence d'au moins un site
+// (requireSite dans QuestionsTab) — la configuration ne fait que guider.
 
-  if (!sites?.length) {
-    return <div style={{ fontSize: 12, color: "#5B6B63", fontStyle: "italic" }}>Ajoutez un site pour configurer sa marque.</div>;
-  }
+const STEP_STATUS = {
+  done:     { label: "✓ Complète",  color: "#2E5E3A", bg: "#E6F0E8", border: "#2E5E3A33" },
+  todo:     { label: "À faire",     color: "#B4471A", bg: "#FBE9E0", border: "#E8541A33" },
+  optional: { label: "Facultatif",  color: "#5B6B63", bg: "#F3EEE3", border: "#EDE7D9" },
+};
 
+function StepCard({ n, title, desc, status = "todo", collapsible = false, open = true, onToggle, children }) {
+  const st = STEP_STATUS[status] || STEP_STATUS.todo;
+  const done = status === "done";
+  const header = (
+    <>
+      <div aria-hidden="true" style={{
+        width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 13, fontWeight: 800,
+        background: done ? "#2E5E3A" : "#fff",
+        color: done ? "#fff" : "#1A3C2E",
+        border: done ? "none" : "1.5px solid #1A3C2E",
+      }}>{done ? "✓" : n}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: "#1A3C2E", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span>Étape {n} · {title}</span>
+          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 20, color: st.color, background: st.bg, border: `1px solid ${st.border}` }}>{st.label}</span>
+        </div>
+        {desc && <div style={{ fontSize: 11.5, color: "#4A5A52", lineHeight: 1.55, marginTop: 3, maxWidth: 600 }}>{desc}</div>}
+      </div>
+      {collapsible && <span style={{ fontSize: 12, color: "#5B6B63", flexShrink: 0 }}>{open ? "▲ Replier" : "▼ Déplier"}</span>}
+    </>
+  );
+  const headerStyle = { display: "flex", alignItems: "flex-start", gap: 12, width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, font: "inherit" };
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {sites.map(site => {
-        const isOpen = openId === site.id;
-        const cardKey = keys[site.id] || site.id;
-        return (
-          <div key={site.id} style={{ border: `1px solid ${site.color}33`, borderRadius: 10, overflow: "hidden" }}>
-            {/* Header accordéon */}
-            <div onClick={() => setOpenId(isOpen ? null : site.id)}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: isOpen ? site.bg : "#FAF7F0", cursor: "pointer", borderBottom: isOpen ? `1px solid ${site.color}22` : "none" }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: site.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: site.color, flex: 1 }}>{site.label}</span>
-              <span style={{ fontSize: 11, color: "#5B6B63" }}>{isOpen ? "▲" : "▼"}</span>
-            </div>
-            {/* Contenu BrandConfigPanel */}
-            {isOpen && (
-              <div
-                ref={el => {
-                  if (!el) return;
-                  // Intercepter le clic sur le bouton "Sauvegarder" de BrandConfigPanel
-                  const handler = (e) => {
-                    const btn = e.target.closest("button");
-                    if (!btn) return;
-                    const label = btn.textContent?.trim().toLowerCase();
-                    if (label.includes("sauvegarder") || label.includes("save") || label.includes("enregistrer")) {
-                      // Fermer l'accordéon après un court délai (laisse le save se terminer)
-                      setTimeout(() => {
-                        setOpenId(null);
-                        // Reset la key pour forcer remount la prochaine fois
-                        setKeys(prev => ({ ...prev, [site.id]: `${site.id}-${Date.now()}` }));
-                      }, 300);
-                    }
-                    // Bouton Annuler → fermer immédiatement
-                    if (label.includes("annuler") || label.includes("cancel")) {
-                      setOpenId(null);
-                    }
-                  };
-                  el.addEventListener("click", handler);
-                  return () => el.removeEventListener("click", handler);
-                }}
-                style={{ padding: "12px 14px", background: "#fff" }}>
-                <BrandConfigPanel key={cardKey} site={site} projectId={projectId} />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
+    <section style={{ marginBottom: 16, background: "#fff", border: `1px solid ${done ? "#2E5E3A33" : "#EDE7D9"}`, borderRadius: 12, padding: "16px 18px" }}>
+      {collapsible
+        ? <button type="button" onClick={onToggle} aria-expanded={open} style={{ ...headerStyle, cursor: "pointer" }}>{header}</button>
+        : <div style={headerStyle}>{header}</div>}
+      {(!collapsible || open) && <div style={{ marginTop: 14, paddingLeft: 40 }}>{children}</div>}
+    </section>
   );
 }
 
-
-// ── FanoutSetupPanel — vue props-only, zéro état local projet ──────
 function SetupSection({ icon, title, desc, children }) {
   return (
-    <div style={{ marginBottom: 24 }}>
+    <div style={{ marginBottom: 20 }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1A3C2E", marginBottom: desc ? 3 : 9, display: "flex", alignItems: "center", gap: 7 }}>
         <span style={{ fontSize: 14 }}>{icon}</span>{title}
       </div>
@@ -6309,6 +6295,17 @@ function SetupSection({ icon, title, desc, children }) {
   );
 }
 
+function CheckItem({ ok, children }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: ok ? "#2E5E3A" : "#B4471A", fontWeight: 600 }}>
+      <span aria-hidden="true">{ok ? "✓" : "○"}</span>{children}
+    </span>
+  );
+}
+
+const FIELD_LABEL = { fontSize: 10, fontWeight: 700, color: "#5B6B63", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 };
+const TEXT_INPUT  = { width: "100%", padding: "7px 10px", border: "1px solid #EDE7D9", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#1A3C2E", background: "#fff", boxSizing: "border-box" };
+
 function FanoutSetupPanel({
   projects, currentProjectId, setCurrentProjectId, setProjects, ownerEmail,
   sites, setSites, smData, setSmData, smOverview = {}, setSmOverview,
@@ -6316,9 +6313,12 @@ function FanoutSetupPanel({
   dbHistory, dbLoading, refreshHistory, confirmModal, setConfirmModal,
   project, projectId, onSaveProviderKeys, canSeeCosts = false,
   axes, onSaveAxes, onAxesChange,
-  onSemrushVolumes,
+  onSemrushVolumes, onBrandSaved,
 }) {
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory]   = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [openBrandSite, setOpenBrandSite] = useState(null);
+  const [brands, setBrands] = useState({}); // site_id → ligne site_brand | null
 
   // Tout normalisé ici — jamais de .map() sur une valeur non-array
   const safeProjects = Array.isArray(projects) ? projects : [];
@@ -6326,82 +6326,310 @@ function FanoutSetupPanel({
   const safeHistory  = Array.isArray(dbHistory)? dbHistory: [];
   const safeAxes     = Array.isArray(axes)     ? axes     : DEFAULT_AXES;
 
+  const mainSite       = safeSites[0] || null;
+  const secondarySites = safeSites.slice(1);
+  const currentProject = safeProjects.find(p => p.id === currentProjectId) || null;
+
+  // Marques de tous les sites (source unique pour les étapes 2 et 3)
+  const siteIdsKey = safeSites.map(s => s.id).join("|");
+  useEffect(() => {
+    if (!projectId || !siteIdsKey) { setBrands({}); return; }
+    let cancelled = false;
+    const ids = siteIdsKey.split("|");
+    Promise.all(ids.map(id => sbGetBrand(projectId, id).then(b => [id, b || null]).catch(() => [id, null])))
+      .then(pairs => { if (!cancelled) setBrands(Object.fromEntries(pairs)); });
+    return () => { cancelled = true; };
+  }, [projectId, siteIdsKey]);
+
+  const handleBrandSaved = (b) => {
+    if (!b?.site_id) return;
+    setBrands(prev => ({ ...prev, [b.site_id]: b }));
+    onBrandSaved?.(b);
+  };
+
   const lastImports = {};
   for (const row of safeHistory) {
     const k = `${row.site_id}_${row.source}`;
     if (!lastImports[k] && row.storage_path) lastImports[k] = row;
   }
 
-  return (
-    <div style={{ maxWidth: 680 }}>
+  // ── États des étapes ──
+  const hasProjectName = !!currentProject?.name?.trim();
+  const hasMainSite    = !!mainSite && !!String(mainSite.label || "").trim();
+  const hasMainBrand   = !!mainSite && !!brands[mainSite.id]?.brand_name?.trim();
+  const hasProvider    = PROVIDERS.some(p => !!project?.[p.keyField]);
+  const step1Status = hasProjectName ? "done" : "todo";
+  const step2Status = hasMainSite && hasMainBrand && hasProvider ? "done" : "todo";
+  const mainBrand   = mainSite ? brands[mainSite.id] : null;
+  const step3Status = mainBrand?.brand_domain?.trim() ? "done" : "optional";
 
-      {/* ── Projet actif ── */}
-      <SetupSection icon="📁" title="Projet actif" desc="Sélectionnez le projet et les sites suivis. Vous pouvez en créer un nouveau, en supprimer, et rattacher autant de sites que nécessaire à comparer.">
-        <div style={{ background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 16px" }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
-              <select value={currentProjectId || ""} onChange={e => setCurrentProjectId(e.target.value)}
-                style={{ width: "100%", padding: "7px 28px 7px 10px", border: `1.5px solid ${C.blue}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.blue, background: C.blueLight, cursor: "pointer", appearance: "none" }}>
-                {safeProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: C.blue, fontSize: 11 }}>▾</span>
-            </div>
+  // ── Actions sites ──
+  const addSite = (label) => {
+    const palette = SITE_PALETTE[safeSites.length % SITE_PALETTE.length] || SITE_PALETTE[0];
+    const newId = `site-${Date.now()}`;
+    setSites(prev => [...(Array.isArray(prev) ? prev : []), { id: newId, label, ...palette }]);
+    setSmData(p => ({ ...(p || {}), [newId]: [] }));
+    return newId;
+  };
+  const renameSite = (id, label) =>
+    setSites(prev => (Array.isArray(prev) ? prev : []).map(s => s.id === id ? { ...s, label } : s));
+  const removeSite = (site) => setConfirmModal?.({
+    message: `Supprimer le site "${site.label}" ?`,
+    onConfirm: () => {
+      setSites(prev => (Array.isArray(prev) ? prev : []).filter(s => s.id !== site.id));
+      setSmData(p => { const n = { ...(p || {}) }; delete n[site.id]; return n; });
+    },
+  });
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+
+      {/* ═══════════ Étape 1 — Nom du projet ═══════════ */}
+      <StepCard n={1} title="Nom du projet" status={step1Status}
+        desc="Donnez un nom au projet de suivi. Vous pouvez aussi basculer vers un autre projet ou en créer un nouveau.">
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ flex: 2, minWidth: 200 }}>
+            <div style={FIELD_LABEL}>Nom du projet *</div>
             <input
-              value={safeProjects.find(p => p.id === currentProjectId)?.name || ""}
+              value={currentProject?.name || ""}
               onChange={e => {
                 const name = e.target.value;
                 setProjects(prev => (Array.isArray(prev) ? prev : []).map(p => p.id === currentProjectId ? { ...p, name } : p));
               }}
               onBlur={e => {
-                const proj = safeProjects.find(p => p.id === currentProjectId);
-                if (proj) sbSaveProject({ ...proj, name: e.target.value.trim() || proj.name }).catch(() => {});
+                if (currentProject) sbSaveProject({ ...currentProject, name: e.target.value.trim() || currentProject.name }).catch(() => {});
               }}
-              placeholder="Nom du projet"
-              title="Renommer le projet actif"
-              style={{ flex: 1, minWidth: 160, padding: "7px 10px", border: "1px solid #EDE7D9", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#1A3C2E", background: "#fff" }}
+              placeholder="ex : Suivi GEO — Marque X"
+              aria-required="true"
+              style={{ ...TEXT_INPUT, borderColor: hasProjectName ? "#EDE7D9" : "#F2B8A2" }}
             />
-            {safeProjects.length > 1 && (
-              <button onClick={() => setConfirmModal?.({ message: `Supprimer "${safeProjects.find(p => p.id === currentProjectId)?.name}" ?`, onConfirm: () => {
-                sbDeleteProject(currentProjectId).catch(() => {});
-                setProjects(prev => { const next = prev.filter(x => x.id !== currentProjectId); if (next.length) setCurrentProjectId(next[0].id); return next; });
-              }})} style={{ padding: "6px 10px", border: "1px solid #FECACA", borderRadius: 7, background: "#FEF2F2", cursor: "pointer", fontSize: 11, color: "#C0352A" }}>🗑</button>
-            )}
+          </div>
+          {safeProjects.length > 1 && (
+            <div style={{ flex: 1, minWidth: 160, position: "relative" }}>
+              <div style={FIELD_LABEL}>Changer de projet</div>
+              <select value={currentProjectId || ""} onChange={e => setCurrentProjectId(e.target.value)}
+                style={{ width: "100%", padding: "7px 28px 7px 10px", border: `1.5px solid ${C.blue}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.blue, background: C.blueLight, cursor: "pointer", appearance: "none" }}>
+                {safeProjects.map(p => <option key={p.id} value={p.id}>{p.name || "(sans nom)"}</option>)}
+              </select>
+              <span style={{ position: "absolute", right: 8, bottom: 9, pointerEvents: "none", color: C.blue, fontSize: 11 }}>▾</span>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 6 }}>
             {safeProjects.length < 20 && (
               <button onClick={() => {
                 const p = newProject(`Projet ${safeProjects.length + 1}`, [{ id: `site-${Date.now()}`, label: "Nouveau site", ...SITE_PALETTE[0] }], ownerEmail);
                 setProjects(prev => [...prev, p]);
                 setCurrentProjectId(p.id);
                 sbSaveProject(p).catch(() => {});
-              }} style={{ padding: "6px 10px", borderRadius: 7, border: `1.5px dashed ${C.blue}`, background: C.blueLight, color: C.blue, cursor: "pointer", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>+ Nouveau</button>
+              }} style={{ padding: "7px 10px", borderRadius: 8, border: `1.5px dashed ${C.blue}`, background: C.blueLight, color: C.blue, cursor: "pointer", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>+ Nouveau projet</button>
+            )}
+            {safeProjects.length > 1 && (
+              <button title="Supprimer ce projet" aria-label="Supprimer ce projet"
+                onClick={() => setConfirmModal?.({ message: `Supprimer "${currentProject?.name}" ?`, onConfirm: () => {
+                  sbDeleteProject(currentProjectId).catch(() => {});
+                  setProjects(prev => { const next = prev.filter(x => x.id !== currentProjectId); if (next.length) setCurrentProjectId(next[0].id); return next; });
+                }})} style={{ padding: "7px 10px", border: "1px solid #FECACA", borderRadius: 8, background: "#FEF2F2", cursor: "pointer", fontSize: 11, color: "#C0352A" }}>🗑</button>
             )}
           </div>
+        </div>
+      </StepCard>
 
-          {/* Sites */}
-          <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-            {safeSites.map(site => (
-              <div key={site.id} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, border: `1px solid ${site.color}44`, background: site.bg }}>
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: site.color, flexShrink: 0 }} />
-                <input value={site.label} onChange={e => setSites(prev => (Array.isArray(prev) ? prev : []).map(s => s.id === site.id ? {...s, label: e.target.value} : s))}
-                  style={{ fontSize: 12, fontWeight: 600, color: site.color, border: "none", outline: "none", background: "transparent", width: 100 }} />
-                {safeSites.length > 1 && (
-                  <button onClick={() => setConfirmModal?.({ message: `Supprimer "${site.label}" ?`, onConfirm: () => {
-                    setSites(prev => (Array.isArray(prev) ? prev : []).filter(s => s.id !== site.id));
-                    setSmData(p => { const n = {...p}; delete n[site.id]; return n; });
-                  }})} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#C0352A", padding: 0 }}>✕</button>
-                )}
+      {/* ═══════════ Étape 2 — Essentiel ═══════════ */}
+      <StepCard n={2} title="Essentiel" status={step2Status}
+        desc="Le minimum pour lancer le suivi : votre site principal et sa marque, d'éventuels sites secondaires à comparer, et au moins un moteur IA branché.">
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+          <CheckItem ok={hasMainSite}>Site principal</CheckItem>
+          <CheckItem ok={hasMainBrand}>Nom de marque</CheckItem>
+          <CheckItem ok={hasProvider}>Au moins un provider</CheckItem>
+        </div>
+
+        {/* Site principal */}
+        <SetupSection icon="🏠" title="Site principal">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 14px" }}>
+            <div>
+              <div style={FIELD_LABEL}>Site *</div>
+              <input
+                value={mainSite?.label || ""}
+                onChange={e => { const v = e.target.value; if (mainSite) renameSite(mainSite.id, v); else addSite(v); }}
+                placeholder="ex : monsite.fr"
+                aria-required="true"
+                style={{ ...TEXT_INPUT, color: mainSite?.color || TEXT_INPUT.color, borderColor: hasMainSite ? "#EDE7D9" : "#F2B8A2" }}
+              />
+            </div>
+            <div>
+              <div style={FIELD_LABEL}>Nom de marque *</div>
+              {mainSite ? (
+                <BrandConfigPanel mode="essential" required
+                  site={mainSite} projectId={projectId}
+                  brand={brands[mainSite.id] ?? null}
+                  onBrandSaved={handleBrandSaved} />
+              ) : (
+                <input disabled placeholder="Renseignez d'abord le site" style={{ ...TEXT_INPUT, background: "#F7F4EC" }} />
+              )}
+            </div>
+          </div>
+          {!mainSite && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "#B4471A" }}>
+              Aucun site : les interrogations restent bloquées tant qu'un site n'est pas déclaré.
+            </div>
+          )}
+        </SetupSection>
+
+        {/* Sites secondaires */}
+        <SetupSection icon="🧭" title="Sites secondaires" desc="Facultatif. Autres sites suivis dans le même projet (filiale, marque sœur, concurrent de référence). La marque aide à détecter leur présence dans les réponses.">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {secondarySites.map(site => (
+              <div key={site.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#FAF7F0", border: `1px solid ${site.color}33`, borderRadius: 10, padding: "8px 12px" }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: site.color, flexShrink: 0 }} />
+                <input value={site.label} onChange={e => renameSite(site.id, e.target.value)}
+                  placeholder="ex : autresite.fr" aria-label="Nom du site secondaire"
+                  style={{ ...TEXT_INPUT, flex: "1 1 160px", width: "auto", color: site.color }} />
+                <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+                  <BrandConfigPanel mode="essential"
+                    site={site} projectId={projectId}
+                    brand={brands[site.id] ?? null}
+                    onBrandSaved={handleBrandSaved} />
+                </div>
+                <button onClick={() => removeSite(site)} title="Supprimer ce site" aria-label={`Supprimer ${site.label}`}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#C0352A", padding: "0 4px" }}>✕</button>
               </div>
             ))}
-            {(
-              <button onClick={() => {
-                const palette = SITE_PALETTE[safeSites.length % SITE_PALETTE.length] || SITE_PALETTE[0];
-                const newId = `site-${Date.now()}`;
-                setSites(prev => [...(Array.isArray(prev) ? prev : []), { id: newId, label: `Site ${safeSites.length + 1}`, ...palette }]);
-                setSmData(p => ({...p, [newId]: []}));
-              }} style={{ padding: "4px 10px", borderRadius: 20, border: `1px dashed ${C.border}`, background: "#fff", color: C.blue, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>+ Site</button>
-            )}
+            <button onClick={() => addSite(`Site ${safeSites.length + 1}`)} disabled={!mainSite}
+              title={!mainSite ? "Déclarez d'abord le site principal" : ""}
+              style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: 20, border: `1px dashed ${C.border}`, background: "#fff", color: mainSite ? C.blue : C.textLight, cursor: mainSite ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 600 }}>
+              + Ajouter un site secondaire
+            </button>
+          </div>
+        </SetupSection>
+
+        {/* Providers */}
+        <SetupSection icon="🔑" title="Providers et clés API" desc="Branchez les clés API des moteurs IA et choisissez ceux à interroger. Claude et OpenAI sont recommandés : Claude génère les questions, les analyses « Et maintenant ? » et l'audit, OpenAI interroge ChatGPT.">
+          <div style={{ background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 16px" }}>
+            <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} canSeeCosts={canSeeCosts} />
+          </div>
+        </SetupSection>
+      </StepCard>
+
+      {/* ═══════════ Étape 3 — Suivi de marque avancé (replié) ═══════════ */}
+      <StepCard n={3} title="Suivi de marque avancé" status={step3Status}
+        collapsible open={showAdvanced} onToggle={() => setShowAdvanced(o => !o)}
+        desc="Affinez la détection : alias et domaine de chaque marque, concurrents, axes de génération des questions et import Semrush.">
+
+        {/* Alias, domaine, concurrents — par site */}
+        <SetupSection icon="🏷️" title="Alias, domaine et concurrents" desc="Variantes du nom, domaine (pour détecter les citations de vos pages) et concurrents à repérer dans les réponses des LLMs.">
+          {safeSites.length === 0 ? (
+            <div style={{ fontSize: 12, color: "#5B6B63", fontStyle: "italic" }}>Déclarez d'abord le site principal à l'étape 2.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {safeSites.map((site, idx) => {
+                const b = brands[site.id] || null;
+                const isOpen = openBrandSite === site.id;
+                const aliasCount = Array.isArray(b?.brand_aliases) ? b.brand_aliases.length : 0;
+                const compCount  = Array.isArray(b?.competitors) ? b.competitors.length : 0;
+                return (
+                  <div key={site.id} style={{ border: `1px solid ${site.color}33`, borderRadius: 10, overflow: "hidden" }}>
+                    <button type="button" onClick={() => setOpenBrandSite(isOpen ? null : site.id)} aria-expanded={isOpen}
+                      style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 14px", background: isOpen ? site.bg : "#FAF7F0", cursor: "pointer", border: "none", borderBottom: isOpen ? `1px solid ${site.color}22` : "none", font: "inherit", textAlign: "left" }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: site.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: site.color }}>{site.label || "(site sans nom)"}</span>
+                      <span style={{ fontSize: 11, color: "#5B6B63" }}>{idx === 0 ? "principal" : "secondaire"}{b?.brand_name ? ` · ${b.brand_name}` : ""}</span>
+                      <span style={{ flex: 1 }} />
+                      <span style={{ fontSize: 10.5, color: "#5B6B63" }}>
+                        {[b?.brand_domain ? b.brand_domain : null, aliasCount ? `${aliasCount} alias` : null, compCount ? `${compCount} concurrent${compCount > 1 ? "s" : ""}` : null].filter(Boolean).join(" · ") || "Non renseigné"}
+                      </span>
+                      <span style={{ fontSize: 11, color: "#5B6B63" }}>{isOpen ? "▲" : "▼"}</span>
+                    </button>
+                    {isOpen && (
+                      <div style={{ padding: "12px 14px", background: "#fff" }}>
+                        {!b?.brand_name?.trim() && (
+                          <div style={{ fontSize: 11, color: "#B4471A", marginBottom: 10 }}>
+                            Astuce : renseignez le nom de marque de ce site à l'étape 2 pour activer sa détection.
+                          </div>
+                        )}
+                        <BrandConfigPanel mode="advanced"
+                          key={`${site.id}-${b?.updated_at || ""}`}
+                          site={site} projectId={projectId} brand={b}
+                          onBrandSaved={handleBrandSaved}
+                          onClose={() => setOpenBrandSite(null)} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SetupSection>
+
+        {/* Axes de génération */}
+        <SetupSection icon="🎯" title="Axes de génération des questions" desc="Angles sous lesquels chaque mot-clé est décliné en question, adaptés à votre secteur. Chaque mot-clé génère une question par axe ; pensez à sauvegarder.">
+          <div style={{ background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 16px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {safeAxes.map((a, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: "#5B6B63", minWidth: 18, flexShrink: 0 }}>{i + 1}.</span>
+                  <input value={a} onChange={e => { const u = [...safeAxes]; u[i] = e.target.value; onAxesChange?.(u); }}
+                    style={{ flex: 1, padding: "5px 9px", border: "1px solid #EDE7D9", borderRadius: 7, fontSize: 12, color: "#1E293B" }} />
+                  <button onClick={() => onAxesChange?.(safeAxes.filter((_, j) => j !== i))} aria-label={`Supprimer l'axe ${i + 1}`}
+                    style={{ fontSize: 11, color: "#5B6B63", background: "none", border: "none", cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>✕</button>
+                </div>
+              ))}
+              <button onClick={() => onAxesChange?.([...safeAxes, ""])}
+                style={{ fontSize: 11, color: "#3B4FA8", background: "none", border: "1px dashed #EDE7D9", borderRadius: 7, padding: "5px 12px", cursor: "pointer", textAlign: "left", marginTop: 2 }}>
+                + Ajouter un axe
+              </button>
+            </div>
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={async () => { if (onSaveAxes) await onSaveAxes(safeAxes); }}
+                style={{ padding: "6px 16px", background: "#1A3C2E", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                💾 Sauvegarder les axes
+              </button>
+            </div>
+          </div>
+        </SetupSection>
+
+        {/* Import Semrush */}
+        <SetupSection icon="📈" title="Visibilité SEO — Import Semrush" desc="Pour chaque site, importez l'export « Domain Overview » (totaux mots-clés / trafic organiques du domaine) et l'export « Organic pages » (performance par page). Ces données alimentent la comparaison concurrentielle et l'audit.">
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {safeSites.map(site => (
+              <div key={site.id} style={{ flex: "1 1 200px", background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "10px 14px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: site.color, marginBottom: 8 }}>{site.label}</div>
+                <UploadCard label="Semrush" icon="📈" hint="Organic pages export" color={site.color}
+                  loaded={(smData||{})[site.id]?.length > 0} rows={(smData||{})[site.id]}
+                  onData={(_, rawText) => { const rows = parseSemrush(parseSemrushCSV(rawText)); setSmData(p => ({...p, [site.id]: rows})); }}
+                  onClear={() => setSmData(p => ({...p, [site.id]: []}))}
+                  rawMode siteId={site.id} source="sm" projectId={projectId}
+                  onAfterUpload={refreshHistory}
+                  onLoadFromHistory={async row => { try { const t = await sbDownload(row.storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch { } }}
+                />
+                {(smData||{})[site.id]?.length > 0 && <div style={{ marginTop: 4, fontSize: 10, color: site.color, fontWeight: 600 }}>✓ {(smData||{})[site.id].length} pages</div>}
+                {lastImports[`${site.id}_sm`]?.storage_path && !(smData||{})[site.id]?.length && (
+                  <button onClick={async () => { try { const t = await sbDownload(lastImports[`${site.id}_sm`].storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch { } }}
+                    style={{ marginTop: 4, width: "100%", padding: "3px 0", border: `1px solid ${site.color}`, borderRadius: 6, background: site.bg, color: site.color, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>↩ Dernier</button>
+                )}
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #EDE7D9" }}>
+                  <UploadCard label="Overview" icon="📊" hint="Domain Overview export" color={site.color}
+                    loaded={((smOverview||{})[site.id]||[]).length > 0} rows={(smOverview||{})[site.id]}
+                    onData={(_, rawText) => { const ov = parseSemrushOverview(rawText); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); }}
+                    onClear={() => setSmOverview(p => ({...p, [site.id]: []}))}
+                    rawMode siteId={site.id} source="smov" projectId={projectId}
+                    onAfterUpload={refreshHistory}
+                    onLoadFromHistory={async row => { try { const t = await sbDownload(row.storage_path); const ov = parseSemrushOverview(t); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); } catch { } }}
+                  />
+                  {((smOverview||{})[site.id]||[])[0] && (() => {
+                    const ov = ((smOverview||{})[site.id]||[])[0] || {};
+                    const fmt = (n) => n == null ? "—" : Number(n).toLocaleString("fr-FR");
+                    return <div style={{ marginTop: 4, fontSize: 10, color: site.color, fontWeight: 600 }}>✓ {fmt(ov.organic_keywords)} mots-clés · {fmt(ov.organic_traffic)} trafic</div>;
+                  })()}
+                  {lastImports[`${site.id}_smov`]?.storage_path && !((smOverview||{})[site.id]||[]).length && (
+                    <button onClick={async () => { try { const t = await sbDownload(lastImports[`${site.id}_smov`].storage_path); const ov = parseSemrushOverview(t); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); } catch { } }}
+                      style={{ marginTop: 4, width: "100%", padding: "3px 0", border: `1px solid ${site.color}`, borderRadius: 6, background: site.bg, color: site.color, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>↩ Dernier</button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Historique */}
+          {/* Historique des imports */}
           <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 11, color: C.textLight }}>
               {dbLoading ? (<><span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#F59E0B", marginRight: 5 }} />Chargement…</>)
@@ -6410,14 +6638,14 @@ function FanoutSetupPanel({
             </span>
             <button onClick={() => { setShowHistory(h => !h); refreshHistory?.(); }}
               style={{ fontSize: 11, color: showHistory ? C.blue : C.textLight, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-              {showHistory ? "▲ Masquer" : "📋 Historique"}
+              {showHistory ? "▲ Masquer" : "📋 Historique des imports"}
             </button>
           </div>
           {showHistory && (
             <div style={{ marginTop: 8, maxHeight: 140, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
               {safeHistory.slice(0, 20).map(row => {
                 const site = safeSites.find(s => s.id === row.site_id);
-                const lbl = { sf:"🐸 SF", gsc:"🔍 GSC", ga:"📊 GA4", bing:"🤖 Bing", sm:"📈 SM" }[row.source] || row.source;
+                const lbl = { sf:"🐸 SF", gsc:"🔍 GSC", ga:"📊 GA4", bing:"🤖 Bing", sm:"📈 SM", smov:"📊 SM Overview" }[row.source] || row.source;
                 return (
                   <div key={row.id} style={{ display: "flex", gap: 8, padding: "4px 8px", background: "#FAFAF8", borderRadius: 5, fontSize: 10, alignItems: "center" }}>
                     <span style={{ color: site?.color || C.text, fontWeight: 600, minWidth: 60 }}>{site?.label || "—"}</span>
@@ -6428,98 +6656,8 @@ function FanoutSetupPanel({
               })}
             </div>
           )}
-        </div>
-      </SetupSection>
-
-      {/* ── Gestion des providers et Clés API ── */}
-      <SetupSection icon="🔑" title="Gestion des providers et Clés API" desc="Branchez les clés API des moteurs IA et choisissez ceux à interroger. Claude et OpenAI sont indispensables : Claude génère les questions, les analyses « Et maintenant ? » et l'audit, OpenAI interroge ChatGPT.">
-        <div style={{ background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 16px" }}>
-          <ProviderConfigPanel project={project} projectId={projectId} sites={safeSites} onSaveProviderKeys={onSaveProviderKeys} canSeeCosts={canSeeCosts} />
-        </div>
-      </SetupSection>
-
-      {/* ── Configuration du suivi de marque ── */}
-      <SetupSection icon="🏷️" title="Configuration du suivi de marque" desc="Déclarez le nom de votre marque, ses variantes, son domaine et vos concurrents. Ces éléments servent à détecter votre présence et celle des concurrents dans les réponses des LLMs.">
-        <BrandConfigAccordion sites={safeSites} projectId={projectId} />
-      </SetupSection>      {/* ── Génération à partir des mots-clés ── */}
-      <div style={{ marginBottom: 24, paddingLeft: 16, borderLeft: "3px solid #1A4A7A22" }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: "#1A3C2E", marginBottom: 3, display: "flex", alignItems: "center", gap: 7 }}>
-          <span style={{ fontSize: 16 }}>🔑</span>Génération à partir des mots clés
-        </div>
-        <div style={{ fontSize: 11.5, color: "#4A5A52", lineHeight: 1.55, marginBottom: 16, maxWidth: 640 }}>Cette partie du setup concerne la génération des questions à partir des mots clés.</div>
-      {/* ── Mots-clés — Axes de génération ── */}
-      <SetupSection icon="🎯" title="Mots-clés — Axes de génération des questions" desc="Définissez les angles sous lesquels chaque mot-clé sera décliné en question, adaptés à votre secteur. Chaque mot-clé génèrera une question par axe ; pensez à sauvegarder.">
-        <div style={{ background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "12px 16px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {safeAxes.map((a, i) => (
-              <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <span style={{ fontSize: 11, color: "#5B6B63", minWidth: 18, flexShrink: 0 }}>{i + 1}.</span>
-                <input value={a} onChange={e => { const u = [...safeAxes]; u[i] = e.target.value; onAxesChange?.(u); }}
-                  style={{ flex: 1, padding: "5px 9px", border: "1px solid #EDE7D9", borderRadius: 7, fontSize: 12, color: "#1E293B" }} />
-                <button onClick={() => onAxesChange?.(safeAxes.filter((_, j) => j !== i))}
-                  style={{ fontSize: 11, color: "#5B6B63", background: "none", border: "none", cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>✕</button>
-              </div>
-            ))}
-            <button onClick={() => onAxesChange?.([...safeAxes, ""])}
-              style={{ fontSize: 11, color: "#3B4FA8", background: "none", border: "1px dashed #EDE7D9", borderRadius: 7, padding: "5px 12px", cursor: "pointer", textAlign: "left", marginTop: 2 }}>
-              + Ajouter un axe
-            </button>
-          </div>
-          <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
-            <button onClick={async () => { if (onSaveAxes) await onSaveAxes(safeAxes); }}
-              style={{ padding: "6px 16px", background: "#1A3C2E", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-              💾 Sauvegarder les axes
-            </button>
-          </div>
-        </div>
-      </SetupSection>
-
-      {/* ── Ajout des volumes — Import Semrush ── */}
-      <SetupSection icon="📈" title="Visibilité SEO — Import Semrush" desc="Pour chaque site, importez l'export « Domain Overview » (totaux mots-clés / trafic organiques du domaine) et l'export « Organic pages » (performance par page). Ces données alimentent la comparaison concurrentielle et l'audit.">
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {safeSites.map(site => (
-            <div key={site.id} style={{ flex: "1 1 200px", background: "#FAF7F0", border: "1px solid #EDE7D9", borderRadius: 10, padding: "10px 14px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: site.color, marginBottom: 8 }}>{site.label}</div>
-              <UploadCard label="Semrush" icon="📈" hint="Organic pages export" color={site.color}
-                loaded={(smData||{})[site.id]?.length > 0} rows={(smData||{})[site.id]}
-                onData={(_, rawText) => { const rows = parseSemrush(parseSemrushCSV(rawText)); setSmData(p => ({...p, [site.id]: rows})); }}
-                onClear={() => setSmData(p => ({...p, [site.id]: []}))}
-                rawMode siteId={site.id} source="sm" projectId={projectId}
-                onAfterUpload={refreshHistory}
-                onLoadFromHistory={async row => { try { const t = await sbDownload(row.storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch { } }}
-              />
-              {(smData||{})[site.id]?.length > 0 && <div style={{ marginTop: 4, fontSize: 10, color: site.color, fontWeight: 600 }}>✓ {(smData||{})[site.id].length} pages</div>}
-              {lastImports[`${site.id}_sm`]?.storage_path && !(smData||{})[site.id]?.length && (
-                <button onClick={async () => { try { const t = await sbDownload(lastImports[`${site.id}_sm`].storage_path); const rows = parseSemrush(parseSemrushCSV(t)); setSmData(p => ({...p, [site.id]: rows})); } catch { } }}
-                  style={{ marginTop: 4, width: "100%", padding: "3px 0", border: `1px solid ${site.color}`, borderRadius: 6, background: site.bg, color: site.color, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>↩ Dernier</button>
-              )}
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #EDE7D9" }}>
-                <UploadCard label="Overview" icon="📊" hint="Domain Overview export" color={site.color}
-                  loaded={((smOverview||{})[site.id]||[]).length > 0} rows={(smOverview||{})[site.id]}
-                  onData={(_, rawText) => { const ov = parseSemrushOverview(rawText); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); }}
-                  onClear={() => setSmOverview(p => ({...p, [site.id]: []}))}
-                  rawMode siteId={site.id} source="smov" projectId={projectId}
-                  onAfterUpload={refreshHistory}
-                  onLoadFromHistory={async row => { try { const t = await sbDownload(row.storage_path); const ov = parseSemrushOverview(t); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); } catch { } }}
-                />
-                {((smOverview||{})[site.id]||[])[0] && (() => {
-                  const ov = ((smOverview||{})[site.id]||[])[0] || {};
-                  const fmt = (n) => n == null ? "—" : Number(n).toLocaleString("fr-FR");
-                  return <div style={{ marginTop: 4, fontSize: 10, color: site.color, fontWeight: 600 }}>✓ {fmt(ov.organic_keywords)} mots-clés · {fmt(ov.organic_traffic)} trafic</div>;
-                })()}
-                {lastImports[`${site.id}_smov`]?.storage_path && !((smOverview||{})[site.id]||[]).length && (
-                  <button onClick={async () => { try { const t = await sbDownload(lastImports[`${site.id}_smov`].storage_path); const ov = parseSemrushOverview(t); setSmOverview(p => ({...p, [site.id]: ov ? [ov] : []})); } catch { } }}
-                    style={{ marginTop: 4, width: "100%", padding: "3px 0", border: `1px solid ${site.color}`, borderRadius: 6, background: site.bg, color: site.color, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>↩ Dernier</button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </SetupSection>
-      </div>{/* /Génération à partir des mots-clés */}
-
-
-
+        </SetupSection>
+      </StepCard>
     </div>
   );
 }
@@ -6745,6 +6883,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
   }, [projectId, site?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [otherSiteBrands, setOtherSiteBrands] = useState([]); // toutes les autres marques du projet
+  const [brandsRev, setBrandsRev] = useState(0); // incrémenté quand une marque est enregistrée dans la Configuration
   // Map site_id → { brand_name, brand_aliases } pour la détection multi-marques (Temps 2).
   const [siteBrandsMap, setSiteBrandsMap] = useState({});
   useEffect(() => {
@@ -6759,7 +6898,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
         setSiteBrandsMap(m);
       });
     return () => { cancelled = true; };
-  }, [projectId, sites]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectId, sites, brandsRev]); // eslint-disable-line react-hooks/exhaustive-deps
   // Autres sites du projet → chargés comme « 2nd site suivi » (marques associées, tag bleu)
   useEffect(() => {
     const list = Array.isArray(sites) ? sites : [];
@@ -6770,7 +6909,7 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
       sbGetBrand(projectId, s.id).then(b => (b ? { ...b, _siteColor: s.color, _siteLabel: s.label } : null)).catch(() => null)
     )).then(rows => { if (!cancelled) setOtherSiteBrands(rows.filter(Boolean)); });
     return () => { cancelled = true; };
-  }, [projectId, sites, site?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectId, sites, site?.id, brandsRev]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Liste de concurrents enrichie : injecte les AUTRES sites du projet (marques associées),
   // virtuels et non éditables, tagués « 2nd site suivi » (bleu).
@@ -6943,6 +7082,10 @@ export default function GeoTab({ sites, projectId, project, geoAxes, onSaveAxes,
           axes={axes}
           onSaveAxes={onSaveAxes}
           onAxesChange={(a) => setAxes(a)}
+          onBrandSaved={(b) => {
+            if (b?.site_id && b.site_id === site?.id) setBrand(b);
+            setBrandsRev(r => r + 1);
+          }}
           onSemrushVolumes={async (siteId, parsedRows) => {
             const volMap = {};
             parsedRows.forEach(row => {
